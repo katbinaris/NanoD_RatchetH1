@@ -2,6 +2,7 @@
 Oncetop Motor
 Primary Recommended Motor 
 */
+#pragma once
 
 #if ONCETOP
 

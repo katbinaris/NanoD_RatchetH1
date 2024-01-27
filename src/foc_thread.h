@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 #include "thread_crtp.h"
 #include "haptic.h"

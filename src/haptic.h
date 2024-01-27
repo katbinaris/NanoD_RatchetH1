@@ -1,5 +1,4 @@
-#ifndef HAPTIC_H
-#define HAPIC_H
+#pragma once
 
 #include <Arduino.h>
 #include <SimpleFOC.h>
@@ -80,4 +79,3 @@ private:
     void correct_pid(void);
 };
 
-#endif

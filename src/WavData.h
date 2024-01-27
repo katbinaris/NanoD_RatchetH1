@@ -1,5 +1,10 @@
 // Wav Data stored as PROGMEM
 // TODO: Cosider store audio data in FS/FFAT/SPIFS
+#pragma once
+
+// TODO move to c file
+
+
 
 unsigned const char lightdown[4526] = {
 	0x52, 0x49, 0x46, 0x46, 0xA6, 0x11, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
