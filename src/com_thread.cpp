@@ -15,10 +15,10 @@ void ComThread::run() {
     
     while (1) {
       midi2.sendNoteOn(60, 127, 1);
-      Serial.println("COM TASK: note on");
+      //Serial.println("COM TASK: note on");
     delay(100);
       midi2.sendNoteOff(60,0,1);
-      Serial.println("COM TASK: note off");
+      //Serial.println("COM TASK: note off");   TODO don't use Serial in threads
       delay(100);
     }
 }

@@ -11,13 +11,13 @@ static LcdThread lcd_thread(1);
 static ComThread com_thread(0);
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(460800);
   hmi_thread.begin();
   foc_thread.begin();
 
   vTaskDelete(NULL);
-  
 }
+
 void loop() {
   // Main loop left empty
 }

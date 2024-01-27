@@ -11,10 +11,10 @@ LcdThread::LcdThread(const uint8_t task_core) : Thread("LCD", 2048, 1, task_core
 LcdThread::~LcdThread() {}
 
 void LcdThread::run() {
-    Serial.print("LCD running on core ");
-    Serial.println(xPortGetCoreID());
+    //Serial.print("LCD running on core ");  TODO don't use Serial in threads
+    //Serial.println(xPortGetCoreID());
     while (1) {
-    Serial.println("LCD Task: reporting duty");
+    //Serial.println("LCD Task: reporting duty");
     delay(200);
     }
 }
