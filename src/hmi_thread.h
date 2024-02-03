@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 #include <AceButton.h>
 #include <FastLED.h>

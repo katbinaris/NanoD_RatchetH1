@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef HAPTIC_H
 #define HAPIC_H
 
@@ -6,6 +8,8 @@
 #include <SimpleFOCDrivers.h>
 #include "encoders/mt6701/MagneticSensorMT6701SSI.h"
 #include <motor.h>
+#include "foc_thread.h"
+
 
 typedef struct
 {
@@ -56,7 +60,7 @@ typedef struct
         On Firmware side this value is still defined as attract_distance
     */
 
-    uint16_t position_num = 12;
+    uint16_t position_num = 120;
 
     /*
         Total number of defined positions 
@@ -65,7 +69,7 @@ typedef struct
         For Return To Centre this is always 1 and if this mode is selected user cannot ented number of detents in Front-End UI
     */
 
-    uint8_t attract_distance = 20; 
+    uint8_t attract_distance = 4; 
 
     /*
         Distance between virtual points represented in Degrees, these shouldn't be float values i think. 
@@ -308,7 +312,7 @@ typedef struct
 
     float distance_pos = attract_distance * _PI / 180; // Define attractior distance position and convert it to radians
 
-    float detent_strength_unit = 0.5; // PID (estimated) Current Limit
+    float detent_strength_unit = 0.2; // PID (estimated) Current Limit
 
     float endstop_strength_unit = 0.3; // PID (estimated) Current Limit
 
@@ -357,7 +361,6 @@ public:
 
 
     void init(void);
-    void change_haptic_mode(void);
     void haptic_loop(void);
     void haptic_click(void);
 

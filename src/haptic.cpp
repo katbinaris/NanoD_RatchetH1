@@ -95,29 +95,6 @@ void HapticInterface::haptic_click(void){
     motor->move(0);
 }
 
-void HapticInterface::change_haptic_mode(void)
-{
-    switch (haptic_config->total_pos)
-    {
-    case 2:
-        haptic_config->total_pos = 4;
-        break;
-
-    case 4:
-        haptic_config->total_pos = 8;
-        break;
-
-    case 8:
-        haptic_config->total_pos = 12;
-        break;
-
-    case 12:
-        haptic_config->total_pos = 2;
-        break;
-    }
-    // haptic_click();
-}
-
 void HapticInterface::haptic_loop(void){
     
     // TODO: Include Check if Config is Correct before triggering loop
@@ -162,14 +139,16 @@ void HapticInterface::state_update(void)
         // Determine and Update Current Position
     // Check if attractor angle is within calculated position between min and max position and update current position if in range.
 
+
+
     if(haptic_config->attract_angle > haptic_config->current_pos * haptic_config->distance_pos && haptic_config->current_pos < haptic_config->end_pos){
         haptic_config->current_pos++;
         haptic_config->last_attract_angle = haptic_config->attract_angle;
-
+        
+        
     } else if (haptic_config->attract_angle < haptic_config->current_pos * haptic_config->distance_pos && haptic_config->current_pos > haptic_config->start_pos){
         haptic_config->current_pos--;
         haptic_config->last_attract_angle = haptic_config->attract_angle;
-
     }
 
     

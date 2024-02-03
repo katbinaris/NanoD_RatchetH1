@@ -1,3 +1,5 @@
+#pragma once
+
 #include <Arduino.h>
 #include "thread_crtp.h"
 #include "haptic.h"
@@ -10,10 +12,12 @@ class FocThread : public Thread<FocThread> {
         FocThread(const uint8_t task_core);
         ~FocThread();
         
+        
+        
     
     protected:
         void run();
 
     private:
-    QueueHandle_t queue_;
+    QueueHandle_t nano_queue_;
     };

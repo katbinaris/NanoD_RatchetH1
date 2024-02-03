@@ -1,6 +1,6 @@
 #include "hmi_thread.h"
 
-#define BRIGHTNESS 100
+#define BRIGHTNESS 10
 
 using namespace ace_button;
 
@@ -21,7 +21,7 @@ void breathing(int speed, const struct CRGB& fadeCol);
 // Hmi thread controls LED via FastLed and buttons via AceButton
 // This thread send and receive data
 
-HmiThread::HmiThread(const uint8_t task_core) : Thread("HMI", 2048, 1, task_core) {}
+HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 2048, 1, task_core) {}
 
 HmiThread::~HmiThread() {}
 

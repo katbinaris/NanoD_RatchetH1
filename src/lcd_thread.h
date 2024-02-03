@@ -1,4 +1,11 @@
+#pragma once
 #include <Arduino.h>
+
+#include <lvgl.h>
+#include <TFT_eSPI.h>
+
+
+
 #include "thread_crtp.h"
 
 class LcdThread : public Thread<LcdThread> {

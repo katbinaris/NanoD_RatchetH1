@@ -1,5 +1,4 @@
 #include "foc_thread.h"
-#include <SimpleFOC.h>
 #include "utils.h"
 
 /*
@@ -9,8 +8,8 @@
 */
 
 FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
-    queue_ = xQueueCreate(5, sizeof( int ));
-    assert(queue_ != NULL);
+    nano_queue_ = xQueueCreate(10, sizeof( hapticState ));
+    assert(nano_queue_ != NULL);
 }
 
 FocThread::~FocThread() {}
@@ -42,7 +41,6 @@ void FocThread::run() {
     while (1)
     {
         haptic.haptic_loop();
-        
     }
     
     
