@@ -1,24 +1,94 @@
 #include "com_thread.h"
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
+#include "foc_thread.h"
 
 
-// Very primitive function sending MIDI note On/Off via UART
+#define DEFAULT_SERIAL_SPEED 460800
 
-ComThread::ComThread(const uint8_t task_core) : Thread("COM", 2048, 1, task_core) {}
 
-ComThread::~ComThread() {}
+extern FocThread* foc_thread;
+HapticProfileManager profileManager;
+
+
+ComThread::ComThread(const uint8_t task_core) : Thread("COM", 2048, 1, task_core) {
+
+};
+
+ComThread::~ComThread() {
+
+};
 
 void ComThread::run() {
-    
-    Serial2.begin(31250, SERIAL_8N1, 43, 44);
-    midi2.begin(MIDI_CHANNEL_OMNI);
-    
-    while (1) {
-      midi2.sendNoteOn(60, 127, 1);
-      //Serial.println("COM TASK: note on");
-    delay(100);
-      midi2.sendNoteOff(60,0,1);
-      //Serial.println("COM TASK: note off");   TODO don't use Serial in threads
-      delay(100);
+
+    Serial.begin(DEFAULT_SERIAL_SPEED); // doesn't matter, its USB Serial
+
+    while (true) {
+        if (Serial.available()) {
+            String input = Serial.readStringUntil('\n');
+            StaticJsonDocument<256> doc; // TODO use heap since StaticJsonDocument is deprecated
+            DeserializationError error = deserializeJson(doc, input);
+            if (error) {
+                // TODO indicate error
+                //Serial.println(error.c_str());
+                continue;
+            }
+            JsonVariant p = doc["p"];
+            if (p!=nullptr) { // haptic command
+              handleHapticCommand(p);
+            }
+            const char* cmd = doc["R"];
+            if (cmd!=nullptr) { // motor command
+              // send message to FOC thread
+              String* cmdstr = new String(cmd); // TODO: make sure its a copy
+              foc_thread->put_message(cmdstr);
+            }
+            cmd = doc["l"];
+            if (cmd!=nullptr) { // LED command
+              // TODO send message to LED thread
+            }
+            cmd = doc["k"];
+            if (cmd!=nullptr) { // key mapping command
+              // TODO send message to keyboard thread
+            }
+            cmd = doc["m"];
+            if (cmd!=nullptr) { // its a message
+              // TODO send message to screen
+            }
+        }
+
+        // send any outgoing messages
+        String* message = foc_thread->get_message();
+        if (message!=nullptr) {
+          Serial.println(*message);
+          delete message;
+        }
+
     }
-}
+
+};
+
+
+void ComThread::handleHapticCommand(JsonVariant p) {
+  if (p.isNull()) return;
+  if (p.is<String>()) {
+    String profile = p.as<String>();
+    if (profile=="#all") {
+ 
+    }
+    else {
+
+    }
+  }
+  else if (p.is<JsonObject>()) {
+    JsonObject obj = p.as<JsonObject>();
+    String pName = obj["name"];
+    HapticProfile* profile = profileManager[pName];
+    if (profile==nullptr) profile = profileManager.add(pName);
+    if (profile!=nullptr) {
+      *profile = obj;
+      if (profile==current_profile) {
+        foc_thread->put_haptic_profile(&profile->parms);
+      }
+    }
+  }
+};
+ 

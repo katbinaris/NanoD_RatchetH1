@@ -339,6 +339,9 @@ typedef struct
 
 } hapticParms;
 
+
+
+
 class HapticInterface
 {
 public:   

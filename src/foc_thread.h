@@ -11,11 +11,20 @@ class FocThread : public Thread<FocThread> {
     public:
         FocThread(const uint8_t task_core);
         ~FocThread();
-        
-    
+
+        void put_message(String* msg);
+        String* get_message();
+        void put_haptic_profile(hapticParms* profile);
+
     protected:
         void run();
+        void handleMessage();
+        void handleHapticProfile();
 
     private:
-    QueueHandle_t queue_;
-    };
+        QueueHandle_t _q_in;
+        QueueHandle_t _q_out;
+        QueueHandle_t _q_haptic;
+};
+
+

@@ -1,6 +1,7 @@
 #include "foc_thread.h"
 #include <SimpleFOC.h>
 #include "utils.h"
+#include "HapticCommander.h"
 
 /*
     FOC Thread runs BLDCHaptic Library in estimated current mode
@@ -9,8 +10,10 @@
 */
 
 FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
-    queue_ = xQueueCreate(5, sizeof( int ));
-    assert(queue_ != NULL);
+    _q_in = xQueueCreate(5, sizeof( String* ));
+    _q_out = xQueueCreate(5, sizeof( String* ));
+    _q_haptic = xQueueCreate(2, sizeof( hapticParms* ));
+    assert(_q_in != NULL);
 }
 
 FocThread::~FocThread() {}
@@ -20,7 +23,7 @@ FocThread::~FocThread() {}
 
     MagneticSensorMT6701SSI encoder(PIN_MAG_CS);
     HapticInterface haptic = HapticInterface(&motor);
-    
+    HapticCommander commander = HapticCommander(&motor);
 
 void FocThread::run() {
 
@@ -39,11 +42,52 @@ void FocThread::run() {
     motor.initFOC();
     haptic.init();
 
-    while (1)
-    {
+    while (true) {
         haptic.haptic_loop();
-        
+        handleMessage();
+        handleHapticProfile();
     }
-    
-    
-}
+        
+};
+
+
+void FocThread::put_message(String* message) {
+    if (message!=nullptr)
+        xQueueSend(_q_in, (void*) message, (TickType_t)0);
+};
+
+String* FocThread::get_message() {
+    String* message = nullptr;
+    if (xQueueReceive(_q_out, &message, (TickType_t)0)) {
+        return message;
+    }
+    return nullptr;
+};
+
+
+void FocThread::put_haptic_profile(hapticParms* profile) {
+    if (profile!=nullptr)
+        xQueueSend(_q_haptic, (void*) profile, (TickType_t)0);
+};
+
+
+
+void FocThread::handleMessage() {
+    String* message = nullptr;
+    if (xQueueReceive(_q_in, &message, (TickType_t)0)) {
+        if (message!=nullptr) {
+            commander.handleMessage(message);
+            xQueueSend(_q_out, (void*) message, (TickType_t)0);
+        }
+    }
+};
+
+
+void FocThread::handleHapticProfile() {
+    hapticParms* profile = nullptr;
+    if (xQueueReceive(_q_haptic, &profile, (TickType_t)0)) {
+        if (profile!=nullptr) {
+            // TODO copy over field values
+        }
+    }
+};
