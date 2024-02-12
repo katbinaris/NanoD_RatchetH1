@@ -7,8 +7,8 @@
 
 */
 
-FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
-    nano_queue_ = xQueueCreate(10, sizeof( hapticState ));
+FocThread::FocThread(const uint8_t task_core, HmiThread& hmi_thread) : Thread{"FOC", 4096, 1, task_core}, hmi_thread_(hmi_thread) {
+nano_queue_ = xQueueCreate(10, sizeof( hapticState ));
     assert(nano_queue_ != NULL);
 }
 
@@ -23,7 +23,7 @@ FocThread::~FocThread() {}
 
 void FocThread::run() {
 
-    SPIClass* spi = new SPIClass(FSPI);
+    SPIClass* spi = new SPIClass(HSPI);
     spi->begin(PIN_MAG_CLK, PIN_MAG_DO, -1, PIN_MAG_CS);
     encoder.init(spi);
 
@@ -41,6 +41,7 @@ void FocThread::run() {
     while (1)
     {
         haptic.haptic_loop();
+        xQueueSend(nano_queue_, haptic.haptic_config, portMAX_DELAY);
     }
     
     

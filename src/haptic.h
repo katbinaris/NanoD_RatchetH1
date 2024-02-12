@@ -60,7 +60,7 @@ typedef struct
         On Firmware side this value is still defined as attract_distance
     */
 
-    uint16_t position_num = 120;
+    uint16_t position_num = 20;
 
     /*
         Total number of defined positions 
@@ -69,7 +69,7 @@ typedef struct
         For Return To Centre this is always 1 and if this mode is selected user cannot ented number of detents in Front-End UI
     */
 
-    uint8_t attract_distance = 4; 
+    uint8_t attract_distance = 13; 
 
     /*
         Distance between virtual points represented in Degrees, these shouldn't be float values i think. 
@@ -312,9 +312,9 @@ typedef struct
 
     float distance_pos = attract_distance * _PI / 180; // Define attractior distance position and convert it to radians
 
-    float detent_strength_unit = 0.2; // PID (estimated) Current Limit
+    float detent_strength_unit = 0.34; // PID (estimated) Current Limit
 
-    float endstop_strength_unit = 0.3; // PID (estimated) Current Limit
+    float endstop_strength_unit = 0.34; // PID (estimated) Current Limit
 
     float click_strength = 0.4; //  PID (estimated) Current Limit
     

@@ -1,6 +1,6 @@
 #include "hmi_thread.h"
 
-#define BRIGHTNESS 10
+#define BRIGHTNESS 5
 
 using namespace ace_button;
 
@@ -11,7 +11,7 @@ void handleEvent(AceButton*, uint8_t, uint8_t);
 
 bool gReverseDirection = false;
 CRGB leds[NANO_LED_A_NUM];
-
+CRGB ledsp[4];
 // Light Effects
 void halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
 void strobe(int delay, const struct CRGB& strobeCol);
@@ -29,14 +29,17 @@ void HmiThread::run() {
     
 
   FastLED.addLeds<LED_CHIPSET, PIN_LED_A, LED_COL_ORDER>(leds, NANO_LED_A_NUM);
+  FastLED.addLeds<LED_CHIPSET, PIN_LED_B, LED_COL_ORDER>(ledsp, 4);
   FastLED.setBrightness( BRIGHTNESS );
   pinMode(PIN_BTN_A, INPUT_PULLUP);
   button.setEventHandler(handleEvent);
 
     while (1)
     {
-        breathing(60, CRGB::Green);
-        button.check();
+        fill_solid(ledsp, 60, CRGB::Orange);
+        halvesPointer(30, CRGB::White, CRGB::Green, CRGB::Orange);
+
+        delay(5);
     }
     
     
@@ -45,10 +48,10 @@ void HmiThread::run() {
 void handleEvent(AceButton*, uint8_t eventType, uint8_t) {
     switch (eventType) {
         case AceButton::kEventPressed:
-        halvesPointer(37, CRGB::White, CRGB::Orange, CRGB::Teal);
+        halvesPointer(37, CRGB::White, CRGB::Orange, CRGB::Azure);
         break;
         case AceButton::kEventReleased:
-        halvesPointer(35, CRGB::White, CRGB::Orange, CRGB::Green);
+        halvesPointer(35, CRGB::White, CRGB::Orange, CRGB::Azure);
         break;
     }
 }
