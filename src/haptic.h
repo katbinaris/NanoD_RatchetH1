@@ -5,6 +5,7 @@
 #include <SimpleFOCDrivers.h>
 #include "encoders/mt6701/MagneticSensorMT6701SSI.h"
 #include <motor.h>
+#include "haptic_api.h"
 
 typedef struct
 {
@@ -316,28 +317,6 @@ typedef struct
     // END NANO STATE
 } hapticState;
 
-
-typedef struct
-{
-
-    // Exponentially Weighted Moving Average (EWMA)
-    // Used to correct PID, if position near alignment centre
-    // but not there yet, adjust slowly to the centre
-    // TODO: Implement EWMA and compare perfromance w/wo
-
-    float dead_zone_percent = 0.2;
-    float dead_zone_rad = _PI/180;
-
-    float idle_velocity_ewma_alpha = 0.001;
-    float idle_velocity_rad_per_sec = 0.05;
-    float idle_check_velocity_ewma = 0;
-    float idle_correction_max_angle_rad = 5 * _PI/180;
-    float idle_correction_rate_alpha = 0.0005;
-
-    float last_idle_start = 0;
-    uint32_t idle_correction_delay_millis = 500;
-
-} hapticParms;
 
 
 
