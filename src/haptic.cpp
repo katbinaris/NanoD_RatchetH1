@@ -10,7 +10,7 @@ PIDController default_pid{
     .I = 0,
     .D = 0.004, // Initial D-Gain, get overriden by CLAMP function 
     .output_ramp = 10000,
-    .limit = 2 
+    .limit = 1.22 
 };
 
 hapticState default_config;
