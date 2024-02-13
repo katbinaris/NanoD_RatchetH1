@@ -64,6 +64,7 @@ public:
     void change_haptic_mode(void);
     void haptic_loop(void);
     void haptic_click(void);
+    void setHapticConfig(hapticConfig* _config);
 
 protected:
 private:

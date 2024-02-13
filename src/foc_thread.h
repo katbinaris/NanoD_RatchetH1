@@ -14,12 +14,12 @@ class FocThread : public Thread<FocThread> {
 
         void put_message(String* msg);
         String* get_message();
-        void put_haptic_profile(hapticParms* profile);
+        void put_haptic_config(hapticConfig* profile);
 
     protected:
         void run();
         void handleMessage();
-        void handleHapticProfile();
+        void handleHapticConfig();
 
     private:
         QueueHandle_t _q_in;

@@ -88,10 +88,22 @@ HapticProfile::~HapticProfile() { };
 
 
 HapticProfile& HapticProfile::operator=(JsonObject& obj) {
-  parms = hapticParms();
+  haptic_parms = hapticParms(); // TODO this struct is not used??
+  profile_id = obj["id"].as<int>();
   profile_name = obj["name"].as<String>();
+  profile_desc = obj["desc"].as<String>();
 
-// TODO transfer remaining fields
+  // transfer haptic_config fields
+  haptic_config.profile_type = obj["profile_type"].as<int>();
+  haptic_config.position_num = obj["position_num"].as<int>();
+  haptic_config.attract_distance = obj["attract_distance"].as<float>();
+  haptic_config.feedback_strength = obj["feedback_strength"].as<int>();
+  haptic_config.bounce_strength = obj["bounce_strength"].as<int>();
+  haptic_config.haptic_click_strength = obj["haptic_click_strength"].as<int>();
+  haptic_config.output_ramp = obj["output_ramp"].as<int>();
+
+  // TODO transfer LED, key and sound fields
+
 
   return *this;
 };

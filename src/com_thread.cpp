@@ -84,9 +84,9 @@ void ComThread::handleHapticCommand(JsonVariant p) {
     HapticProfile* profile = profileManager[pName];
     if (profile==nullptr) profile = profileManager.add(pName);
     if (profile!=nullptr) {
-      *profile = obj;
+      *profile = obj; // assigning the JSON object to the profile will update the profile's haptic_config
       if (profile==current_profile) {
-        foc_thread->put_haptic_profile(&profile->parms);
+        foc_thread->put_haptic_config(&profile->haptic_config); // TODO: make sure its a copy
       }
     }
   }

@@ -85,6 +85,14 @@ void HapticInterface::init(void){
     motor->foc_modulation = FOCModulationType::SpaceVectorPWM;
 }
 
+
+void HapticInterface::setHapticConfig(hapticConfig* _config){
+    // update the haptic config with a changed one received from the comms thread
+    // TODO clean up pointer mess - where is the data actually stored?
+    *haptic_config = *_config; // copy over to current location
+};
+
+
 void HapticInterface::find_detent(void)
 {
     haptic_state->attract_angle = round(motor->shaft_angle / haptic_state->distance_pos) * haptic_state->distance_pos;
