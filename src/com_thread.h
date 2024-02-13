@@ -12,10 +12,10 @@ class ComThread : public Thread<ComThread> {
     friend class Thread<ComThread>; //Allow Base Thread to invoke protected run()
     public:
         ComThread(const uint8_t task_core);
-        ~ComThread();        
+        ~ComThread();
+
+        void setCurrentProfile(String name);
     protected:
         void run();
         void handleHapticCommand(JsonVariant p);
-
-        HapticProfile* current_profile = nullptr;
 };

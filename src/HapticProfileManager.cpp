@@ -72,6 +72,19 @@ void HapticProfileManager::toSPIFFS() {
 };
 
 
+HapticProfile* HapticProfileManager::setCurrentProfile(String name){
+  HapticProfile* profile = get(name);
+  if (profile!=nullptr) {
+    current_profile = profile;
+  }
+  return current_profile;
+};
+
+
+HapticProfile* HapticProfileManager::getCurrentProfile() {
+  return current_profile;
+};
+
 
 
 HapticProfile::HapticProfile() {

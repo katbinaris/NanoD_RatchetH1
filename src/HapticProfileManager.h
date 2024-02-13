@@ -73,8 +73,12 @@ public:
     void remove(String name);
     int size();
 
+    HapticProfile* setCurrentProfile(String name);
+    HapticProfile* getCurrentProfile();
+
     void fromSPIFFS();
     void toSPIFFS();
 protected:
     HapticProfile profiles[MAX_PROFILES];
+    HapticProfile* current_profile;
 };

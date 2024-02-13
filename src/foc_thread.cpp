@@ -94,8 +94,7 @@ void FocThread::handleHapticConfig() {
     if (xQueueReceive(_q_haptic, &profile, (TickType_t)0)) {
         if (profile!=nullptr) {
             haptic.setHapticConfig(profile);
-            // hapticConfig* points to a struct that is owned by the comms thread
-            // TODO we should copy it in the comms thread, and then delete it here.
+            delete profile; // delete the copy of the profile that was created in comms thread
         }
     }
 };

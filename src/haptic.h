@@ -10,7 +10,7 @@
 
 class HapticState {
 public:
-    HapticState(uint16_t position_num, float attract_distance);
+    HapticState(uint16_t position_num = 12, float attract_distance = 20.0f);
     ~HapticState();
 
     uint8_t start_pos = 1;
@@ -45,10 +45,10 @@ public:
 
 class HapticInterface
 {
-public:   
-    HapticState* haptic_state;
-    hapticParms* haptic_params;
-    hapticConfig* haptic_config;
+public:
+    hapticConfig haptic_config; // Haptic configuration
+    hapticParms* haptic_params; // TODO this struct is not used??
+
     BLDCMotor* motor;
     PIDController* haptic_pid;
 
@@ -67,6 +67,7 @@ public:
     void setHapticConfig(hapticConfig* _config);
 
 protected:
+    HapticState haptic_state;   // Haptic state
 private:
     void find_detent(void);
     void update_position(void);
