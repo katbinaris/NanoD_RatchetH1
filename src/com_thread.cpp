@@ -38,7 +38,7 @@ void ComThread::run() {
             const char* cmd = doc["R"];
             if (cmd!=nullptr) { // motor command
               // send message to FOC thread
-              String* cmdstr = new String(cmd); // TODO: make sure its a copy
+              String* cmdstr = new String(cmd);
               foc_thread->put_message(cmdstr);
             }
             cmd = doc["l"];
