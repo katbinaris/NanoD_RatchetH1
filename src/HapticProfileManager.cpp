@@ -3,7 +3,7 @@
 
 HapticProfileManager::HapticProfileManager() {
   for (int i=0; i<MAX_PROFILES; i++) {
-    profiles[i].name = "";
+    profiles[i].profile_name = "";
   }
 };
 
@@ -13,8 +13,8 @@ HapticProfileManager::~HapticProfileManager() { };
 
 HapticProfile* HapticProfileManager::add(String name) {
   for (int i=0; i<MAX_PROFILES; i++) {
-    if (profiles[i].name=="") {
-      profiles[i].name = name;
+    if (profiles[i].profile_name=="") {
+      profiles[i].profile_name = name;
       return &profiles[i];
     }
   }
@@ -30,7 +30,7 @@ HapticProfile* HapticProfileManager::operator[](String name) {
 
 HapticProfile* HapticProfileManager::get(String name) {
   for (int i=0; i<MAX_PROFILES; i++) {
-    if (profiles[i].name==name) {
+    if (profiles[i].profile_name==name) {
       return &profiles[i];
     }
   }
@@ -41,8 +41,8 @@ HapticProfile* HapticProfileManager::get(String name) {
 
 void HapticProfileManager::remove(String name) {
   for (int i=0; i<MAX_PROFILES; i++) {
-    if (profiles[i].name==name) {
-      profiles[i].name = "";
+    if (profiles[i].profile_name==name) {
+      profiles[i].profile_name = "";
       return;
     }
   }
@@ -53,7 +53,7 @@ void HapticProfileManager::remove(String name) {
 int HapticProfileManager::size() {
   int count = 0;
   for (int i=0; i<MAX_PROFILES; i++) {
-    if (profiles[i].name!="") {
+    if (profiles[i].profile_name!="") {
       count++;
     }
   }
@@ -75,7 +75,7 @@ void HapticProfileManager::toSPIFFS() {
 
 
 HapticProfile::HapticProfile() {
-  name = "";
+  profile_name = "";
 };
 
 
@@ -89,7 +89,7 @@ HapticProfile::~HapticProfile() { };
 
 HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   parms = hapticParms();
-  name = obj["name"].as<String>();
+  profile_name = obj["name"].as<String>();
 
 // TODO transfer remaining fields
 
