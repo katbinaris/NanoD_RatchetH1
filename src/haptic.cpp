@@ -5,13 +5,7 @@ static const float idle_velocity_ewma_alpha = 0.001;
 static const float idle_velocity_rad_per_sec = 0.05;
 static const int32_t idle_correction_delay = 500; //ms
 
-PIDController default_pid{
-    .P = 1.22, // P-Gain is equal to current-limit seem to perform best
-    .I = 0,
-    .D = 0.004, // Initial D-Gain, get overriden by CLAMP function 
-    .output_ramp = 10000,
-    .limit = 1.22 
-};
+PIDController default_pid(1.22, 0, 0.004, 10000, 1.22);
 
 hapticConfig default_config;
 HapticState state(12, 20.0f);
