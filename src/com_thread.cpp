@@ -21,6 +21,11 @@ void ComThread::run() {
 
     Serial.begin(DEFAULT_SERIAL_SPEED); // doesn't matter, its USB Serial
 
+    // TODO load profiles from SPIFFS
+    // TODO load the current profile from SPIFFS
+    // TODO if there are no profiles, create a default one
+    // TODO set the active profile to the other threads
+
     while (true) {
         if (Serial.available()) {
             String input = Serial.readStringUntil('\n');
@@ -72,10 +77,24 @@ void ComThread::handleHapticCommand(JsonVariant p) {
   if (p.is<String>()) {
     String profile = p.as<String>();
     if (profile=="#all") {
- 
+      // send the list of all profile names
+      JsonDocument doc;
+      JsonArray arr = doc["profiles"].to<JsonArray>();
+      for (int i=0; i<profileManager.size(); i++) {
+        arr.add(profileManager[i]->profile_name);
+      }
+      serializeJson(doc, Serial);
+      Serial.println(); // add a newline
     }
     else {
-
+      HapticProfile* p = profileManager[profile];
+      if (p!=nullptr) {
+        // send the selected profile
+        JsonDocument doc;
+        p->toJSON(doc);
+        serializeJson(doc, Serial);
+        Serial.println(); // add a newline
+      }
     }
   }
   else if (p.is<JsonObject>()) {
@@ -90,6 +109,7 @@ void ComThread::handleHapticCommand(JsonVariant p) {
         *copy = profile->haptic_config;
         foc_thread->put_haptic_config(copy); // the copy is deleted in the FOC thread
       }
+      // TODO store to SPIFFS
     }
   }
 };

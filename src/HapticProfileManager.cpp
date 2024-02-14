@@ -27,6 +27,15 @@ HapticProfile* HapticProfileManager::operator[](String name) {
 };
 
 
+HapticProfile* HapticProfileManager::operator[](int index) {
+  if (index>=0 && index<MAX_PROFILES) {
+    if (profiles[index].profile_name!="")
+      return &profiles[index];
+  }
+  return nullptr;
+};
+
+
 
 HapticProfile* HapticProfileManager::get(String name) {
   for (int i=0; i<MAX_PROFILES; i++) {
@@ -119,4 +128,23 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
 
 
   return *this;
+};
+
+
+
+void HapticProfile::toJSON(JsonDocument& doc){
+  doc["id"] = profile_id;
+  doc["name"] = profile_name;
+  doc["desc"] = profile_desc;
+
+  // transfer haptic_config fields
+  doc["profile_type"] = haptic_config.profile_type;
+  doc["position_num"] = haptic_config.position_num;
+  doc["attract_distance"] = haptic_config.attract_distance;
+  doc["feedback_strength"] = haptic_config.feedback_strength;
+  doc["bounce_strength"] = haptic_config.bounce_strength;
+  doc["haptic_click_strength"] = haptic_config.haptic_click_strength;
+  doc["output_ramp"] = haptic_config.output_ramp;
+
+  // TODO transfer LED, key and sound fields
 };

@@ -85,6 +85,8 @@ void HapticInterface::init(void){
 void HapticInterface::setHapticConfig(hapticConfig* _config){
     // update the haptic config with a changed one received from the comms thread
     haptic_config = *_config; // copy over to active configuration
+
+    // TODO update the haptic state with the new config
 };
 
 
@@ -190,9 +192,8 @@ void HapticInterface::correct_pid(void)
 
 void HapticInterface::state_update(void)
 {
-        // Determine and Update Current Position
+    // Determine and Update Current Position
     // Check if attractor angle is within calculated position between min and max position and update current position if in range.
-
     if(haptic_state.attract_angle > haptic_state.current_pos * haptic_state.distance_pos && haptic_state.current_pos < haptic_state.end_pos){
         haptic_state.current_pos++;
         haptic_state.last_attract_angle = haptic_state.attract_angle;
@@ -202,7 +203,5 @@ void HapticInterface::state_update(void)
         haptic_state.last_attract_angle = haptic_state.attract_angle;
 
     }
+};
 
-    
-
-}
