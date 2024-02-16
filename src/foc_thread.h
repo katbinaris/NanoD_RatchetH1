@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "thread_crtp.h"
 #include "haptic.h"
+#include "nanofoc_d.h"
 
 
 class FocThread : public Thread<FocThread> {

@@ -4,6 +4,7 @@
 #include <AceButton.h>
 #include <FastLED.h>
 #include "thread_crtp.h"
+#include "nanofoc_d.h"
 
 class HmiThread : public Thread<HmiThread> {
     friend class Thread<HmiThread>; //Allow Base Thread to invoke protected run()
