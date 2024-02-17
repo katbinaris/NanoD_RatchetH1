@@ -1,11 +1,10 @@
 #include "com_thread.h"
 #include "foc_thread.h"
+#include <esp_task_wdt.h>
+
+#define DEFAULT_SERIAL_SPEED 115200
 
 
-#define DEFAULT_SERIAL_SPEED 460800
-
-
-extern FocThread* foc_thread;
 HapticProfileManager profileManager;
 
 
@@ -18,24 +17,25 @@ ComThread::~ComThread() {
 };
 
 void ComThread::run() {
-
-    Serial.begin(DEFAULT_SERIAL_SPEED); // doesn't matter, its USB Serial
-
+    Serial.begin(DEFAULT_SERIAL_SPEED);
+    Serial.println("COM thread started"); // TODO remove this
     // TODO load profiles from SPIFFS
     // TODO load the current profile from SPIFFS
     // TODO if there are no profiles, create a default one
     // TODO set the active profile to the other threads
-
+    unsigned long ts = millis();
     while (true) {
         if (Serial.available()) {
             String input = Serial.readStringUntil('\n');
             StaticJsonDocument<256> doc; // TODO use heap since StaticJsonDocument is deprecated
             DeserializationError error = deserializeJson(doc, input);
             if (error) {
+                Serial.println("JSON error"); // TODO remove this
                 // TODO indicate error
                 //Serial.println(error.c_str());
                 continue;
             }
+            Serial.println("JSON received"); // TODO remove this
             JsonVariant p = doc["p"];
             if (p!=nullptr) { // haptic command
               handleHapticCommand(p);
@@ -44,7 +44,7 @@ void ComThread::run() {
             if (cmd!=nullptr) { // motor command
               // send message to FOC thread
               String* cmdstr = new String(cmd);
-              foc_thread->put_message(cmdstr);
+              foc_thread.put_message(cmdstr);
             }
             cmd = doc["l"];
             if (cmd!=nullptr) { // LED command
@@ -61,12 +61,18 @@ void ComThread::run() {
         }
 
         // send any outgoing messages
-        String* message = foc_thread->get_message();
-        if (message!=nullptr) {
-          Serial.println(*message);
-          delete message;
+        // String* message = foc_thread->get_message();
+        // if (message!=nullptr) {
+        //   Serial.println(*message);
+        //   delete message;
+        // }
+
+        if (millis()-ts>1000) {
+          ts = millis();
+          Serial.println("COM thread running"); // TODO remove this
         }
 
+        vTaskDelay(10); // give other threads a chance to run...
     }
 
 };
@@ -107,7 +113,7 @@ void ComThread::handleHapticCommand(JsonVariant p) {
       if (profile==profileManager.getCurrentProfile()) {
         hapticConfig* copy = new hapticConfig();
         *copy = profile->haptic_config;
-        foc_thread->put_haptic_config(copy); // the copy is deleted in the FOC thread
+        foc_thread.put_haptic_config(copy); // the copy is deleted in the FOC thread
       }
       // TODO store to SPIFFS
     }
@@ -120,6 +126,6 @@ void ComThread::setCurrentProfile(String name){
   if (profile!=nullptr) { // if we changed profile, send the new haptic config to the FOC thread
     hapticConfig* copy = new hapticConfig();
     *copy = profile->haptic_config;
-    foc_thread->put_haptic_config(copy); // the copy is deleted in the FOC thread
+    foc_thread.put_haptic_config(copy); // the copy is deleted in the FOC thread
   }
 };

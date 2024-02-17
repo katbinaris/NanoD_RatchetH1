@@ -25,6 +25,8 @@ FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core
     _q_out = xQueueCreate(5, sizeof( String* ));
     _q_haptic = xQueueCreate(2, sizeof( hapticConfig* ));
     assert(_q_in != NULL);
+    assert(_q_out != NULL);
+    assert(_q_haptic != NULL);
 }
 
 FocThread::~FocThread() {}
@@ -36,8 +38,8 @@ void FocThread::run() {
     spi->begin(PIN_MAG_CLK, PIN_MAG_DO, -1, PIN_MAG_CS);
     encoder.init(spi);
 
-    driver.voltage_power_supply = driver_supply;
-    driver.voltage_limit = driver_voltage_limit;
+    driver.voltage_power_supply = 5.0f;
+    driver.voltage_limit = 5.0f;
     driver.init();
     motor.linkSensor(&encoder);
     motor.linkDriver(&driver);
@@ -48,9 +50,10 @@ void FocThread::run() {
     haptic.init();
 
     while (true) {
-        haptic.haptic_loop();
+        //haptic.haptic_loop();
         handleMessage();
         handleHapticConfig();
+        vTaskDelay(1);
     }
         
 };

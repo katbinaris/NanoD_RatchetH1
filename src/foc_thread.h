@@ -28,4 +28,4 @@ class FocThread : public Thread<FocThread> {
         QueueHandle_t _q_haptic;
 };
 
-
+extern FocThread foc_thread;
