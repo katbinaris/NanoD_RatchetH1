@@ -61,11 +61,12 @@ void ComThread::run() {
         }
 
         // send any outgoing messages
-        // String* message = foc_thread->get_message();
-        // if (message!=nullptr) {
-        //   Serial.println(*message);
-        //   delete message;
-        // }
+        String* message = foc_thread.get_message();
+        if (message!=nullptr) {
+          Serial.println(*message);
+          // TODO wrap in JSON
+          delete message;
+        }
 
         if (millis()-ts>1000) {
           ts = millis();
@@ -94,13 +95,17 @@ void ComThread::handleHapticCommand(JsonVariant p) {
     }
     else {
       HapticProfile* p = profileManager[profile];
+      JsonDocument doc;
       if (p!=nullptr) {
         // send the selected profile
-        JsonDocument doc;
         p->toJSON(doc);
-        serializeJson(doc, Serial);
-        Serial.println(); // add a newline
       }
+      else {
+        // send an error message
+        doc["error"] = "Profile not found";
+      }
+      serializeJson(doc, Serial);
+      Serial.println(); // add a newline
     }
   }
   else if (p.is<JsonObject>()) {
