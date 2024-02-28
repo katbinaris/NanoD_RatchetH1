@@ -10,7 +10,7 @@ class FocThread : public Thread<FocThread> {
     friend class Thread<FocThread>; //Allow Base Thread to invoke protected run()
 
     public:
-        FocThread(const uint8_t task_core, HmiThread& hmi_thread);
+        FocThread(const uint8_t task_core);
         ~FocThread();
 
         void put_message(String* msg);

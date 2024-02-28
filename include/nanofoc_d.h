@@ -37,12 +37,26 @@
 #define PIN_I2S_LRC 11
 
 // Display control
-#define PIN_LCD_RST 2
-#define PIN_LCD_SCK 3
-#define PIN_LCD_DATA 4
-#define PIN_LCD_BLK 5
-#define PIN_LCD_CS 6
-#define PIN_LCD_CMD 7
+// #define PIN_LCD_RST 2
+// #define PIN_LCD_SCK 3
+// #define PIN_LCD_DATA 4
+// #define PIN_LCD_BLK 5
+// #define PIN_LCD_CS 6
+// #define PIN_LCD_CMD 7
+
+#define USER_SETUP_LOADED 1
+#define GC9A01_DRIVER 1
+#define TFT_MOSI 4
+#define TFT_MISO -1
+#define TFT_SCLK 3
+#define TFT_CS 6
+#define TFT_DC 7
+#define TFT_RST 2
+#define TFT_BL -1
+#define TFT_WIDTH 240
+#define TFT_HEIGHT 240
+#define SPI_FREQUENCY 80000000
+
 
 // Misc
 #define NANO_FS 0
