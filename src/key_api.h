@@ -15,11 +15,13 @@ typedef struct {
 
     */
 
+    bool internal_macro = false; // If true, button is used to trigger internal macro
 
-    const char* button_A_map = "1016001255"; //  MODE: Midi(1), TRIGGER: Press(0), MIDI CH (16), CC#(01), CC(255)
-    const char* button_B_map = "214567"; // MODE: Internal(2), TRIGGER: Hold(1), UID: (4567)
-    const char* button_C_map = "0"; // No mapping -> Disables button and RGB assigned for that button
-    const char* button_D_map = "0"; //etc.
+    String knob_map = "1016001255"; //  MODE: Midi(1), TRIGGER: Press(0), MIDI CH (16), CC#(01), CC(255)
+    String button_A_map = "1016001255"; //  MODE: Midi(1), TRIGGER: Press(0), MIDI CH (16), CC#(01), CC(255)
+    String button_B_map = "214567"; // MODE: Internal(2), TRIGGER: Hold(1), UID: (4567)
+    String button_C_map = "0"; // No mapping -> Disables button and RGB assigned for that button
+    String button_D_map = "0"; //etc.
 
     /*
     Each button mapping should contain list of parameters:

@@ -24,15 +24,19 @@ void ComThread::run() {
     // TODO if there are no profiles, create a default one
     // TODO set the active profile to the other threads
     unsigned long ts = millis();
+
+    JsonDocument pingDoc;
     while (true) {
+        JsonDocument doc;
         if (Serial.available()) {
             String input = Serial.readStringUntil('\n');
-            StaticJsonDocument<256> doc; // TODO use heap since StaticJsonDocument is deprecated
             DeserializationError error = deserializeJson(doc, input);
             if (error) {
-                Serial.println("JSON error"); // TODO remove this
-                // TODO indicate error
-                //Serial.println(error.c_str());
+                doc.clear();
+                doc["error"] = "JSON parse error ";
+                doc["msg"] = error.c_str();
+                serializeJson(doc, Serial);
+                Serial.println(); // add a newline
                 continue;
             }
             Serial.println("JSON received"); // TODO remove this
@@ -68,9 +72,12 @@ void ComThread::run() {
           delete message;
         }
 
-        if (millis()-ts>1000) {
-          ts = millis();
-          Serial.println("COM thread running"); // TODO remove this
+        unsigned long now = millis();
+        if (now-ts>1000) {
+          ts = now;          
+          pingDoc["ping"] = now;
+          serializeJson(pingDoc, Serial);
+          Serial.println(); // add a newline
         }
 
         vTaskDelay(10); // give other threads a chance to run...
@@ -114,7 +121,7 @@ void ComThread::handleHapticCommand(JsonVariant p) {
     HapticProfile* profile = profileManager[pName];
     if (profile==nullptr) profile = profileManager.add(pName);
     if (profile!=nullptr) {
-      *profile = obj; // assigning the JSON object to the profile will update the profile's haptic_config
+      *profile = obj; // assigning the JSON object to the profile will update the profile's fields
       if (profile==profileManager.getCurrentProfile()) {
         hapticConfig* copy = new hapticConfig();
         *copy = profile->haptic_config;

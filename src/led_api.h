@@ -12,12 +12,13 @@ typedef struct {
 
 
     // Light Settings
+    bool led_enable = true; 
 
-    bool is_led = true; 
+    uint8_t led_brightness = 100; // 0-255
 
     // If True FastLED is enabled
-
     uint8_t led_mode = 0;
+
 
     /*
         Led Mode toggles between 4 pre-defined led feedback variants
