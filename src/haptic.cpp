@@ -128,29 +128,6 @@ void HapticInterface::haptic_click(void){
     motor->move(0);
 }
 
-void HapticInterface::change_haptic_mode(void)
-{
-    switch (haptic_state.total_pos)
-    {
-    case 2:
-        haptic_state.total_pos = 4;
-        break;
-
-    case 4:
-        haptic_state.total_pos = 8;
-        break;
-
-    case 8:
-        haptic_state.total_pos = 12;
-        break;
-
-    case 12:
-        haptic_state.total_pos = 2;
-        break;
-    }
-    // haptic_click();
-}
-
 void HapticInterface::haptic_loop(void){
     
     // TODO: Include Check if Config is Correct before triggering loop

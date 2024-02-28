@@ -13,8 +13,11 @@ ComThread com_thread(0);
 
 void setup() {
   com_thread.begin();
+  hmi_thread.begin();
   foc_thread.begin();
-  vTaskDelete(NULL); // delete main loop task
+  lcd_thread.begin();
+  vTaskDelete(NULL);
+  
 }
 
 void loop() {

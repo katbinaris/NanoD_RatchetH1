@@ -1,5 +1,4 @@
 #include "foc_thread.h"
-#include <SimpleFOC.h>
 #include "utils.h"
 #include "HapticCommander.h"
 
@@ -34,7 +33,7 @@ FocThread::~FocThread() {}
 
 void FocThread::run() {
 
-    SPIClass* spi = new SPIClass(FSPI);
+    SPIClass* spi = new SPIClass(HSPI);
     spi->begin(PIN_MAG_CLK, PIN_MAG_DO, -1, PIN_MAG_CS);
     encoder.init(spi);
 

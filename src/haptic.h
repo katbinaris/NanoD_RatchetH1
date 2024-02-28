@@ -31,9 +31,9 @@ public:
 
     float distance_pos; // Define attractior distance position and convert it to radians
 
-    float detent_strength_unit = 0.5; // PID (estimated) Current Limit
+    float detent_strength_unit = 0.34; // PID (estimated) Current Limit
 
-    float endstop_strength_unit = 0.3; // PID (estimated) Current Limit
+    float endstop_strength_unit = 0.34; // PID (estimated) Current Limit
 
     float click_strength = 0.4; //  PID (estimated) Current Limit
 };
@@ -61,7 +61,6 @@ public:
 
 
     void init(void);
-    void change_haptic_mode(void);
     void haptic_loop(void);
     void haptic_click(void);
     void setHapticConfig(hapticConfig* _config);
