@@ -4,6 +4,8 @@ Primary Recommended Motor
 */
 #pragma once
 
+#include "nanofoc_d.h"
+
 #if ONCETOP
 
 static const int blcd_pp = 7; // Pole Pairs
