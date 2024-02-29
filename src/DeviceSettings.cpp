@@ -1,7 +1,7 @@
 
 #include "./DeviceSettings.h"
 #include <Arduino.h>
-
+#include "nanofoc_d.h"
 
 
 // global singleton instance
@@ -17,7 +17,7 @@ DeviceSettings& DeviceSettings::getInstance() {
 DeviceSettings::DeviceSettings() {
     // default settings
     debug = false;
-    ledMaxBrightness = 255;
+    ledMaxBrightness = DEFAULT_LED_MAX_BRIGHTNESS;
     maxVelocity = 10.0;
     maxVoltage = 50.0;
     serialNumber = String(ESP.getEfuseMac(), HEX);
@@ -63,5 +63,9 @@ void DeviceSettings::toSPIFFS(){
 
 void DeviceSettings::fromSPIFFS(){
     // TODO implement me!
+    // note: use of serial: this function is called from setup() in main.cpp, or from the comms thread.
+    Serial.println("Loading settings from SPIFFS...");
+    //Serial.println("Settings loaded!");
+    Serial.println("Settings not found!");
 };
 

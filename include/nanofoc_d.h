@@ -1,6 +1,8 @@
 #pragma once
 
-#ifndef NANOFOCD_H
+
+#define DEFAULT_SERIAL_SPEED 115200
+#define DEFAULT_LED_MAX_BRIGHTNESS 150
 
 #define ONCETOP 1
 
@@ -71,5 +73,3 @@
 #define NANO_LOOP_FREQ 0
 #define NANO_SPI0_FREQ 0
 #define NANO_SPI1_FREQ 0
-
-#endif

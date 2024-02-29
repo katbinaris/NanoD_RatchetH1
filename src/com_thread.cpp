@@ -6,8 +6,6 @@
 
 
 
-#define DEFAULT_SERIAL_SPEED 115200
-
 
 HapticProfileManager profileManager;
 
@@ -21,10 +19,9 @@ ComThread::~ComThread() {
 };
 
 void ComThread::run() {
-    Serial.begin(DEFAULT_SERIAL_SPEED);
-    Serial.println("Welcome to Nano_D++!");
-    Serial.print("Firmware version: ");
-    Serial.println(NANO_FIRMWARE_VERSION);
+    // serial is initialized in main.cpp, but subsequently used only here
+    Serial.println("COM thread started");
+
     // TODO load profiles from SPIFFS
     // TODO load the current profile from SPIFFS
     // TODO if there are no profiles, create a default one
