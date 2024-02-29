@@ -37,7 +37,7 @@ void FocThread::run() {
     spi->begin(PIN_MAG_CLK, PIN_MAG_DO, -1, PIN_MAG_CS);
     encoder.init(spi);
 
-    driver.voltage_power_supply = 5.0f;
+    driver.voltage_power_supply = 5.0f; // TODO global settings
     driver.voltage_limit = 5.0f;
     driver.init();
     motor.linkSensor(&encoder);
