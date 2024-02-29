@@ -18,4 +18,5 @@ class ComThread : public Thread<ComThread> {
     protected:
         void run();
         void handleHapticCommand(JsonVariant p);
+        void handleSettingsCommand(JsonVariant s);
 };

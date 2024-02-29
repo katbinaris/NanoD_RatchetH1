@@ -1,6 +1,10 @@
-#include "com_thread.h"
-#include "foc_thread.h"
+
+#include "./com_thread.h"
+#include "./foc_thread.h"
 #include <esp_task_wdt.h>
+#include "./DeviceSettings.h"
+
+
 
 #define DEFAULT_SERIAL_SPEED 115200
 
@@ -18,14 +22,16 @@ ComThread::~ComThread() {
 
 void ComThread::run() {
     Serial.begin(DEFAULT_SERIAL_SPEED);
-    Serial.println("COM thread started"); // TODO remove this
+    Serial.println("Welcome to Nano_D++!");
+    Serial.print("Firmware version: ");
+    Serial.println(NANO_FIRMWARE_VERSION);
     // TODO load profiles from SPIFFS
     // TODO load the current profile from SPIFFS
     // TODO if there are no profiles, create a default one
     // TODO set the active profile to the other threads
     unsigned long ts = millis();
-
-    JsonDocument pingDoc;
+    unsigned long ts_last_activity = ts;
+    JsonDocument idleDoc;
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
@@ -33,34 +39,41 @@ void ComThread::run() {
             DeserializationError error = deserializeJson(doc, input);
             if (error) {
                 doc.clear();
-                doc["error"] = "JSON parse error ";
+                doc["error"] = "JSON parse error";
                 doc["msg"] = error.c_str();
                 serializeJson(doc, Serial);
                 Serial.println(); // add a newline
                 continue;
             }
             Serial.println("JSON received"); // TODO remove this
-            JsonVariant p = doc["p"];
-            if (p!=nullptr) { // haptic command
-              handleHapticCommand(p);
+            JsonVariant v = doc["p"];
+            if (v!=nullptr) { // haptic command
+              handleHapticCommand(v);
             }
-            const char* cmd = doc["R"];
-            if (cmd!=nullptr) { // motor command
+            if (doc["current"]!=nullptr) { // set current profile
+              setCurrentProfile(doc["current"].as<String>());
+            }          
+            if (doc["R"]!=nullptr) { // motor command
               // send message to FOC thread
+              const char* cmd = doc["R"];
               String* cmdstr = new String(cmd);
               foc_thread.put_message(cmdstr);
             }
-            cmd = doc["l"];
-            if (cmd!=nullptr) { // LED command
-              // TODO send message to LED thread
-            }
-            cmd = doc["k"];
-            if (cmd!=nullptr) { // key mapping command
-              // TODO send message to keyboard thread
-            }
-            cmd = doc["m"];
-            if (cmd!=nullptr) { // its a message
+            v = doc["message"]; // TOOD can we re-use the JsonVariant in this way?
+            if (v!=nullptr) { // its a message
               // TODO send message to screen
+            }
+            v = doc["recalibrate"];
+            if (v!=nullptr) { // recalibrate motor
+              // TODO enter calibration mode
+            }
+            v = doc["profiles"];
+            if (v!=nullptr) { // list profiles
+              // TODO reorder and/or delete profiles
+            }
+            v = doc["settings"];
+            if (v!=nullptr) { // get or set settings
+              handleSettingsCommand(v);
             }
         }
 
@@ -70,13 +83,15 @@ void ComThread::run() {
           Serial.println(*message);
           // TODO wrap in JSON
           delete message;
+          ts_last_activity = millis(); // TODO only update for position events
         }
 
+        // send idle message
         unsigned long now = millis();
-        if (now-ts>1000) {
+        if (now-ts>1000 && now-ts_last_activity>1000) {
           ts = now;          
-          pingDoc["ping"] = now;
-          serializeJson(pingDoc, Serial);
+          idleDoc["idle"] = now-ts_last_activity;
+          serializeJson(idleDoc, Serial);
           Serial.println(); // add a newline
         }
 
@@ -84,6 +99,24 @@ void ComThread::run() {
     }
 
 };
+
+
+void ComThread::handleSettingsCommand(JsonVariant s) {
+  if (s.isNull()) return;
+  if (s.is<String>()) {
+    // send the settings
+    JsonDocument doc;
+    DeviceSettings::getInstance().toJSON(doc);
+    serializeJson(doc, Serial);
+    Serial.println(); // add a newline
+  }
+  if (s.is<JsonObject>()) {
+    JsonObject obj = s.as<JsonObject>();
+    DeviceSettings::getInstance() = obj;
+    // TODO store to SPIFFS
+  }
+};
+
 
 
 void ComThread::handleHapticCommand(JsonVariant p) {

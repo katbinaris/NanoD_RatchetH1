@@ -36,8 +36,8 @@ void LcdThread::run() {
     
     // Main Loop
     while (1) {
-    lv_task_handler();
-    lv_tick_inc(5);
-    delay(5);
+        lv_task_handler();
+        lv_tick_inc(5);
+        vTaskDelay(5 / portTICK_PERIOD_MS);
     }
 }

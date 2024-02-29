@@ -39,7 +39,7 @@ void HmiThread::run() {
         fill_solid(ledsp, 60, CRGB::Orange);
         halvesPointer(30, CRGB::White, CRGB::Green, CRGB::Orange);
 
-        delay(5);
+        vTaskDelay(5 / portTICK_PERIOD_MS);
     }
     
     
@@ -70,7 +70,7 @@ void halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CR
     }
         leds[indicator] = pointerCol;
         FastLED.show();
-        delay(1000 / 12);
+        vTaskDelay(1000 / 12 / portTICK_PERIOD_MS);
 }
 
 // Quick Strobe Single Color
@@ -78,11 +78,11 @@ void strobe(int pps, const struct CRGB& strobeCol){
 
     fill_solid(leds, 60, strobeCol);
     FastLED.show();
-    delay(1000/pps);
+    vTaskDelay(1000/pps / portTICK_PERIOD_MS);
     
     fill_solid(leds, 60, CRGB::Black);
     FastLED.show();
-    delay(1000/pps);
+    vTaskDelay(1000/pps / portTICK_PERIOD_MS);
 
 }
 
@@ -106,6 +106,6 @@ void breathing(int fps, const struct CRGB& fadeCol){
     fadeAmount = -fadeAmount ;
     
   }    
-  delay(1000/fps); 
+  vTaskDelay(1000/fps / portTICK_PERIOD_MS); 
 }
 

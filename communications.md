@@ -29,7 +29,155 @@ The Serial protocol is simple: small JSON messages are sent in both directions, 
 
 Each JSON message is separated from the next one by a newline character. Newline characters within the JSON structure are not permitted. Where newline characters are used within the transported field values of the JSON message, they should be text escaped as '\n'.
 
-## Message Types
+## Outgoing messages
+
+**Error messages** are sent when errors occur in the system, or as response to erroneous command messages. **Debug messages** should be output to the console to aid in debugging.
+
+```json
+{ "error": "An error occurred." }
+{ "error": "Another kind of error.", "msg": "This one comes with a detail message." }
+
+{ "debug": "A message for the console." }
+```
+
+**Idle messages** are sent once per second by the device if no event messages have been sent recently. They include the idle time, the duration (ms) since the last event message (e.g. the last user interaction):
+
+```json
+{ "idle": 16233 }
+```
+
+**Event messages** are sent by the system on user interaction with the device. There are a few types depending on the event. Multiple events could arrive in the same JSON message.
+
+```json
+{ "kd": "A", "ks": "AbCd" }              // kd = key-down, ks = keys-state
+{ "ku": "AC", "kd": "D", "ks": "abcD" }  // ku = key-up
+{ "a": 4.16, "t": -2, "v": -7.78 }       // a = angle (rad),
+                                         // t = nr of turns, 
+                                         // v = velocity (rad/s)
+```
+
+Other outgoing message are sent in response to commands, and are described below.
+
+## Commands
+
+### Profile commands
+
+Get a list of all profile names: 
+```json
+{ "p": "#all" }
+```
+
+Response:
+```json
+{ "profiles": ["default", "Fusion", "Fusion2", "Fusion2 copy", "Blender"] }
+```
+
+<hr>
+
+Get a single profile's details:
+
+```json
+{ "p": "Blender" }
+```
+
+The response includes all profile fields, and would arrive in one line, but is shown here formatted for legibility:
+```json
+{ 
+    "p": {
+        // TODO
+    } 
+}
+```
+
+<hr>
+
+Update one or more profile fields:
+
+```json
+{ "p": { "id": "Blender", "profileType": 2, "haptic_click_strength": 13.0, "ledEnable": false }}
+```
+
+TODO what would be the best response?
+
+<hr>
+
+Set the current profile:
+
+```json
+{ "current": "Fusion2" }
+```
+
+TODO what would be the best response?
+
+<hr>
+
+Delete or reorder the profiles, e.g. put the "Blender" profile first, the "default" profile last, and remove the "Fusion2 copy" profile:
+
+```json
+{ "profiles": ["Blender", "Fusion", "Fusion2", "default"] }
+```
+
+TODO what would be the best response?
+
+### Motor commands
+
+Set SimpleFOC registers:
+
+```json
+{ "R": "17=2.0 19=7.7" }
+```
+
+Reset motor calibration:
+
+```json
+{ "recalibrate": true }
+```
+
+### System commands
+
+Get device settings:
+
+```json
+{ "settings": "?" }
+```
+
+Response (formatted on multiple lines for clarity):
+
+```json
+{ 
+    "settings": {
+        "debug": false,
+        "ledMaxBrightness": 125,
+        "maxVelocity": 50.0,
+        "maxVoltage": 3.0,
+        "firmwareVersion": "1.0.0",
+        "deviceId": "A300F377",
+        "deviceName": "Richard's Nano",
+        // TODO document other settings
+    }
+}
+```
+
+<hr>
+
+Enable or disable debug messages or set device options. One or more settings values can be set in the same message:
+
+```json
+{ "settings": { "debug": true, "ledMaxBrightness": 170, "maxVelocity": 45.0, "maxVoltage": 4.4 }}
+```
+
+<hr>
+
+Show a message on the device screen:
+
+```json
+{ "message": { "title": "Hey!", "text": "Get some work done.", "duration": 5.0 }}
+```
+
+
+
+
+## DEPRECATED - Message Types
 
 The message types are:
 
