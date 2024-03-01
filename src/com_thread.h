@@ -17,6 +17,7 @@ class ComThread : public Thread<ComThread> {
         void setCurrentProfile(String name);
     protected:
         void run();
-        void handleHapticCommand(JsonVariant p);
+        void handleProfileCommand(JsonVariant p);
         void handleSettingsCommand(JsonVariant s);
+        void handleProfilesCommand(JsonVariant p);
 };

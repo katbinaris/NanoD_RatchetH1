@@ -64,7 +64,7 @@ Other outgoing message are sent in response to commands, and are described below
 
 Get a list of all profile names: 
 ```json
-{ "p": "#all" }
+{ "profiles": "#all" }
 ```
 
 Response:

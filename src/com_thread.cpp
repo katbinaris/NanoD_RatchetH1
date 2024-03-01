@@ -45,7 +45,7 @@ void ComThread::run() {
             Serial.println("JSON received"); // TODO remove this
             JsonVariant v = doc["p"];
             if (v!=nullptr) { // haptic command
-              handleHapticCommand(v);
+              handleProfileCommand(v);
             }
             if (doc["current"]!=nullptr) { // set current profile
               setCurrentProfile(doc["current"].as<String>());
@@ -66,7 +66,7 @@ void ComThread::run() {
             }
             v = doc["profiles"];
             if (v!=nullptr) { // list profiles
-              // TODO reorder and/or delete profiles
+              handleProfilesCommand(v);
             }
             v = doc["settings"];
             if (v!=nullptr) { // get or set settings
@@ -116,11 +116,11 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
 
 
 
-void ComThread::handleHapticCommand(JsonVariant p) {
+void ComThread::handleProfilesCommand(JsonVariant p) {
   if (p.isNull()) return;
   if (p.is<String>()) {
-    String profile = p.as<String>();
-    if (profile=="#all") {
+    String s = p.as<String>();
+    if (s=="#all") {
       // send the list of all profile names
       JsonDocument doc;
       JsonArray arr = doc["profiles"].to<JsonArray>();
@@ -130,20 +130,29 @@ void ComThread::handleHapticCommand(JsonVariant p) {
       serializeJson(doc, Serial);
       Serial.println(); // add a newline
     }
-    else {
-      HapticProfile* p = profileManager[profile];
-      JsonDocument doc;
-      if (p!=nullptr) {
-        // send the selected profile
-        p->toJSON(doc);
-      }
-      else {
-        // send an error message
-        doc["error"] = "Profile not found";
-      }
-      serializeJson(doc, Serial);
-      Serial.println(); // add a newline
+  }
+  // TODO reorder and/or delete profiles
+};
+
+
+
+
+void ComThread::handleProfileCommand(JsonVariant p) {
+  if (p.isNull()) return;
+  if (p.is<String>()) {
+    String profile = p.as<String>();
+    HapticProfile* p = profileManager[profile];
+    JsonDocument doc;
+    if (p!=nullptr) {
+      // send the selected profile
+      p->toJSON(doc);
     }
+    else {
+      // send an error message
+      doc["error"] = "Profile not found";
+    }
+    serializeJson(doc, Serial);
+    Serial.println(); // add a newline
   }
   else if (p.is<JsonObject>()) {
     JsonObject obj = p.as<JsonObject>();
