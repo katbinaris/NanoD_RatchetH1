@@ -21,16 +21,29 @@ void setup() {
   // before we begin, load our global settings...
   DeviceSettings& settings = DeviceSettings::getInstance();
   settings.fromSPIFFS(); // attempt to load settings from SPIFFS
+  // then load the profiles
+  HapticProfileManager& profileManager = HapticProfileManager::getInstance();
+  profileManager.fromSPIFFS(); // attempt to load profiles from SPIFFS
 
+  // init threads
+  hmi_thread.init(profileManager.getCurrentProfile()->led_config);
+  foc_thread.init(profileManager.getCurrentProfile()->haptic_config);
+
+  // start threads
+  Serial.println("Starting threads...");
+  Serial.flush();
+  vTaskDelay(100 / portTICK_PERIOD_MS);
   com_thread.begin();
-  hmi_thread.begin(settings.ledMaxBrightness);
+  hmi_thread.begin();
   foc_thread.begin();
-  lcd_thread.begin();
+  //lcd_thread.begin();
   vTaskDelete(NULL);
-  
 }
+
+
 
 void loop() {
   // main loop not used...
   vTaskDelay(1000);
 }
+

@@ -1,13 +1,12 @@
 
 #include "./com_thread.h"
 #include "./foc_thread.h"
+#include "./hmi_thread.h"
 #include <esp_task_wdt.h>
 #include "./DeviceSettings.h"
 
 
 
-
-HapticProfileManager profileManager;
 
 
 ComThread::ComThread(const uint8_t task_core) : Thread("COM", 2048, 1, task_core) {
@@ -29,6 +28,7 @@ void ComThread::run() {
     unsigned long ts = millis();
     unsigned long ts_last_activity = ts;
     JsonDocument idleDoc;
+    JsonDocument eventDoc;
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
@@ -80,8 +80,25 @@ void ComThread::run() {
           Serial.println(*message);
           // TODO wrap in JSON
           delete message;
-          ts_last_activity = millis(); // TODO only update for position events
         }
+
+        // send key events
+        bool hadEvent = false;
+        do {
+          KeyEvt keyEvt;
+          hadEvent = hmi_thread.get_key_event(&keyEvt);
+          if (hadEvent) {
+            eventDoc.clear();
+            doc["ks"] = keyEvt.keyState;
+            if (keyEvt.type==0) // AceButton::kEventPressed
+              doc["kd"] = keyEvt.keyNum;
+            else if (keyEvt.type==1) // AceButton::kEventReleased
+              doc["ku"] = keyEvt.keyNum;
+            serializeJson(doc, Serial);
+            Serial.println(); // add a newline
+            ts_last_activity = millis();
+          }
+        } while (hadEvent);
 
         // send idle message
         unsigned long now = millis();
@@ -96,6 +113,8 @@ void ComThread::run() {
     }
 
 };
+
+
 
 
 void ComThread::handleSettingsCommand(JsonVariant s) {
@@ -116,22 +135,25 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
 
 
 
+
 void ComThread::handleProfilesCommand(JsonVariant p) {
   if (p.isNull()) return;
   if (p.is<String>()) {
     String s = p.as<String>();
     if (s=="#all") {
       // send the list of all profile names
+      HapticProfileManager& pm = HapticProfileManager::getInstance();
       JsonDocument doc;
       JsonArray arr = doc["profiles"].to<JsonArray>();
-      for (int i=0; i<profileManager.size(); i++) {
-        arr.add(profileManager[i]->profile_name);
+      for (int i=0; i<pm.size(); i++) {
+        arr.add(pm[i]->profile_name);
       }
       serializeJson(doc, Serial);
       Serial.println(); // add a newline
     }
   }
   // TODO reorder and/or delete profiles
+  // TODO store to SPIFFS
 };
 
 
@@ -139,9 +161,10 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
 
 void ComThread::handleProfileCommand(JsonVariant p) {
   if (p.isNull()) return;
+  HapticProfileManager& pm = HapticProfileManager::getInstance();
   if (p.is<String>()) {
     String profile = p.as<String>();
-    HapticProfile* p = profileManager[profile];
+    HapticProfile* p = pm[profile];
     JsonDocument doc;
     if (p!=nullptr) {
       // send the selected profile
@@ -157,15 +180,15 @@ void ComThread::handleProfileCommand(JsonVariant p) {
   else if (p.is<JsonObject>()) {
     JsonObject obj = p.as<JsonObject>();
     String pName = obj["name"];
-    HapticProfile* profile = profileManager[pName];
-    if (profile==nullptr) profile = profileManager.add(pName);
+    HapticProfile* profile = pm[pName];
+    if (profile==nullptr) profile = pm.add(pName);
     if (profile!=nullptr) {
       *profile = obj; // assigning the JSON object to the profile will update the profile's fields
-      if (profile==profileManager.getCurrentProfile()) {
-        hapticConfig* copy = new hapticConfig();
-        *copy = profile->haptic_config;
-        foc_thread.put_haptic_config(copy); // the copy is deleted in the FOC thread
+      if (profile==pm.getCurrentProfile()) {
+        dispatchHapticConfig();
+        dispatchLedConfig();
       }
+
       // TODO store to SPIFFS
     }
   }
@@ -173,10 +196,23 @@ void ComThread::handleProfileCommand(JsonVariant p) {
 
 
 void ComThread::setCurrentProfile(String name){
-  HapticProfile* profile = profileManager.setCurrentProfile(name);
+  HapticProfile* profile = HapticProfileManager::getInstance().setCurrentProfile(name);
   if (profile!=nullptr) { // if we changed profile, send the new haptic config to the FOC thread
-    hapticConfig* copy = new hapticConfig();
-    *copy = profile->haptic_config;
-    foc_thread.put_haptic_config(copy); // the copy is deleted in the FOC thread
+    dispatchHapticConfig();
+    dispatchLedConfig();
   }
 };
+
+
+void ComThread::dispatchLedConfig() {
+    ledConfig copy = HapticProfileManager::getInstance().getCurrentProfile()->led_config;
+    if (copy.led_brightness>DeviceSettings::getInstance().ledMaxBrightness)
+      copy.led_brightness = DeviceSettings::getInstance().ledMaxBrightness;
+    hmi_thread.put_led_config(copy);
+};
+
+void ComThread::dispatchHapticConfig() {
+    foc_thread.put_haptic_config(HapticProfileManager::getInstance().getCurrentProfile()->haptic_config);
+};
+
+

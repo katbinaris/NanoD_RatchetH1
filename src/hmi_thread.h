@@ -5,19 +5,22 @@
 #include <FastLED.h>
 #include "thread_crtp.h"
 #include "nanofoc_d.h"
+#include "./led_api.h"
+#include "./key_api.h"
 
 
-class HmiThread : public Thread<HmiThread> {
+class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
     friend class Thread<HmiThread>; //Allow Base Thread to invoke protected run()
 
     public:
         HmiThread(const uint8_t task_core);
         ~HmiThread();
        
-        void begin(const uint8_t ledMaxBrightness);
+        void init(ledConfig& initialConfig);
     
-        // button
-        void handleEvent(ace_button::AceButton* button, uint8_t eventType, uint8_t buttonState);
+        // queues
+        void put_led_config(ledConfig& newConfig);
+        bool get_key_event(KeyEvt* keyEvt);
 
         // Light Effects
         void halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
@@ -26,14 +29,31 @@ class HmiThread : public Thread<HmiThread> {
 
     protected:
         void run();
-        uint8_t ledMaxBrightness = DEFAULT_LED_MAX_BRIGHTNESS;
         
-        ace_button::AceButton button;
-        bool gReverseDirection = false;
+        QueueHandle_t _q_config_in;
+        QueueHandle_t _q_keyevt_out;
+        // internal queue handler
+        void handleConfig();
+
+        // LEDs
+        ledConfig led_config;
         CRGB leds[NANO_LED_A_NUM];
-        CRGB ledsp[4];
-        // Breathing to Black
+        CRGB ledsp[NANO_LED_B_NUM];
+
+        // buttons
+        ace_button::AceButton keyA;
+        ace_button::AceButton keyB;
+        ace_button::AceButton keyC;
+        ace_button::AceButton keyD;
+        uint8_t keyState = 0;
+        // button handler
+        void handleEvent(ace_button::AceButton* button, uint8_t eventType, uint8_t buttonState) override;
+
+        // animations
+        bool gReverseDirection = false;
         int brightness = 0;
         int fadeAmount = 5;
 
 };
+
+extern HmiThread hmi_thread;

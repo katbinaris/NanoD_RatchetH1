@@ -1,4 +1,6 @@
 
+#pragma once 
+
 
 typedef struct {
 
@@ -78,3 +80,12 @@ typedef struct {
 
     */
 } keyConfig;
+
+
+
+typedef struct {
+    uint8_t type;
+    uint8_t keyNum;
+    uint8_t keyState;
+} KeyEvt;
+

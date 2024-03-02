@@ -82,12 +82,6 @@ void HapticInterface::init(void){
 };
 
 
-void HapticInterface::setHapticConfig(hapticConfig* _config){
-    // update the haptic config with a changed one received from the comms thread
-    haptic_config = *_config; // copy over to active configuration
-
-    // TODO update the haptic state with the new config
-};
 
 
 void HapticInterface::find_detent(void)

@@ -13,9 +13,11 @@ class FocThread : public Thread<FocThread> {
         FocThread(const uint8_t task_core);
         ~FocThread();
 
+        void init(hapticConfig& initialConfig);
+
         void put_message(String* msg);
         String* get_message();
-        void put_haptic_config(hapticConfig* profile);
+        void put_haptic_config(hapticConfig& profile);
 
     protected:
         void run();

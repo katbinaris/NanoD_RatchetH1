@@ -1,5 +1,15 @@
 
-#include "HapticProfileManager.h"
+#include "./HapticProfileManager.h"
+#include "./DeviceSettings.h"
+
+
+HapticProfileManager HapticProfileManager::instance;
+
+
+HapticProfileManager& HapticProfileManager::getInstance() {
+  return instance;
+};
+
 
 HapticProfileManager::HapticProfileManager() {
   for (int i=0; i<MAX_PROFILES; i++) {
@@ -72,7 +82,21 @@ int HapticProfileManager::size() {
 
 
 void HapticProfileManager::fromSPIFFS() {
-  // TODO
+  Serial.println("Loading profiles from SPIFFS...");
+  // TODO load profiles from SPIFFS
+  Serial.println("No profiles found.");
+  // add a default profile 
+  // TODO make conditional on no profiles found
+  HapticProfile* profile = add("Default Profile"); // structs are initialized with default values
+  if (profile!=nullptr) {
+    Serial.print("Added profile ");
+    Serial.println(profile->profile_name);
+    current_profile = &profiles[0];
+  }
+  else {
+    Serial.println("FATAL: Failed to add default profile.");
+    while (1);
+  }
 };
 
 
@@ -146,7 +170,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   if (!obj["pointer"].isNull())
     led_config.pointer_col = obj["pointer"].as<int>();
   if (!obj["primary"].isNull())
-    led_config.prmary_col = obj["primary"].as<int>();
+    led_config.primary_col = obj["primary"].as<int>();
   if (!obj["secondary"].isNull())
     led_config.secondary_col = obj["secondary"].as<int>();
   if (!obj["buttonAIdle"].isNull())
@@ -213,7 +237,7 @@ void HapticProfile::toJSON(JsonDocument& doc){
   doc["ledBrightness"] = led_config.led_brightness;
   doc["ledMode"] = led_config.led_mode;
   doc["pointer"] = led_config.pointer_col;
-  doc["primary"] = led_config.prmary_col;
+  doc["primary"] = led_config.primary_col;
   doc["secondary"] = led_config.secondary_col;
   doc["buttonAIdle"] = led_config.button_A_col_idle;
   doc["buttonBIdle"] = led_config.button_B_col_idle;

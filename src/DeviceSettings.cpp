@@ -42,6 +42,7 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         maxVoltage = obj["maxVoltage"].as<float>();
     if (obj["deviceName"]!=nullptr)
         deviceName = obj["deviceName"].as<String>();
+    return *this;
 };
 
 

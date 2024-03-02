@@ -1,4 +1,6 @@
 
+#pragma once
+
 #include <inttypes.h>
 
 /**
@@ -34,9 +36,9 @@ typedef struct {
 
 
     // LED Ring array: Pointer, Primary, Scondary always store only one HEX value
-    uint32_t pointer_col = 0xC0FFEE;
-    uint32_t prmary_col = 0xC0FFEE;
-    uint32_t secondary_col = 0xC0FFEE;
+    uint32_t pointer_col = 0xFFFFFF;
+    uint32_t primary_col = 0x008000;
+    uint32_t secondary_col = 0xFFA500;
 
     uint32_t button_A_col_idle = 0xC0FFEE; 
     uint32_t button_B_col_idle = 0xC0FFEE; 

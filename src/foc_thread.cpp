@@ -22,13 +22,18 @@ HapticCommander commander = HapticCommander(&motor);
 FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
     _q_in = xQueueCreate(5, sizeof( String* ));
     _q_out = xQueueCreate(5, sizeof( String* ));
-    _q_haptic = xQueueCreate(2, sizeof( hapticConfig* ));
+    _q_haptic = xQueueCreate(2, sizeof( hapticConfig ));
     assert(_q_in != NULL);
     assert(_q_out != NULL);
     assert(_q_haptic != NULL);
 }
 
 FocThread::~FocThread() {}
+
+
+void FocThread::init(hapticConfig& initialConfig) {
+    haptic.haptic_config = initialConfig;
+};
 
 
 void FocThread::run() {
@@ -72,9 +77,8 @@ String* FocThread::get_message() {
 };
 
 
-void FocThread::put_haptic_config(hapticConfig* profile) {
-    if (profile!=nullptr)
-        xQueueSend(_q_haptic, (void*) profile, (TickType_t)0);
+void FocThread::put_haptic_config(hapticConfig& profile) {
+    xQueueSend(_q_haptic, &profile, (TickType_t)0);
 };
 
 
@@ -92,11 +96,7 @@ void FocThread::handleMessage() {
 
 
 void FocThread::handleHapticConfig() {
-    hapticConfig* profile = nullptr;
-    if (xQueueReceive(_q_haptic, &profile, (TickType_t)0)) {
-        if (profile!=nullptr) {
-            haptic.setHapticConfig(profile);
-            delete profile; // delete the copy of the profile that was created in comms thread
-        }
+    if (xQueueReceive(_q_haptic, &haptic.haptic_config, (TickType_t)0)) {
+        // nothing to do here
     }
 };

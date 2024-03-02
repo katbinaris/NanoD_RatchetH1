@@ -20,4 +20,7 @@ class ComThread : public Thread<ComThread> {
         void handleProfileCommand(JsonVariant p);
         void handleSettingsCommand(JsonVariant s);
         void handleProfilesCommand(JsonVariant p);
+
+        void dispatchLedConfig();
+        void dispatchHapticConfig();
 };

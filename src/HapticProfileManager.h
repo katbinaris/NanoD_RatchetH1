@@ -71,8 +71,7 @@ public:
  */
 class HapticProfileManager {
 public:
-    HapticProfileManager();
-    ~HapticProfileManager();
+    static HapticProfileManager& getInstance();
 
     HapticProfile* add(String name);
     HapticProfile* operator[](String name);
@@ -89,4 +88,8 @@ public:
 protected:
     HapticProfile profiles[MAX_PROFILES];
     HapticProfile* current_profile;
+private:
+    HapticProfileManager();
+    ~HapticProfileManager();
+    static HapticProfileManager instance;
 };

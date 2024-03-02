@@ -63,7 +63,6 @@ public:
     void init(void);
     void haptic_loop(void);
     void haptic_click(void);
-    void setHapticConfig(hapticConfig* _config);
 
 protected:
     HapticState haptic_state;   // Haptic state
