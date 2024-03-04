@@ -29,6 +29,7 @@ void HmiThread::handleConfig() {
     if (xQueueReceive(_q_config_in, &newConfig, (TickType_t)0)) {
         led_config = newConfig;
         FastLED.setBrightness(led_config.led_brightness);
+        updateKeyLeds();
     }
 };
 
@@ -82,52 +83,28 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
     } else if (button == &keyD) {
         keyNum = 3;
     }
-    switch (eventType) {
-        case AceButton::kEventPressed:
-            switch (keyNum) {
-                case 0:
-                    ledsp[0] = CRGB(led_config.button_A_col_press);
-                    keyState |= 1;
-                break;
-                case 1:
-                    ledsp[1] = CRGB(led_config.button_B_col_press);
-                    keyState |= 2;
-                break;
-                case 2:
-                    ledsp[2] = CRGB(led_config.button_C_col_press);
-                    keyState |= 4;
-                break;
-                case 3:
-                    ledsp[3] = CRGB(led_config.button_D_col_press);
-                    keyState |= 8;
-                break;
-            }
-        break;
-        case AceButton::kEventReleased:
-            switch (keyNum) {
-                case 0:
-                    ledsp[0] = CRGB(led_config.button_A_col_idle);
-                    keyState &= ~1;
-                break;
-                case 1:
-                    ledsp[1] = CRGB(led_config.button_B_col_idle);
-                    keyState &= ~2;
-                break;
-                case 2:
-                    ledsp[2] = CRGB(led_config.button_C_col_idle);
-                    keyState &= ~4;
-                break;
-                case 3:
-                    ledsp[3] = CRGB(led_config.button_D_col_idle);
-                    keyState &= ~8;
-                break;
-            }
-        break;
-    }
     if (keyNum >= 0) {
+        switch (eventType) {
+            case AceButton::kEventPressed:
+                keyState |= (1<<keyNum);
+            break;
+            case AceButton::kEventReleased:
+                keyState &= ~(1<<keyNum);
+            break;
+        }
+        updateKeyLeds();
         KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)keyNum, .keyState=keyState };
         xQueueSend(_q_keyevt_out, &keyEvt, (TickType_t)0);
     }
+};
+
+
+
+void HmiThread::updateKeyLeds() {
+    ledsp[0] = CRGB((keyState&0x1)?led_config.button_A_col_press:led_config.button_A_col_idle);
+    ledsp[1] = CRGB((keyState&0x2)?led_config.button_B_col_press:led_config.button_B_col_idle);
+    ledsp[2] = CRGB((keyState&0x4)?led_config.button_C_col_press:led_config.button_C_col_idle);
+    ledsp[3] = CRGB((keyState&0x8)?led_config.button_D_col_press:led_config.button_D_col_idle);
 };
 
 

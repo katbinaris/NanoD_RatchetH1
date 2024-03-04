@@ -25,6 +25,8 @@ void setup() {
   HapticProfileManager& profileManager = HapticProfileManager::getInstance();
   profileManager.fromSPIFFS(); // attempt to load profiles from SPIFFS
 
+  // TODO load motor calibration from SPIFFS
+
   // init threads
   hmi_thread.init(profileManager.getCurrentProfile()->led_config);
   foc_thread.init(profileManager.getCurrentProfile()->haptic_config);

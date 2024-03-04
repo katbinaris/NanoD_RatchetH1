@@ -148,6 +148,7 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
       for (int i=0; i<pm.size(); i++) {
         arr.add(pm[i]->profile_name);
       }
+      doc["current"] = pm.getCurrentProfile()->profile_name;
       serializeJson(doc, Serial);
       Serial.println(); // add a newline
     }
