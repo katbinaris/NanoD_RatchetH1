@@ -69,7 +69,7 @@ Get a list of all profile names:
 
 Response:
 ```json
-{ "profiles": ["default", "Fusion", "Fusion2", "Fusion2 copy", "Blender"] }
+{ "profiles": ["default", "Fusion", "Fusion2", "Fusion2 copy", "Blender"], "current": "Blender" }
 ```
 
 <hr>
@@ -94,7 +94,27 @@ The response includes all profile fields, and would arrive in one line, but is s
 Update one or more profile fields:
 
 ```json
-{ "p": { "id": "Blender", "profileType": 2, "haptic_click_strength": 13.0, "ledEnable": false }}
+{ "profile": "Blender", "updates": { "profileType": 2, "haptic_click_strength": 13.0, "ledEnable": false }}
+```
+
+TODO what would be the best response?
+
+<hr>
+
+Rename a profile:
+
+```json
+{ "profile": "Blender", "updates": { "name": "Blender & co" } }
+```
+
+TODO what would be the best response?
+
+<hr>
+
+Create a new profile, just send an update with a non-existing profile name:
+
+```json
+{ "profile": "Blender_New", "updates": { "profileType": 2, "haptic_click_strength": 13.0, "ledEnable": true } }
 ```
 
 TODO what would be the best response?
