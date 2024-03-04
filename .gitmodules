@@ -1,0 +1,8 @@
+[submodule "lib/Arduino-FOC"]
+	path = lib/Arduino-FOC
+	url = https://github.com/simplefoc/Arduino-FOC
+	branch = dev
+[submodule "lib/Arduino-FOC-drivers"]
+	path = lib/Arduino-FOC-drivers
+	url = https://github.com/simplefoc/Arduino-FOC-drivers
+	branch = dev
