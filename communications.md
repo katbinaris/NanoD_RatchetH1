@@ -77,13 +77,13 @@ Response:
 Get a single profile's details:
 
 ```json
-{ "p": "Blender" }
+{ "profile": "Blender" }
 ```
 
 The response includes all profile fields, and would arrive in one line, but is shown here formatted for legibility:
 ```json
 { 
-    "p": {
+    "profile": {
         // TODO
     } 
 }
