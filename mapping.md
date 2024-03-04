@@ -1,7 +1,6 @@
 # Mapping definition
 
-![Whiteboard sketch 1](https://github.com/katbinaris/zeroone/assets/34353377/65389fee-1cf4-4cd6-b7ab-4a742b3f7623)
-![Whiteboard sketch 2](https://github.com/katbinaris/zeroone/assets/34353377/7b8473c1-c897-4906-81ba-a2ee226f2d00)
+This mapping system is designed to be as flexible as possible, allowing for a wide range of use cases while still being easy to use and understand.
 
 ## Values
 A profile can have any number of values assigned to the knob. Each value has a type, which can be one of the following (exact list subject to change):
@@ -56,3 +55,6 @@ Actions can be one of the following (exact list subject to change):
 
 ## Global mapping
 This system allows for a global mapping (initially called Internal Macro by Karlitos) to be defined in the exact same way as a profile mapping, it would just exist across all profiles (and take precedence over any profile mapping).
+
+![Whiteboard sketch 1](https://github.com/katbinaris/zeroone/assets/34353377/65389fee-1cf4-4cd6-b7ab-4a742b3f7623)
+![Whiteboard sketch 2](https://github.com/katbinaris/zeroone/assets/34353377/7b8473c1-c897-4906-81ba-a2ee226f2d00)
