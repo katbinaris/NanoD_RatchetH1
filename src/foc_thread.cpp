@@ -62,7 +62,7 @@ void FocThread::run() {
         encoder.update(); // TODO remove me when haptic is working
         float ang = encoder.getAngle();
         unsigned long now = micros();
-        if (ang - lastang >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
+        if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
             AngleEvt ae = { encoder.getMechanicalAngle(), encoder.getFullRotations(), encoder.getVelocity() };
             xQueueSend(_q_angleevt_out, &ae, (TickType_t)0);
             lastang = ang;
