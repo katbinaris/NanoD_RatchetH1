@@ -3,7 +3,7 @@
 This is a more or less comprehensive list of what the Nano API for the zeroone frontend encompasses.
 It was created for and modified during discussion with @runger, here for future reference.
 
-This API is not for the enduser but for quick communication with and configuration by the UI.
+This API is not for the enduser but for fas communication with and configuration by the UI.
 User endpoints can be built at a later point (bindings, sdk etc)..
 
 Types of messages:
