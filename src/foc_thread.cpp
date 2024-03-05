@@ -1,6 +1,7 @@
-#include "foc_thread.h"
+#include "./foc_thread.h"
 #include "utils.h"
 #include "HapticCommander.h"
+#include "./com_thread.h"
 
 /*
     FOC Thread runs BLDCHaptic Library in estimated current mode
@@ -20,12 +21,12 @@ HapticCommander commander = HapticCommander(&motor);
 
 
 FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
-    _q_in = xQueueCreate(5, sizeof( String* ));
-    _q_out = xQueueCreate(5, sizeof( String* ));
-    _q_haptic = xQueueCreate(2, sizeof( hapticConfig ));
-    assert(_q_in != NULL);
-    assert(_q_out != NULL);
-    assert(_q_haptic != NULL);
+    _q_motor_in = xQueueCreate(5, sizeof( String* ));
+    _q_haptic_in = xQueueCreate(2, sizeof( hapticConfig ));
+    _q_angleevt_out = xQueueCreate(5, sizeof( AngleEvt ));
+    assert(_q_motor_in != NULL);
+    assert(_q_haptic_in != NULL);
+    assert(_q_angleevt_out != NULL);
 }
 
 FocThread::~FocThread() {}
@@ -52,9 +53,22 @@ void FocThread::run() {
     motor.init();
     motor.initFOC();
     haptic.init();
-
+    motor.disable(); // TOOD remove me
+    
+    float lastang = encoder.getAngle();
+    unsigned long ts = micros();
     while (true) {
         //haptic.haptic_loop();
+        encoder.update(); // TODO remove me when haptic is working
+        float ang = encoder.getAngle();
+        unsigned long now = micros();
+        if (ang - lastang >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
+            AngleEvt ae = { encoder.getMechanicalAngle(), encoder.getFullRotations(), encoder.getVelocity() };
+            xQueueSend(_q_angleevt_out, &ae, (TickType_t)0);
+            lastang = ang;
+            ts = now;
+        }
+        
         handleMessage();
         handleHapticConfig();
         vTaskDelay(1);
@@ -63,40 +77,36 @@ void FocThread::run() {
 };
 
 
-void FocThread::put_message(String* message) {
+void FocThread::put_motor_command(String* message) {
     if (message!=nullptr)
-        xQueueSend(_q_in, (void*) message, (TickType_t)0);
-};
-
-String* FocThread::get_message() {
-    String* message = nullptr;
-    if (xQueueReceive(_q_out, &message, (TickType_t)0)) {
-        return message;
-    }
-    return nullptr;
+        xQueueSend(_q_motor_in, (void*) message, (TickType_t)0);
 };
 
 
 void FocThread::put_haptic_config(hapticConfig& profile) {
-    xQueueSend(_q_haptic, &profile, (TickType_t)0);
+    xQueueSend(_q_haptic_in, &profile, (TickType_t)0);
 };
 
+
+bool FocThread::get_angle_event(AngleEvt* evt) {
+    return xQueueReceive(_q_angleevt_out, evt, (TickType_t)0);
+};
 
 
 void FocThread::handleMessage() {
     String* message = nullptr;
-    if (xQueueReceive(_q_in, &message, (TickType_t)0)) {
+    if (xQueueReceive(_q_motor_in, &message, (TickType_t)0)) {
         if (message!=nullptr) {
             commander.handleMessage(message);
-            xQueueSend(_q_out, (void*) message, (TickType_t)0);
-            // message String* is returned to comms thread, where it is deleted if necessary
+            StringMessage smsg(message, StringMessageType::STRING_MESSAGE_MOTOR);
+            com_thread.put_string_message(smsg); // message String* is returned to comms thread, where it is deleted if necessary
         }
     }
 };
 
 
 void FocThread::handleHapticConfig() {
-    if (xQueueReceive(_q_haptic, &haptic.haptic_config, (TickType_t)0)) {
-        // nothing to do here
+    if (xQueueReceive(_q_haptic_in, &haptic.haptic_config, (TickType_t)0)) {
+        // TODO apply haptic config to motor
     }
 };

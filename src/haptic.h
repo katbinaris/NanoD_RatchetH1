@@ -74,3 +74,10 @@ private:
     void correct_pid(void);
 };
 
+
+typedef struct {
+    float angle;
+    int32_t turns;
+    float velocity;
+} AngleEvt;
+

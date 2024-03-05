@@ -10,12 +10,19 @@
 
 
 ComThread::ComThread(const uint8_t task_core) : Thread("COM", 2048, 1, task_core) {
-
+    _q_strings_in = xQueueCreate(5, sizeof( StringMessage ));
 };
 
 ComThread::~ComThread() {
 
 };
+
+
+void ComThread::put_string_message(StringMessage& msg){
+    xQueueSend(_q_strings_in, &msg, (TickType_t)0);
+};
+
+
 
 void ComThread::run() {
     // serial is initialized in main.cpp, but subsequently used only here
@@ -43,9 +50,10 @@ void ComThread::run() {
                 continue;
             }
             Serial.println("JSON received"); // TODO remove this
-            JsonVariant v = doc["p"];
-            if (v!=nullptr) { // haptic command
-              handleProfileCommand(v);
+            JsonVariant profile = doc["profile"];
+            JsonVariant v = doc["updates"];
+            if (profile.is<String>() || v!=nullptr) { // haptic command
+              handleProfileCommand(profile, v);
             }
             if (doc["current"]!=nullptr) { // set current profile
               setCurrentProfile(doc["current"].as<String>());
@@ -54,7 +62,7 @@ void ComThread::run() {
               // send message to FOC thread
               const char* cmd = doc["R"];
               String* cmdstr = new String(cmd);
-              foc_thread.put_message(cmdstr);
+              foc_thread.put_motor_command(cmdstr);
             }
             v = doc["message"]; // TOOD can we re-use the JsonVariant in this way?
             if (v!=nullptr) { // its a message
@@ -75,12 +83,7 @@ void ComThread::run() {
         }
 
         // send any outgoing messages
-        String* message = foc_thread.get_message();
-        if (message!=nullptr) {
-          Serial.println(*message);
-          // TODO wrap in JSON
-          delete message;
-        }
+        handleMessages();
 
         // send key events
         bool hadEvent = false;
@@ -94,6 +97,19 @@ void ComThread::run() {
               doc["kd"] = keyEvt.keyNum;
             else if (keyEvt.type==1) // AceButton::kEventReleased
               doc["ku"] = keyEvt.keyNum;
+            serializeJson(doc, Serial);
+            Serial.println(); // add a newline
+            ts_last_activity = millis();
+          }
+        } while (hadEvent);
+        do {
+          AngleEvt angleEvt;
+          hadEvent = foc_thread.get_angle_event(&angleEvt);
+          if (hadEvent) {
+            eventDoc.clear();
+            doc["a"] = angleEvt.angle;
+            doc["t"] = angleEvt.turns;
+            doc["v"] = angleEvt.velocity;
             serializeJson(doc, Serial);
             Serial.println(); // add a newline
             ts_last_activity = millis();
@@ -135,6 +151,38 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
 
 
 
+void ComThread::handleMessages() {
+  StringMessage incoming;
+  JsonDocument doc;
+  if (xQueueReceive(_q_strings_in, &incoming, (TickType_t)0)) {
+    if (incoming.message!=nullptr) {
+      bool sendDoc = true;
+      switch(incoming.type) {
+        case STRING_MESSAGE_DEBUG:
+          doc["debug"] = *incoming.message;
+          break;
+        case STRING_MESSAGE_ERROR:
+          doc["error"] = *incoming.message;
+          break;
+        case STRING_MESSAGE_MOTOR:
+          doc["r"] = *incoming.message;
+          break;
+        default:
+          Serial.println(*incoming.message);
+          sendDoc = false;
+          break;
+      }
+      if (sendDoc) {
+        serializeJson(doc, Serial);
+        Serial.println(); // add a newline
+      }
+      delete incoming.message;
+    }
+  }
+};
+
+
+
 
 void ComThread::handleProfilesCommand(JsonVariant p) {
   if (p.isNull()) return;
@@ -160,37 +208,52 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
 
 
 
-void ComThread::handleProfileCommand(JsonVariant p) {
-  if (p.isNull()) return;
+void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
+  if (profile.isNull()&&updates.isNull()) return;
   HapticProfileManager& pm = HapticProfileManager::getInstance();
-  if (p.is<String>()) {
-    String profile = p.as<String>();
-    HapticProfile* p = pm[profile];
-    JsonDocument doc;
-    if (p!=nullptr) {
-      // send the selected profile
-      p->toJSON(doc);
-    }
-    else {
+  HapticProfile* p;
+  if (profile.is<String>()) {
+    String pname = profile.as<String>();
+    p = pm[pname];
+    if (p==nullptr) 
+      p = pm.add(pname);
+    if (p==nullptr) {
       // send an error message
-      doc["error"] = "Profile not found";
+      JsonDocument doc;
+      doc["error"] = "Cannot add another profile";
+      serializeJson(doc, Serial);
+      Serial.println(); // add a newline
+      return;
     }
+  }
+  else 
+    p = pm.getCurrentProfile();
+
+  if (updates.isNull()) {
+    JsonDocument doc;
+    // send the selected profile
+    p->toJSON(doc);
     serializeJson(doc, Serial);
     Serial.println(); // add a newline
   }
-  else if (p.is<JsonObject>()) {
-    JsonObject obj = p.as<JsonObject>();
-    String pName = obj["name"];
-    HapticProfile* profile = pm[pName];
-    if (profile==nullptr) profile = pm.add(pName);
-    if (profile!=nullptr) {
-      *profile = obj; // assigning the JSON object to the profile will update the profile's fields
-      if (profile==pm.getCurrentProfile()) {
-        dispatchHapticConfig();
-        dispatchLedConfig();
+  else if (updates.is<JsonObject>()) {
+    JsonObject obj = updates.as<JsonObject>();
+    if (obj["name"].is<String>() && obj["name"].as<String>()!=p->profile_name) {
+      String new_name = obj["name"].as<String>();
+      if (pm[new_name]!=nullptr) {
+        // send an error message
+        JsonDocument doc;
+        doc["error"] = "Profile name already exists";
+        serializeJson(doc, Serial);
+        Serial.println(); // add a newline
+        return;
       }
-
-      // TODO store to SPIFFS
+    }
+    // update the profile
+    *p = obj; // assigning the JSON object to the profile will update the profile's fields
+    if (p==pm.getCurrentProfile()) {
+      dispatchHapticConfig();
+      dispatchLedConfig();
     }
   }
 };

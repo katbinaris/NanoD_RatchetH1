@@ -46,6 +46,12 @@ Each JSON message is separated from the next one by a newline character. Newline
 { "idle": 16233 }
 ```
 
+**Saved messages** are sent after every save of the device settings and/or profiles. Note: if errors occur during save, details of these are sent as error messages.
+
+```json
+{ "saved": true }
+```
+
 **Event messages** are sent by the system on user interaction with the device. There are a few types depending on the event. Multiple events could arrive in the same JSON message.
 
 ```json
@@ -83,7 +89,8 @@ Get a single profile's details:
 The response includes all profile fields, and would arrive in one line, but is shown here formatted for legibility:
 ```json
 { 
-    "profile": {
+    "profile": "Blender",
+    "fields": {
         // TODO
     } 
 }
@@ -173,6 +180,7 @@ Response (formatted on multiple lines for clarity):
         "firmwareVersion": "1.0.0",
         "deviceId": "A300F377",
         "deviceName": "Richard's Nano",
+        "auto_save": true
         // TODO document other settings
     }
 }

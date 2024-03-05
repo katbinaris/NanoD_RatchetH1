@@ -1,4 +1,5 @@
 #include "hmi_thread.h"
+#include "com_thread.h"
 
 using namespace ace_button;
 
@@ -52,10 +53,22 @@ void HmiThread::run() {
     keyB.getButtonConfig()->setIEventHandler(this);
     keyC.getButtonConfig()->setIEventHandler(this);
     keyD.getButtonConfig()->setIEventHandler(this);
+    keyA.getButtonConfig()->setClickDelay(50);
+    keyB.getButtonConfig()->setClickDelay(50);
+    keyC.getButtonConfig()->setClickDelay(50);
+    keyD.getButtonConfig()->setClickDelay(50);
+    keyA.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
+    keyB.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
+    keyC.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
+    keyD.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
     ledsp[0] = CRGB(led_config.button_A_col_idle);
     ledsp[1] = CRGB(led_config.button_B_col_idle);
     ledsp[2] = CRGB(led_config.button_C_col_idle);
     ledsp[3] = CRGB(led_config.button_D_col_idle);
+
+    unsigned long total = 0;
+    unsigned long updates = 0;
+    unsigned long ts = micros();
 
     while (1) {
         keyA.check();
@@ -64,6 +77,21 @@ void HmiThread::run() {
         keyD.check();
         handleConfig();
         halvesPointer(30, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+        unsigned long us = micros();
+        FastLED.show();
+        unsigned long now = micros();
+        us = now - us;
+        updates++;
+        total += us;
+        if (now - ts > 10000000) {
+            float fps = 1000000.0 * updates / total;
+            float ups = 1000000.0 * updates / (now - ts);
+            StringMessage msg(new String("LED rate: " + String(ups) + " updates/s, "+ String(fps) +" frames/s raw (= " + String(fps * 64) + " pix/s = " + String(fps * 64 * 3 * 8 / 1000000) + "Mbps"));
+            com_thread.put_string_message(msg);
+            ts = now;
+            total = 0;
+            updates = 0;
+        }
         vTaskDelay(5 / portTICK_PERIOD_MS);
     }
     
@@ -92,9 +120,9 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
                 keyState &= ~(1<<keyNum);
             break;
         }
-        updateKeyLeds();
         KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)keyNum, .keyState=keyState };
         xQueueSend(_q_keyevt_out, &keyEvt, (TickType_t)0);
+        updateKeyLeds();
     }
 };
 
@@ -121,7 +149,7 @@ void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, cons
         }
     }
     leds[indicator] = pointerCol;
-    FastLED.show();
+    
     vTaskDelay(1000 / 12 / portTICK_PERIOD_MS);
 };
 
