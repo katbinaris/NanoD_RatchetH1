@@ -1,5 +1,6 @@
 #include "hmi_thread.h"
 #include "com_thread.h"
+#include "foc_thread.h"
 
 using namespace ace_button;
 
@@ -76,7 +77,7 @@ void HmiThread::run() {
         keyC.check();
         keyD.check();
         handleConfig();
-        halvesPointer(30, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+        updateLeds();
         unsigned long us = micros();
         FastLED.show();
         unsigned long now = micros();
@@ -137,6 +138,14 @@ void HmiThread::updateKeyLeds() {
 
 
 
+void HmiThread::updateLeds() {
+    // TODO implement switching animations
+    uint8_t pointer = (foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
+    halvesPointer(pointer, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+}
+
+
+
 
 // Standard Pointer with two halves
 void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
@@ -148,9 +157,8 @@ void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, cons
             leds[i] = preCol;
         }
     }
-    leds[indicator] = pointerCol;
-    
-    vTaskDelay(1000 / 12 / portTICK_PERIOD_MS);
+    if (indicator < NANO_LED_A_NUM)
+        leds[indicator] = pointerCol;
 };
 
 

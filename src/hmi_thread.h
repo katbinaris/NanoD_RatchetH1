@@ -40,6 +40,7 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         CRGB leds[NANO_LED_A_NUM];
         CRGB ledsp[NANO_LED_B_NUM];
         void updateKeyLeds();
+        void updateLeds();
 
         // buttons
         ace_button::AceButton keyA;

@@ -93,6 +93,12 @@ bool FocThread::get_angle_event(AngleEvt* evt) {
 };
 
 
+float FocThread::get_motor_angle() {
+    return encoder.getMechanicalAngle();
+};
+
+
+
 void FocThread::handleMessage() {
     String* message = nullptr;
     if (xQueueReceive(_q_motor_in, &message, (TickType_t)0)) {
@@ -110,3 +116,4 @@ void FocThread::handleHapticConfig() {
         // TODO apply haptic config to motor
     }
 };
+

@@ -19,6 +19,8 @@ class FocThread : public Thread<FocThread> {
         void put_haptic_config(hapticConfig& profile);
         bool get_angle_event(AngleEvt* evt);
 
+        float get_motor_angle();
+
     protected:
         void run();
         void handleMessage();
