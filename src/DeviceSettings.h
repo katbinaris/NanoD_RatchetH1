@@ -17,10 +17,12 @@ public:
     DeviceSettings& operator=(JsonObject& obj);
     void toJSON(JsonDocument& doc);
 
-    void toSPIFFS();
+    bool toSPIFFS();
 
     // load settings - call only from main or in comms thread
-    void fromSPIFFS();
+    bool fromSPIFFS();
+
+    bool dirty;
 
     bool debug;
     uint8_t ledMaxBrightness;

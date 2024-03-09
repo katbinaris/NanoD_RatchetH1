@@ -9,7 +9,7 @@
 
 
 
-ComThread::ComThread(const uint8_t task_core) : Thread("COM", 2048, 1, task_core) {
+ComThread::ComThread(const uint8_t task_core) : Thread("COM", 4096, 1, task_core) {
     _q_strings_in = xQueueCreate(5, sizeof( StringMessage ));
 };
 
@@ -79,6 +79,12 @@ void ComThread::run() {
             v = doc["settings"];
             if (v!=nullptr) { // get or set settings
               handleSettingsCommand(v);
+            }
+            if (doc["save"]) { // save settings and profiles to SPIFFS
+              if (doc["save"].as<bool>()==true) {
+                DeviceSettings::getInstance().toSPIFFS();
+                HapticProfileManager::getInstance().toSPIFFS();
+              }
             }
         }
 

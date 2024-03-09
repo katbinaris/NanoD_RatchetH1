@@ -1,6 +1,11 @@
 
 #include "./HapticProfileManager.h"
 #include "./DeviceSettings.h"
+#include "SPIFFS.h"
+
+
+#define PROFILES_DIRECTORY "/profiles"
+
 
 
 HapticProfileManager HapticProfileManager::instance;
@@ -25,6 +30,7 @@ HapticProfile* HapticProfileManager::add(String name) {
   for (int i=0; i<MAX_PROFILES; i++) {
     if (profiles[i].profile_name=="") {
       profiles[i].profile_name = name;
+      profiles[i].dirty = true;
       return &profiles[i];
     }
   }
@@ -81,28 +87,6 @@ int HapticProfileManager::size() {
 
 
 
-void HapticProfileManager::fromSPIFFS() {
-  Serial.println("Loading profiles from SPIFFS...");
-  // TODO load profiles from SPIFFS
-  Serial.println("No profiles found.");
-  // add a default profile 
-  // TODO make conditional on no profiles found
-  HapticProfile* profile = add("Default Profile"); // structs are initialized with default values
-  if (profile!=nullptr) {
-    Serial.print("Added profile ");
-    Serial.println(profile->profile_name);
-    current_profile = &profiles[0];
-  }
-  else {
-    Serial.println("FATAL: Failed to add default profile.");
-    while (1);
-  }
-};
-
-
-void HapticProfileManager::toSPIFFS() {
-  // TODO
-};
 
 
 HapticProfile* HapticProfileManager::setCurrentProfile(String name){
@@ -120,6 +104,144 @@ HapticProfile* HapticProfileManager::getCurrentProfile() {
 
 
 
+
+
+void HapticProfileManager::fromSPIFFS() {
+  Serial.println("Loading profiles from SPIFFS...");
+  // load profiles from SPIFFS
+  int count = 0;
+  File dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+  if (dir) {
+    File file = dir.openNextFile();
+    while (file) {
+      if (!file.isDirectory() && String(file.name()).endsWith(".json")) {
+          Serial.print("Loading profile: ");
+          Serial.println(file.name());
+          // load the profile
+          JsonDocument doc;
+          DeserializationError error = deserializeJson(doc, file);
+          if (error) {
+            Serial.print("ERROR: Failed to parse profile: ");
+            Serial.println(file.name());
+          }
+          else {
+            HapticProfile* profile = add(doc["name"].as<String>());
+            if (profile!=nullptr) {
+              Serial.print("Added profile: ");
+              Serial.println(profile->profile_name);
+              JsonObject obj = doc.as<JsonObject>();
+              *profile = obj; // TODO this won't default existing field values if they're not present in JSON - need to handle this for when new fields are added
+              profile->dirty = (obj["version"].isNull() || obj["version"].as<int>()!=PROFILE_VERSION);
+              if (current_profile==nullptr)
+                current_profile = profile; // set first loaded profile as current TODO remember last profile used
+              count++;
+            }
+            else {
+              Serial.print("ERROR: Failed to add profile: ");
+              Serial.println(file.name());
+            }
+          }
+      }
+      file.close();
+      file = dir.openNextFile();
+    }
+    dir.close();
+  }
+  if (count==0) {
+    Serial.println("No profiles found.");
+    // add a default profile
+    HapticProfile* profile = add("Default Profile"); // structs are initialized with default values
+    if (profile!=nullptr) {
+      Serial.print("Added profile ");
+      Serial.println(profile->profile_name);
+      current_profile = profile;
+    }
+    else {
+      Serial.println("FATAL: Failed to add default profile.");
+      while (1);
+    }
+  }
+  else {
+    Serial.print(count);
+    Serial.println(" profiles loaded.");
+  }
+};
+
+
+
+void HapticProfileManager::toSPIFFS() {
+  // TODO first iterate over the existing profiles and remove any that are not in the current list
+  Serial.println("Saving profiles to SPIFFS...");
+  File dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+  if (!dir) {
+    Serial.println("Creating profiles directory...");
+    if (!SPIFFS.mkdir(PROFILES_DIRECTORY)){
+      Serial.println("ERROR: Failed to create profiles directory.");
+      return;
+    }
+    dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+    if (!dir) {
+      Serial.println("ERROR: Failed to open profiles directory.");
+      return;
+    }
+  }
+  File file = dir.openNextFile();
+  while (file) {
+    if (!file.isDirectory() && String(file.name()).endsWith(".json")) {
+      bool found = false;
+      for (int i=0; i<MAX_PROFILES; i++) {
+        if (profiles[i].profile_name!="") {
+          if (String(file.name()).endsWith(profiles[i].profile_name+".json")) {
+            found = true;
+            break;
+          }
+        }
+      }
+      if (!found) {
+        Serial.print("Removing deleted profile: ");
+        Serial.println(file.name());
+        SPIFFS.remove(file.name());
+      }
+    }
+    file.close();
+    file = dir.openNextFile();
+  }
+  // then save any dirty profiles to SPIFFS
+  for (int i=0; i<MAX_PROFILES; i++) {
+    if (profiles[i].profile_name!="" && profiles[i].dirty) {
+      Serial.print("Saving profile: ");
+      Serial.println(profiles[i].profile_name);
+      String filename = PROFILES_DIRECTORY;
+      filename += "/";
+      filename += profiles[i].profile_name;
+      filename += ".json";
+      File file = SPIFFS.open(filename, "w");
+      if (file) {
+        JsonDocument doc;
+        profiles[i].toJSON(doc);
+        serializeJson(doc, file);
+        file.close();
+        profiles[i].dirty = false;
+      }
+      else {
+        Serial.print("ERROR: Failed to save profile: ");
+        Serial.println(profiles[i].profile_name);
+      }
+    }
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
 HapticProfile::HapticProfile() {
   profile_name = "";
 };
@@ -129,83 +251,50 @@ HapticProfile::HapticProfile() {
 HapticProfile::~HapticProfile() { };
 
 
-
+// bit of pre-processor magic makes the update code more compact
+#define update_field(prop, field) if (!obj[#prop].isNull()) { field = obj[#prop].as<decltype(field)>(); dirty = true; }
 
 
 
 HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   haptic_parms = hapticParms(); // TODO this struct is not used??
-  if (!obj["id"].isNull())
-    profile_id = obj["id"].as<int>();
-  if (!obj["name"].isNull())
-    profile_name = obj["name"].as<String>();
-  if (!obj["desc"].isNull())
-    profile_desc = obj["desc"].as<String>();
-  if (!obj["profileTag"].isNull())
-    profile_tag = obj["profileTag"].as<String>();
-
+  // if (!obj["id"].isNull())
+  //   profile_id = obj["id"].as<int>();
+  update_field(name, profile_name);
+  update_field(desc, profile_desc);
+  update_field(profileTag, profile_tag);
   // transfer haptic_config fields
-  if (!obj["profileType"].isNull())
-    haptic_config.profile_type = obj["profileType"].as<int>();
-  if (!obj["position_num"].isNull())
-    haptic_config.position_num = obj["position_num"].as<int>();
-  if (!obj["attract_distance"].isNull())
-    haptic_config.attract_distance = obj["attract_distance"].as<float>();
-  if (!obj["feedback_strength"].isNull())
-    haptic_config.feedback_strength = obj["feedback_strength"].as<int>();
-  if (!obj["bounce_strength"].isNull()) 
-    haptic_config.bounce_strength = obj["bounce_strength"].as<int>();
-  if (!obj["haptic_click_strength"].isNull())
-    haptic_config.haptic_click_strength = obj["haptic_click_strength"].as<int>();
-  if (!obj["output_ramp"].isNull())    
-    haptic_config.output_ramp = obj["output_ramp"].as<int>();
-
+  update_field(profileType, haptic_config.profile_type);
+  update_field(position_num, haptic_config.position_num);
+  update_field(attract_distance, haptic_config.attract_distance);
+  update_field(feedback_strength, haptic_config.feedback_strength);
+  update_field(bounce_strength, haptic_config.bounce_strength);
+  update_field(haptic_click_strength, haptic_config.haptic_click_strength);
+  update_field(output_ramp, haptic_config.output_ramp);
   // led config fields
-  if (!obj["ledEnable"].isNull())
-    led_config.led_enable = obj["ledEnable"].as<bool>();
-  if (!obj["ledBrightness"].isNull())
-    led_config.led_brightness = obj["ledBrightness"].as<int>();
-  if (!obj["ledMode"].isNull())
-    led_config.led_mode = obj["ledMode"].as<int>();
-  if (!obj["pointer"].isNull())
-    led_config.pointer_col = obj["pointer"].as<int>();
-  if (!obj["primary"].isNull())
-    led_config.primary_col = obj["primary"].as<int>();
-  if (!obj["secondary"].isNull())
-    led_config.secondary_col = obj["secondary"].as<int>();
-  if (!obj["buttonAIdle"].isNull())
-    led_config.button_A_col_idle = obj["buttonAIdle"].as<int>();
-  if (!obj["buttonBIdle"].isNull())
-    led_config.button_B_col_idle = obj["buttonBIdle"].as<int>();
-  if (!obj["buttonCIdle"].isNull())
-    led_config.button_C_col_idle = obj["buttonCIdle"].as<int>();
-  if (!obj["buttonDIdle"].isNull())
-    led_config.button_D_col_idle = obj["buttonDIdle"].as<int>();
-  if (!obj["buttonAPress"].isNull())
-    led_config.button_A_col_press = obj["buttonAPress"].as<int>();
-  if (!obj["buttonBPress"].isNull())
-    led_config.button_B_col_press = obj["buttonBPress"].as<int>();
-  if (!obj["buttonCPress"].isNull())
-    led_config.button_C_col_press = obj["buttonCPress"].as<int>();
-  if (!obj["buttonDPress"].isNull())
-    led_config.button_D_col_press = obj["buttonDPress"].as<int>();
-
+  update_field(ledEnable, led_config.led_enable);
+  update_field(ledBrightness, led_config.led_brightness);
+  update_field(ledMode, led_config.led_mode);
+  update_field(pointer, led_config.pointer_col);
+  update_field(primary, led_config.primary_col);
+  update_field(secondary, led_config.secondary_col);
+  update_field(buttonAIdle, led_config.button_A_col_idle);
+  update_field(buttonBIdle, led_config.button_B_col_idle);
+  update_field(buttonCIdle, led_config.button_C_col_idle);
+  update_field(buttonDIdle, led_config.button_D_col_idle);
+  update_field(buttonAPress, led_config.button_A_col_press);
+  update_field(buttonBPress, led_config.button_B_col_press);
+  update_field(buttonCPress, led_config.button_C_col_press);
+  update_field(buttonDPress, led_config.button_D_col_press);
   // key config fields
-  if (!obj["internalMacro"].isNull())
-    key_config.internal_macro = obj["internalMacro"].as<bool>();
-  if (!obj["knobMap"].isNull())
-    key_config.knob_map = obj["knobMap"].as<String>();
-  if (!obj["switchA"].isNull())
-    key_config.button_A_map = obj["switchA"].as<String>();
-  if (!obj["switchB"].isNull())
-    key_config.button_B_map = obj["switchB"].as<String>();
-  if (!obj["switchC"].isNull())
-    key_config.button_C_map = obj["switchC"].as<String>();
-  if (!obj["switchD"].isNull())
-    key_config.button_D_map = obj["switchD"].as<String>();
-
-  if (!obj["guiEnable"].isNull())
-    gui_enable = obj["guiEnable"].as<bool>();
+  update_field(internalMacro, key_config.internal_macro);
+  update_field(knobMap, key_config.knob_map);
+  update_field(switchA, key_config.button_A_map);
+  update_field(switchB, key_config.button_B_map);
+  update_field(switchC, key_config.button_C_map);
+  update_field(switchD, key_config.button_D_map);
+  // gui config fields
+  update_field(guiEnable, gui_enable);
 
 
   // TODO midi and sound fields
@@ -217,12 +306,11 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
 
 
 void HapticProfile::toJSON(JsonDocument& doc){
-  doc["id"] = profile_id;
+  doc["version"] = PROFILE_VERSION;
   doc["name"] = profile_name;
   doc["desc"] = profile_desc;
   doc["profileTag"] = profile_tag;
   doc["profileType"] = haptic_config.profile_type;
-
   // transfer haptic_config fields
   doc["profile_type"] = haptic_config.profile_type;
   doc["position_num"] = haptic_config.position_num;
@@ -231,7 +319,6 @@ void HapticProfile::toJSON(JsonDocument& doc){
   doc["bounce_strength"] = haptic_config.bounce_strength;
   doc["haptic_click_strength"] = haptic_config.haptic_click_strength;
   doc["output_ramp"] = haptic_config.output_ramp;
-
   // transfer led_config fields
   doc["ledEnable"] = led_config.led_enable;
   doc["ledBrightness"] = led_config.led_brightness;
@@ -247,7 +334,6 @@ void HapticProfile::toJSON(JsonDocument& doc){
   doc["buttonBPress"] = led_config.button_B_col_press;
   doc["buttonCPress"] = led_config.button_C_col_press;
   doc["buttonDPress"] = led_config.button_D_col_press;
-
   // transfer key_config fields
   doc["internalMacro"] = key_config.internal_macro;
   doc["knobMap"] = key_config.knob_map;
