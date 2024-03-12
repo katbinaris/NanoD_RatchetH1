@@ -73,11 +73,15 @@ extern "C" void HapticInterface::HapticEventCallback(HapticEvt event){
     break;
 
   case HapticEvt::LIMIT_NEG:
-    Serial.println("Negative limit reached.");
+    if(!haptic_state.atLimit){
+      Serial.println("Negative limit reached.");
+    }
     break;
 
   case HapticEvt::LIMIT_POS:
-    Serial.println("Positive limit reached.");
+    if(!haptic_state.atLimit){
+      Serial.println("Positive limit reached.");
+    }
     break;
 
   default:

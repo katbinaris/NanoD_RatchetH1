@@ -35,11 +35,7 @@ public:
     float attract_angle = 0; // angle where PID will point to
     float last_attract_angle = 0;
 
-    // Current Position Behavior
-    uint16_t current_pos = 1; // Current Actual Position
-    /* 
-    Current position is always represented as integer
-    */
+    uint16_t current_pos = start_pos; 
 
     uint8_t detent_count = 0;
 
@@ -50,6 +46,8 @@ public:
     float endstop_strength_unit = 0.34; // PID (estimated) Current Limit
 
     float click_strength = 0.4; //  PID (estimated) Current Limit
+
+    bool atLimit = 0;
 };
 
 class HapticInterface
@@ -58,6 +56,8 @@ public:
     hapticConfig haptic_config; // Haptic configuration
     hapticParms* haptic_params; // TODO this struct is not used??
 
+    HapticState haptic_state;   // Haptic state
+    
     BLDCMotor* motor;
     PIDController* haptic_pid;
 
@@ -73,9 +73,6 @@ public:
     void haptic_loop(void);
     void haptic_click(void);
     void HapticEventCallback(HapticEvt) __attribute__((weak));
-
-protected:
-    HapticState haptic_state;   // Haptic state
 
 private:
     void find_detent(void);

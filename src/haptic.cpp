@@ -157,24 +157,28 @@ void HapticInterface::state_update(void)
     if(haptic_state.attract_angle > compositeAngle){
         if(haptic_state.current_pos < haptic_state.end_pos){
             haptic_state.last_attract_angle = haptic_state.attract_angle;
+            haptic_state.atLimit = 0;
             haptic_state.current_pos++;
             stateChanged++;
             HapticEventCallback(HapticEvt::INCREASE);
         }
         else{
             HapticEventCallback(HapticEvt::LIMIT_POS);
+            haptic_state.atLimit = 1;
         }
     }
 
     else if (haptic_state.attract_angle < compositeAngle){
         if(haptic_state.current_pos > haptic_state.start_pos){
             haptic_state.last_attract_angle = haptic_state.attract_angle;
+            haptic_state.atLimit = 0;
             haptic_state.current_pos--;
             stateChanged++;
             HapticEventCallback(HapticEvt::DECREASE);
         }
         else{
             HapticEventCallback(HapticEvt::LIMIT_NEG);
+            haptic_state.atLimit = 1;
         }
     }
 
