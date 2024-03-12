@@ -17,9 +17,6 @@
  * as they have no relevance to the haptic module.
  */
 
-
-
-
 typedef struct {
 
     // Feedback Settings
@@ -115,10 +112,6 @@ typedef struct {
 
     */
 } hapticConfig;
-
-
-
-
 
 typedef struct {
 

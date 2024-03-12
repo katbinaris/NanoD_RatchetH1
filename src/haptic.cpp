@@ -5,22 +5,20 @@ static const float idle_velocity_ewma_alpha = 0.001;
 static const float idle_velocity_rad_per_sec = 0.05;
 static const int32_t idle_correction_delay = 500; //ms
 
-PIDController default_pid(1.22, 0, 0.004, 10000, 1.22);
+PIDController default_pid(1.22, 0, 0.004, 10000, 1.0);
 
 hapticConfig default_config;
 hapticParms default_params;
-
-
 
 HapticState::HapticState(uint16_t position_num, float attract_distance){
     // intialize haptic state
     start_pos = 1;
     end_pos = position_num;
-    total_pos = end_pos - start_pos +1;
+    total_pos = end_pos - start_pos + 1;
     last_pos = 0;
     attract_angle = 0;
     last_attract_angle = 0;
-    current_pos = 1;
+    current_pos = start_pos; 
     detent_count = 0;
     distance_pos = attract_distance * _PI / 180;
     detent_strength_unit = 0.5;
@@ -28,12 +26,7 @@ HapticState::HapticState(uint16_t position_num, float attract_distance){
     click_strength = 0.4;
 };
 
-
 HapticState::~HapticState() {};
-
-
-
-
 
 HapticInterface::HapticInterface(BLDCMotor* _motor){
     motor = _motor;
@@ -81,8 +74,15 @@ void HapticInterface::init(void){
     motor->foc_modulation = FOCModulationType::SpaceVectorPWM;
 };
 
-
-
+void HapticInterface::haptic_loop(void){
+    
+    correct_pid(); // Adjust PID (Derivative Gain)
+    find_detent(); // Calculate attraction angle depending on configured distance position.
+    state_update(); // Determine and update current position    
+    haptic_target(); // PID Command
+    
+    delayMicroseconds(1500); //Small delay between 750-1500us default 1500us helps with click response between calculations
+}
 
 void HapticInterface::find_detent(void)
 {
@@ -97,13 +97,13 @@ float HapticInterface::haptic_target(void)
     // Call FOC loop
     motor->loopFOC();
 
-    // Target Command
+    // Prevent knob velocity from getting too high.
     if(fabsf(motor->shaft_velocity) > 60) {
         motor->move(0);
-    // If velocity (turn speed is greather than x then dont apply any torque
     } else {
         motor->move(default_pid(error));
     }
+
     return haptic_pid->operator()(error);
 }
 
@@ -120,20 +120,6 @@ void HapticInterface::haptic_click(void){
         delay(1);
     }
     motor->move(0);
-}
-
-void HapticInterface::haptic_loop(void){
-    
-    // TODO: Include Check if Config is Correct before triggering loop
-
-    while (1){
-    correct_pid(); // Adjust PID (Derivative Gain)
-    find_detent(); // Calculate attraction angle depending on configured distance position.
-    state_update(); // Determine and update current position    
-    haptic_target(); // PID Command
-    
-    delayMicroseconds(1500); //Small delay between 750-1500us default 1500us helps with click response between calculations
-    }
 }
 
 void HapticInterface::correct_pid(void)
@@ -165,14 +151,42 @@ void HapticInterface::state_update(void)
 {
     // Determine and Update Current Position
     // Check if attractor angle is within calculated position between min and max position and update current position if in range.
-    if(haptic_state.attract_angle > haptic_state.current_pos * haptic_state.distance_pos && haptic_state.current_pos < haptic_state.end_pos){
-        haptic_state.current_pos++;
-        haptic_state.last_attract_angle = haptic_state.attract_angle;
+    uint8_t stateChanged = 0;
+    float compositeAngle = haptic_state.current_pos * haptic_state.distance_pos;
 
-    } else if (haptic_state.attract_angle < haptic_state.current_pos * haptic_state.distance_pos && haptic_state.current_pos > haptic_state.start_pos){
-        haptic_state.current_pos--;
-        haptic_state.last_attract_angle = haptic_state.attract_angle;
+    if(haptic_state.attract_angle > compositeAngle){
+        if(haptic_state.current_pos < haptic_state.end_pos){
+            haptic_state.last_attract_angle = haptic_state.attract_angle;
+            haptic_state.current_pos++;
+            stateChanged++;
+            HapticEventCallback(HapticEvt::INCREASE);
+        }
+        else{
+            HapticEventCallback(HapticEvt::LIMIT_POS);
+        }
+    }
 
+    else if (haptic_state.attract_angle < compositeAngle){
+        if(haptic_state.current_pos > haptic_state.start_pos){
+            haptic_state.last_attract_angle = haptic_state.attract_angle;
+            haptic_state.current_pos--;
+            stateChanged++;
+            HapticEventCallback(HapticEvt::DECREASE);
+        }
+        else{
+            HapticEventCallback(HapticEvt::LIMIT_NEG);
+        }
+    }
+
+    if(stateChanged){
+        HapticEventCallback(HapticEvt::EITHER);
     }
 };
 
+void HapticEventCallback(HapticEvt event){
+    /**
+     * This function should not be modified.
+     * To use this, implement the function in your main application.
+     * extern "C" void HapticEventCallback(HapticEvt event)
+    */
+}

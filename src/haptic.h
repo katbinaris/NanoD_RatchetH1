@@ -7,6 +7,20 @@
 #include <motor.h>
 #include "haptic_api.h"
 
+typedef struct {
+    float angle;
+    int32_t turns;
+    float velocity;
+} AngleEvt;
+
+typedef enum {
+    INCREASE,
+    DECREASE,
+    EITHER,
+    LIMIT_POS,
+    LIMIT_NEG
+} HapticEvt;
+
 
 class HapticState {
 public:
@@ -38,11 +52,6 @@ public:
     float click_strength = 0.4; //  PID (estimated) Current Limit
 };
 
-
-
-
-
-
 class HapticInterface
 {
 public:
@@ -63,9 +72,11 @@ public:
     void init(void);
     void haptic_loop(void);
     void haptic_click(void);
+    void HapticEventCallback(HapticEvt) __attribute__((weak));
 
 protected:
     HapticState haptic_state;   // Haptic state
+
 private:
     void find_detent(void);
     void update_position(void);
@@ -73,11 +84,3 @@ private:
     float haptic_target(void);
     void correct_pid(void);
 };
-
-
-typedef struct {
-    float angle;
-    int32_t turns;
-    float velocity;
-} AngleEvt;
-

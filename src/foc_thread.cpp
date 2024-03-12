@@ -53,12 +53,11 @@ void FocThread::run() {
     motor.init();
     motor.initFOC();
     haptic.init();
-    motor.disable(); // TOOD remove me
     
     float lastang = encoder.getAngle();
     unsigned long ts = micros();
     while (true) {
-        //haptic.haptic_loop();
+        haptic.haptic_loop();
         encoder.update(); // TODO remove me when haptic is working
         float ang = encoder.getAngle();
         unsigned long now = micros();
@@ -96,8 +95,6 @@ bool FocThread::get_angle_event(AngleEvt* evt) {
 float FocThread::get_motor_angle() {
     return encoder.getMechanicalAngle();
 };
-
-
 
 void FocThread::handleMessage() {
     String* message = nullptr;

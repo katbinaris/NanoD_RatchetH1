@@ -52,10 +52,35 @@ void setup() {
   vTaskDelete(NULL);
 }
 
-
-
 void loop() {
   // main loop not used...
   vTaskDelay(1000);
 }
 
+extern "C" void HapticInterface::HapticEventCallback(HapticEvt event){
+  switch (event)
+  {
+  case HapticEvt::INCREASE:
+    Serial.println("Increasing detent.");
+    break;
+  
+  case HapticEvt::DECREASE:
+    Serial.println("Decreasing detent.");
+    break;
+
+  case HapticEvt::EITHER:
+    Serial.println("This prints any time the detent moves.");
+    break;
+
+  case HapticEvt::LIMIT_NEG:
+    Serial.println("Negative limit reached.");
+    break;
+
+  case HapticEvt::LIMIT_POS:
+    Serial.println("Positive limit reached.");
+    break;
+
+  default:
+    break;
+  }
+}

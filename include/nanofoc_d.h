@@ -1,17 +1,16 @@
 #pragma once
 
-
 #define DEFAULT_SERIAL_SPEED 115200
 #define DEFAULT_LED_MAX_BRIGHTNESS 150
 
 #define ONCETOP 1
 
 // Motor driver
-#define PIN_EN_U 33
-#define PIN_EN_V 48
+#define PIN_EN_U 48
+#define PIN_EN_V 33
 #define PIN_EN_W 36
-#define PIN_IN_U 34
-#define PIN_IN_V 35
+#define PIN_IN_U 35
+#define PIN_IN_V 34
 #define PIN_IN_W 37
 
 // Magnetic encoder (MA)
