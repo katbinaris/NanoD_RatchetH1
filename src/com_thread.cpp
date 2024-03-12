@@ -236,9 +236,10 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
     p = pm.getCurrentProfile();
 
   if (updates.isNull()) {
-    JsonDocument doc;
+    JsonDocument doc, profileDoc;
     // send the selected profile
-    p->toJSON(doc);
+    p->toJSON(profileDoc);
+    doc["profile"] = profileDoc;
     serializeJson(doc, Serial);
     Serial.println(); // add a newline
   }
