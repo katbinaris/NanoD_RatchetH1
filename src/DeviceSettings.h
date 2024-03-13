@@ -29,6 +29,7 @@ public:
     float maxVelocity;
     float maxVoltage;
     String deviceName;
+    uint8_t deviceOrientation;
 
     // read-only settings
     String serialNumber;

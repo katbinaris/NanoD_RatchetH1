@@ -31,6 +31,7 @@ class ComThread : public Thread<ComThread> {
 
         void setCurrentProfile(String name);
         void put_string_message(StringMessage& msg);
+        bool isProfileNameOk(String& name);
 
     protected:
         void run();
@@ -38,11 +39,18 @@ class ComThread : public Thread<ComThread> {
         void handleSettingsCommand(JsonVariant s);
         void handleProfilesCommand(JsonVariant p);
         void handleMessages();
+        void handleEvents();
 
         void dispatchLedConfig();
         void dispatchHapticConfig();
 
+        void sendError(String& error, String* msg = nullptr);
+        void sendError(String& error, String& msg);
+        void sendError(const char* error, String& msg);
+        void sendError(const char* error, const char* msg = nullptr);
+
         QueueHandle_t _q_strings_in;
+        unsigned long ts_last_activity;
 };
 
 

@@ -27,15 +27,10 @@ void ComThread::put_string_message(StringMessage& msg){
 void ComThread::run() {
     // serial is initialized in main.cpp, but subsequently used only here
     Serial.println("COM thread started");
-
-    // TODO load profiles from SPIFFS
-    // TODO load the current profile from SPIFFS
-    // TODO if there are no profiles, create a default one
     // TODO set the active profile to the other threads
     unsigned long ts = millis();
     unsigned long ts_last_activity = ts;
     JsonDocument idleDoc;
-    JsonDocument eventDoc;
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
@@ -43,10 +38,7 @@ void ComThread::run() {
             DeserializationError error = deserializeJson(doc, input);
             if (error) {
                 doc.clear();
-                doc["error"] = "JSON parse error";
-                doc["msg"] = error.c_str();
-                serializeJson(doc, Serial);
-                Serial.println(); // add a newline
+                sendError("JSON parse error", error.c_str());
                 continue;
             }
             Serial.println("JSON received"); // TODO remove this
@@ -92,35 +84,7 @@ void ComThread::run() {
         handleMessages();
 
         // send key events
-        bool hadEvent = false;
-        do {
-          KeyEvt keyEvt;
-          hadEvent = hmi_thread.get_key_event(&keyEvt);
-          if (hadEvent) {
-            eventDoc.clear();
-            doc["ks"] = keyEvt.keyState;
-            if (keyEvt.type==0) // AceButton::kEventPressed
-              doc["kd"] = keyEvt.keyNum;
-            else if (keyEvt.type==1) // AceButton::kEventReleased
-              doc["ku"] = keyEvt.keyNum;
-            serializeJson(doc, Serial);
-            Serial.println(); // add a newline
-            ts_last_activity = millis();
-          }
-        } while (hadEvent);
-        do {
-          AngleEvt angleEvt;
-          hadEvent = foc_thread.get_angle_event(&angleEvt);
-          if (hadEvent) {
-            eventDoc.clear();
-            doc["a"] = angleEvt.angle;
-            doc["t"] = angleEvt.turns;
-            doc["v"] = angleEvt.velocity;
-            serializeJson(doc, Serial);
-            Serial.println(); // add a newline
-            ts_last_activity = millis();
-          }
-        } while (hadEvent);
+        handleEvents();
 
         // send idle message
         unsigned long now = millis();
@@ -135,6 +99,44 @@ void ComThread::run() {
     }
 
 };
+
+
+
+
+
+void ComThread::handleEvents() {
+    JsonDocument eventDoc;
+    bool hadEvent = false;
+    do {
+      KeyEvt keyEvt;
+      hadEvent = hmi_thread.get_key_event(&keyEvt);
+      if (hadEvent) {
+        eventDoc.clear();
+        eventDoc["ks"] = keyEvt.keyState;
+        if (keyEvt.type==0) // AceButton::kEventPressed
+          eventDoc["kd"] = keyEvt.keyNum;
+        else if (keyEvt.type==1) // AceButton::kEventReleased
+          eventDoc["ku"] = keyEvt.keyNum;
+        serializeJson(eventDoc, Serial);
+        Serial.println(); // add a newline
+        ts_last_activity = millis();
+      }
+    } while (hadEvent);
+    do {
+      AngleEvt angleEvt;
+      hadEvent = foc_thread.get_angle_event(&angleEvt);
+      if (hadEvent) {
+        eventDoc.clear();
+        eventDoc["a"] = angleEvt.angle;
+        eventDoc["t"] = angleEvt.turns;
+        eventDoc["v"] = angleEvt.velocity;
+        serializeJson(eventDoc, Serial);
+        Serial.println(); // add a newline
+        ts_last_activity = millis();
+      }
+    } while (hadEvent);
+};
+
 
 
 
@@ -214,21 +216,57 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
 
 
 
+bool ComThread::isProfileNameOk(String& name){
+  // TODO check for invalid characters
+  return true;
+};
+
+
+
+
+void ComThread::sendError(String& error, String* msg){
+      JsonDocument doc;
+      doc["error"] = error;
+      if (msg!=nullptr)
+        doc["msg"] = *msg;
+      serializeJson(doc, Serial);
+      Serial.println(); // add a newline
+};
+void ComThread::sendError(String& error, String& msg){
+  sendError(error, &msg);
+};
+void ComThread::sendError(const char* error, String& msg) {
+  String e = error;
+  sendError(e, &msg);
+};
+void ComThread::sendError(const char* error, const char* msg) {
+  String e = error;
+  if (msg==nullptr) {
+    sendError(e);
+  }
+  else {
+    String m = msg;
+    sendError(e, m);
+  }
+};
+
+
+
 void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
   if (profile.isNull()&&updates.isNull()) return;
   HapticProfileManager& pm = HapticProfileManager::getInstance();
   HapticProfile* p;
   if (profile.is<String>()) {
     String pname = profile.as<String>();
+    if (!isProfileNameOk(pname)) {
+      sendError("Invalid profile name", pname);
+      return;
+    }
     p = pm[pname];
     if (p==nullptr) 
       p = pm.add(pname);
     if (p==nullptr) {
-      // send an error message
-      JsonDocument doc;
-      doc["error"] = "Cannot add another profile";
-      serializeJson(doc, Serial);
-      Serial.println(); // add a newline
+      sendError("Cannot add another profile");
       return;
     }
   }
@@ -238,7 +276,8 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
   if (updates.isNull()) {
     JsonDocument doc;
     // send the selected profile
-    p->toJSON(doc);
+    JsonObject obj = doc["profile"].to<JsonObject>();
+    p->toJSON(obj);
     serializeJson(doc, Serial);
     Serial.println(); // add a newline
   }
@@ -247,11 +286,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
     if (obj["name"].is<String>() && obj["name"].as<String>()!=p->profile_name) {
       String new_name = obj["name"].as<String>();
       if (pm[new_name]!=nullptr) {
-        // send an error message
-        JsonDocument doc;
-        doc["error"] = "Profile name already exists";
-        serializeJson(doc, Serial);
-        Serial.println(); // add a newline
+        sendError("Profile name already exists");
         return;
       }
     }
@@ -279,6 +314,7 @@ void ComThread::dispatchLedConfig() {
     if (copy.led_brightness>DeviceSettings::getInstance().ledMaxBrightness)
       copy.led_brightness = DeviceSettings::getInstance().ledMaxBrightness;
     hmi_thread.put_led_config(copy);
+    //hmi_thread.put_key_config(HapticProfileManager::getInstance().getCurrentProfile()->key_config);
 };
 
 void ComThread::dispatchHapticConfig() {

@@ -3,6 +3,7 @@
 #include "./DeviceSettings.h"
 #include "SPIFFS.h"
 
+#include "class/hid/hid.h"
 
 #define PROFILES_DIRECTORY "/profiles"
 
@@ -31,6 +32,12 @@ HapticProfile* HapticProfileManager::add(String name) {
     if (profiles[i].profile_name=="") {
       profiles[i].profile_name = name;
       profiles[i].dirty = true;
+      profiles[i].profile_desc = "";
+      profiles[i].profile_tag = "";
+      profiles[i].haptic_config = hapticConfig();
+      profiles[i].led_config = ledConfig();
+      profiles[i].hmi_config = hmiConfig(); // TODO init all fields explicitly
+      profiles[i].gui_enable = false;
       return &profiles[i];
     }
   }
@@ -130,8 +137,10 @@ void HapticProfileManager::fromSPIFFS() {
               Serial.print("Added profile: ");
               Serial.println(profile->profile_name);
               JsonObject obj = doc.as<JsonObject>();
-              *profile = obj; // TODO this won't default existing field values if they're not present in JSON - need to handle this for when new fields are added
+              *profile = obj;
               profile->dirty = (obj["version"].isNull() || obj["version"].as<int>()!=PROFILE_VERSION);
+              if (profile->dirty && obj["version"].is<int>())
+                updateProfile(profile, obj["version"].as<int>());
               if (current_profile==nullptr)
                 current_profile = profile; // set first loaded profile as current TODO remember last profile used
               count++;
@@ -154,6 +163,23 @@ void HapticProfileManager::fromSPIFFS() {
     if (profile!=nullptr) {
       Serial.print("Added profile ");
       Serial.println(profile->profile_name);
+      // only for the default profile, set a default key-mapping
+      profile->hmi_config.keys[0].num_pressed_actions = 1;
+      profile->hmi_config.keys[0].pressed[0].type = keyActionType::KA_KEY;
+      profile->hmi_config.keys[0].pressed[0].hid.num = 1;
+      profile->hmi_config.keys[0].pressed[0].hid.key_codes[0] = HID_KEY_N;
+      profile->hmi_config.keys[1].num_pressed_actions = 1;
+      profile->hmi_config.keys[1].pressed[0].type = keyActionType::KA_KEY;
+      profile->hmi_config.keys[1].pressed[0].hid.num = 1;
+      profile->hmi_config.keys[1].pressed[0].hid.key_codes[0] = HID_KEY_A;
+      profile->hmi_config.keys[2].num_pressed_actions = 1;
+      profile->hmi_config.keys[2].pressed[0].type = keyActionType::KA_KEY;
+      profile->hmi_config.keys[2].pressed[0].hid.num = 1;
+      profile->hmi_config.keys[2].pressed[0].hid.key_codes[0] = HID_KEY_N;
+      profile->hmi_config.keys[3].num_pressed_actions = 1;
+      profile->hmi_config.keys[3].pressed[0].type = keyActionType::KA_KEY;
+      profile->hmi_config.keys[3].pressed[0].hid.num = 1;
+      profile->hmi_config.keys[3].pressed[0].hid.key_codes[0] = HID_KEY_O;
       current_profile = profile;
     }
     else {
@@ -218,7 +244,8 @@ void HapticProfileManager::toSPIFFS() {
       File file = SPIFFS.open(filename, "w");
       if (file) {
         JsonDocument doc;
-        profiles[i].toJSON(doc);
+        JsonObject obj = doc.as<JsonObject>();
+        profiles[i].toJSON(obj);
         serializeJson(doc, file);
         file.close();
         profiles[i].dirty = false;
@@ -252,7 +279,7 @@ HapticProfile::~HapticProfile() { };
 
 
 // bit of pre-processor magic makes the update code more compact
-#define update_field(prop, field) if (!obj[#prop].isNull()) { field = obj[#prop].as<decltype(field)>(); dirty = true; }
+#define update_field(obj, prop, field) if (!obj[#prop].isNull()) { field = obj[#prop].as<decltype(field)>(); dirty = true; }
 
 
 
@@ -260,43 +287,68 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   haptic_parms = hapticParms(); // TODO this struct is not used??
   // if (!obj["id"].isNull())
   //   profile_id = obj["id"].as<int>();
-  update_field(name, profile_name);
-  update_field(desc, profile_desc);
-  update_field(profileTag, profile_tag);
+  update_field(obj, name, profile_name);
+  update_field(obj, desc, profile_desc);
+  update_field(obj, profileTag, profile_tag);
   // transfer haptic_config fields
-  update_field(profileType, haptic_config.profile_type);
-  update_field(position_num, haptic_config.position_num);
-  update_field(attract_distance, haptic_config.attract_distance);
-  update_field(feedback_strength, haptic_config.feedback_strength);
-  update_field(bounce_strength, haptic_config.bounce_strength);
-  update_field(haptic_click_strength, haptic_config.haptic_click_strength);
-  update_field(output_ramp, haptic_config.output_ramp);
+  update_field(obj, profileType, haptic_config.profile_type);
+  update_field(obj, position_num, haptic_config.position_num);
+  update_field(obj, attract_distance, haptic_config.attract_distance);
+  update_field(obj, feedback_strength, haptic_config.feedback_strength);
+  update_field(obj, bounce_strength, haptic_config.bounce_strength);
+  update_field(obj, haptic_click_strength, haptic_config.haptic_click_strength);
+  update_field(obj, output_ramp, haptic_config.output_ramp);
   // led config fields
-  update_field(ledEnable, led_config.led_enable);
-  update_field(ledBrightness, led_config.led_brightness);
-  update_field(ledMode, led_config.led_mode);
-  update_field(pointer, led_config.pointer_col);
-  update_field(primary, led_config.primary_col);
-  update_field(secondary, led_config.secondary_col);
-  update_field(buttonAIdle, led_config.button_A_col_idle);
-  update_field(buttonBIdle, led_config.button_B_col_idle);
-  update_field(buttonCIdle, led_config.button_C_col_idle);
-  update_field(buttonDIdle, led_config.button_D_col_idle);
-  update_field(buttonAPress, led_config.button_A_col_press);
-  update_field(buttonBPress, led_config.button_B_col_press);
-  update_field(buttonCPress, led_config.button_C_col_press);
-  update_field(buttonDPress, led_config.button_D_col_press);
+  update_field(obj, ledEnable, led_config.led_enable);
+  update_field(obj, ledBrightness, led_config.led_brightness);
+  update_field(obj, ledMode, led_config.led_mode);
+  update_field(obj, pointer, led_config.pointer_col);
+  update_field(obj, primary, led_config.primary_col);
+  update_field(obj, secondary, led_config.secondary_col);
+  update_field(obj, buttonAIdle, led_config.button_A_col_idle);
+  update_field(obj, buttonBIdle, led_config.button_B_col_idle);
+  update_field(obj, buttonCIdle, led_config.button_C_col_idle);
+  update_field(obj, buttonDIdle, led_config.button_D_col_idle);
+  update_field(obj, buttonAPress, led_config.button_A_col_press);
+  update_field(obj, buttonBPress, led_config.button_B_col_press);
+  update_field(obj, buttonCPress, led_config.button_C_col_press);
+  update_field(obj, buttonDPress, led_config.button_D_col_press);
   // key config fields
-  update_field(internalMacro, key_config.internal_macro);
-  update_field(knobMap, key_config.knob_map);
-  update_field(switchA, key_config.button_A_map);
-  update_field(switchB, key_config.button_B_map);
-  update_field(switchC, key_config.button_C_map);
-  update_field(switchD, key_config.button_D_map);
+  if (!obj["keys"].isNull()) {
+    JsonArray keys = obj["keys"].as<JsonArray>();
+    for (int i=0; i<4; i++) {
+      if (!keys[i].isNull()) {
+        JsonObject key = keys[i].as<JsonObject>();
+        if (!key["pressed"].isNull()) {
+          JsonArray actions = key["pressed"].as<JsonArray>();
+          hmi_config.keys[i].num_pressed_actions = actions.size();
+          for (int j=0;j<hmi_config.keys[i].num_pressed_actions;j++) {
+            JsonObject obj = actions[j].as<JsonObject>();
+            keyActionFromJSON(obj, hmi_config.keys[i].pressed[j]);
+          }
+        }
+        if (!key["released"].isNull()) {
+          JsonArray actions = key["released"].as<JsonArray>();
+          hmi_config.keys[i].num_released_actions = actions.size();
+          for (int j=0;j<hmi_config.keys[i].num_released_actions;j++) {
+            JsonObject obj = actions[j].as<JsonObject>();
+            keyActionFromJSON(obj, hmi_config.keys[i].released[j]);
+          }
+        }
+        if (!key["held"].isNull()) {
+          JsonArray actions = key["held"].as<JsonArray>();
+          hmi_config.keys[i].num_held_actions = actions.size();
+          for (int j=0;j<hmi_config.keys[i].num_held_actions;j++) {
+            JsonObject obj = actions[j].as<JsonObject>();
+            keyActionFromJSON(obj, hmi_config.keys[i].held[j]);
+          }
+        }
+      }
+    }
+  }
+      // TODO
   // gui config fields
-  update_field(guiEnable, gui_enable);
-
-
+  update_field(obj, guiEnable, gui_enable);
   // TODO midi and sound fields
 
 
@@ -304,8 +356,44 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
 };
 
 
+void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
+  if (!obj["type"].isNull()) {
+    String type = obj["type"].as<String>();
+    if (type=="midi") {
+      action.type = keyActionType::KA_MIDI;
+      update_field(obj, channel, action.midi.channel);
+      update_field(obj, cc, action.midi.cc);
+      update_field(obj, val, action.midi.val);
+    }
+    else if (type=="key") {
+      action.type = keyActionType::KA_KEY;
+      if (!obj["keyCodes"].isNull()) {
+        JsonArray keys = obj["keyCodes"].as<JsonArray>();
+        action.hid.num = keys.size();
+        for (int k=0; k<action.hid.num; k++) {
+          action.hid.key_codes[k] = keys[k].as<uint8_t>();
+        }
+      }
+    }
+    else if (type=="mouse") {
+      action.type = keyActionType::KA_MOUSE;
+      // TODO fields
+    }
+    else if (type=="gamepad") {
+      action.type = keyActionType::KA_GAMEPAD;
+      // TODO fields
+    }
+    else if (type=="profile_change") {
+      action.type = keyActionType::KA_PROFILE_CHANGE;
+      // TODO fields
+    }
+  }
+};
 
-void HapticProfile::toJSON(JsonDocument& doc){
+
+
+
+void HapticProfile::toJSON(JsonObject& doc){
   doc["version"] = PROFILE_VERSION;
   doc["name"] = profile_name;
   doc["desc"] = profile_desc;
@@ -335,16 +423,75 @@ void HapticProfile::toJSON(JsonDocument& doc){
   doc["buttonCPress"] = led_config.button_C_col_press;
   doc["buttonDPress"] = led_config.button_D_col_press;
   // transfer key_config fields
-  doc["internalMacro"] = key_config.internal_macro;
-  doc["knobMap"] = key_config.knob_map;
-  doc["switchA"] = key_config.button_A_map;
-  doc["switchB"] = key_config.button_B_map;
-  doc["switchC"] = key_config.button_C_map;
-  doc["switchD"] = key_config.button_D_map;
-
+  JsonArray keys = doc["keys"].to<JsonArray>();
+  for (int i=0; i<4; i++) {
+    JsonObject key = keys.add<JsonObject>();
+    if (hmi_config.keys[i].num_pressed_actions>0) {
+      JsonArray actions = key["pressed"].to<JsonArray>();
+      for (int j=0;j<hmi_config.keys[i].num_pressed_actions;j++) {
+        if (hmi_config.keys[i].pressed[j].type!=keyActionType::KA_NONE) {
+          JsonObject obj = actions.add<JsonObject>();
+          keyActionToJSON(obj, hmi_config.keys[i].pressed[j]);
+        }
+      }
+    } // if num_pressed_actions>0
+    if (hmi_config.keys[i].num_released_actions>0) {
+      JsonArray actions = key["released"].to<JsonArray>();
+      for (int j=0;j<hmi_config.keys[i].num_released_actions;j++) {
+        if (hmi_config.keys[i].released[j].type!=keyActionType::KA_NONE) {
+          JsonObject obj = actions.add<JsonObject>();
+          keyActionToJSON(obj, hmi_config.keys[i].released[j]);
+        }
+      }
+    } // if num_released_actions>0
+    if (hmi_config.keys[i].num_held_actions>0) {
+      JsonArray actions = key["held"].to<JsonArray>();
+      for (int j=0;j<hmi_config.keys[i].num_held_actions;j++) {
+        if (hmi_config.keys[i].held[j].type!=keyActionType::KA_NONE) {
+          JsonObject obj = actions.add<JsonObject>();
+          keyActionToJSON(obj, hmi_config.keys[i].held[j]);
+        }
+      }
+    } // if num_held_actions>0
+  }// end keys loop
+  // other configs
   doc["guiEnable"] = gui_enable;
-
-  // TODO midi and sound fields
-
-
+  // TODO midi and sound fields ?
 };
+
+
+
+
+void HapticProfile::keyActionToJSON(JsonObject& obj, keyAction& action){
+  switch (action.type) {
+    case keyActionType::KA_MIDI:
+      obj["type"] = "midi";
+      obj["channel"] = action.midi.channel;
+      obj["cc"] = action.midi.cc;
+      obj["val"] = action.midi.val;
+      break;
+    case keyActionType::KA_KEY:
+      {
+        obj["type"] = "key";
+        JsonArray keys = obj["keyCodes"].to<JsonArray>();
+        for (int i=0; i<action.hid.num; i++) {
+          keys.add(action.hid.key_codes[i]);
+        }
+      }
+      break;
+    case keyActionType::KA_MOUSE:
+      obj["type"] = "mouse";
+      // TODO fields
+      break;
+    case keyActionType::KA_GAMEPAD:
+      obj["type"] = "gamepad";
+      // TODO fields
+      break;
+    case keyActionType::KA_PROFILE_CHANGE:
+      obj["type"] = "profile_change";
+      // TODO fields
+      break;
+  }      
+};
+
+

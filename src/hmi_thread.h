@@ -6,7 +6,7 @@
 #include "thread_crtp.h"
 #include "nanofoc_d.h"
 #include "./led_api.h"
-#include "./key_api.h"
+#include "./hmi_api.h"
 
 
 class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
@@ -16,10 +16,11 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         HmiThread(const uint8_t task_core);
         ~HmiThread();
        
-        void init(ledConfig& initialConfig);
+        void init_usb();
+        void init(ledConfig& initial_led_config, hmiConfig& initial_hmi_config);
     
         // queues
-        void put_led_config(ledConfig& newConfig);
+        void put_led_config(ledConfig& new_config);
         bool get_key_event(KeyEvt* keyEvt);
 
         // Light Effects
@@ -43,6 +44,7 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         void updateLeds();
 
         // buttons
+        hmiConfig hmi_config;
         ace_button::AceButton keyA;
         ace_button::AceButton keyB;
         ace_button::AceButton keyC;
@@ -50,6 +52,7 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         uint8_t keyState = 0;
         // button handler
         void handleEvent(ace_button::AceButton* button, uint8_t eventType, uint8_t buttonState) override;
+        void handleKeyAction(keyAction& action);
 
         // animations
         bool gReverseDirection = false;

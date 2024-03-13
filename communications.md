@@ -89,39 +89,77 @@ Get a single profile's details:
 The response includes all profile fields, and would arrive in one line, but is shown here formatted for legibility:
 ```json
 {
-    "version": 1,
-    "name": "Blender",
-    "desc": "A cool profile",
-    "profileTag": "",
-    "profileType": 0,
-    "profile_type": 0,
-    "position_num": 12,
-    "attract_distance": 20,
-    "feedback_strength": 6,
-    "bounce_strength": 3,
-    "haptic_click_strength": 6,
-    "output_ramp": 10000,
-    "ledEnable": true,
-    "ledBrightness": 100,
-    "ledMode": 0,
-    "pointer": 16777215,
-    "primary": 32768,
-    "secondary": 16753920,
-    "buttonAIdle": 16562691,
-    "buttonBIdle": 16562691,
-    "buttonCIdle": 16562691,
-    "buttonDIdle": 16562691,
-    "buttonAPress": 16516075,
-    "buttonBPress": 16516075,
-    "buttonCPress": 16516075,
-    "buttonDPress": 16516075,
-    "internalMacro": false,
-    "knobMap": "1016001255",
-    "switchA": "1016001255",
-    "switchB": "214567",
-    "switchC": "0",
-    "switchD": "0",
-    "guiEnable": false
+    "profile": {
+        "version": 2,
+        "name": "Richie's Profile",
+        "desc": "A cool profile",
+        "profileTag": "",
+        "profileType": 0,
+        "profile_type": 0,
+        "position_num": 12,
+        "attract_distance": 20,
+        "feedback_strength": 6,
+        "bounce_strength": 3,
+        "haptic_click_strength": 6,
+        "output_ramp": 10000,
+        "ledEnable": true,
+        "ledBrightness": 100,
+        "ledMode": 0,
+        "pointer": 16777215,
+        "primary": 32768,
+        "secondary": 16753920,
+        "buttonAIdle": 16562691,
+        "buttonBIdle": 16562691,
+        "buttonCIdle": 16562691,
+        "buttonDIdle": 16562691,
+        "buttonAPress": 16516075,
+        "buttonBPress": 16516075,
+        "buttonCPress": 16516075,
+        "buttonDPress": 16516075,
+        "keys": [
+            {
+                "pressed": [
+                    {
+                        "type": "key",
+                        "keyCodes": [
+                            17
+                        ]
+                    }
+                ]
+            },
+            {
+                "pressed": [
+                    {
+                        "type": "key",
+                        "keyCodes": [
+                            4
+                        ]
+                    }
+                ]
+            },
+            {
+                "pressed": [
+                    {
+                        "type": "key",
+                        "keyCodes": [
+                            17
+                        ]
+                    }
+                ]
+            },
+            {
+                "pressed": [
+                    {
+                        "type": "key",
+                        "keyCodes": [
+                            18
+                        ]
+                    }
+                ]
+            }
+        ],
+        "guiEnable": false
+    }
 }
 ```
 

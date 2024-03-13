@@ -5,13 +5,13 @@
 
 #include "haptic_api.h"
 #include "led_api.h"
-#include "key_api.h"
+#include "hmi_api.h"
 #include "audio_api.h"
 #include <ArduinoJSON.h>
 
 
 #define MAX_PROFILES 10
-#define PROFILE_VERSION 1
+#define PROFILE_VERSION 2
 
 
 /**
@@ -32,7 +32,9 @@ public:
     ~HapticProfile();
 
     HapticProfile& operator=(JsonObject& obj);
-    void toJSON(JsonDocument& doc);
+    void keyActionFromJSON(JsonObject& obj, keyAction& action);
+    void toJSON(JsonObject& doc);
+    void keyActionToJSON(JsonObject& obj, keyAction& action);
 
     bool dirty;
 
@@ -47,7 +49,7 @@ public:
     hapticConfig haptic_config;
     hapticParms haptic_parms;   // TODO it seems the hapticParams are not used in the haptic module... dead code should be removed.
     ledConfig led_config;
-    keyConfig key_config;
+    hmiConfig hmi_config;
     audioConfig audio_config;
 
     // gui config - just one variable for now
@@ -87,6 +89,8 @@ public:
 
     void fromSPIFFS();
     void toSPIFFS();
+    void updateProfile(HapticProfile* profile, uint8_t from_version);
+    
 protected:
     HapticProfile profiles[MAX_PROFILES];
     HapticProfile* current_profile;

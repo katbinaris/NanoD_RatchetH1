@@ -1,8 +1,33 @@
 #include "hmi_thread.h"
 #include "com_thread.h"
 #include "foc_thread.h"
+#include <Adafruit_TinyUSB.h>
+#include "MIDI.h"
 
 using namespace ace_button;
+
+
+Adafruit_USBD_MIDI usb_midi(1);
+
+MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, MIDI_IO);
+
+enum
+{
+  RID_KEYBOARD = 1,
+  RID_MOUSE = 2
+};
+
+
+uint8_t const desc_hid_report[] = {
+  TUD_HID_REPORT_DESC_KEYBOARD( HID_REPORT_ID(RID_KEYBOARD) ),
+  TUD_HID_REPORT_DESC_MOUSE   ( HID_REPORT_ID(RID_MOUSE) )
+};
+
+// USB HID object
+Adafruit_USBD_HID usb_hid;
+
+
+
 
 
 // Hmi thread controls LED via FastLed and buttons via AceButton
@@ -14,14 +39,32 @@ HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 2048, 1, task_cor
 
 HmiThread::~HmiThread() {}
 
-void HmiThread::init(ledConfig& initialConfig) {
-    led_config = initialConfig;
+
+// init_usb() must be called before the thread is started
+void HmiThread::init_usb() {
+  usb_midi.setStringDescriptor("Nano_D MIDI");
+  //usb_midi.setCableName(1, "Port1");
+  //usb_midi.setCableName(2, "Port THRU");
+  usb_midi.begin();
+
+  usb_hid.setBootProtocol(HID_ITF_PROTOCOL_NONE);
+  usb_hid.setPollInterval(2);
+  usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
+  usb_hid.setStringDescriptor("Nano_D HID");
+  usb_hid.begin();
+};
+
+
+// init must be called before the thread is started
+void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_config) {
+    led_config = initial_led_config;
+    hmi_config = initial_hmi_config;
     FastLED.setBrightness(led_config.led_brightness);
 };
 
 
-void HmiThread::put_led_config(ledConfig& newConfig) {
-    xQueueSend(_q_config_in, &newConfig, (TickType_t)0);
+void HmiThread::put_led_config(ledConfig& new_config) {
+    xQueueSend(_q_config_in, &new_config, (TickType_t)0);
 };
 
 
@@ -116,6 +159,9 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
         switch (eventType) {
             case AceButton::kEventPressed:
                 keyState |= (1<<keyNum);
+                for (int i=0; i<hmi_config.keys[keyNum].num_pressed_actions; i++) {
+                    handleKeyAction(hmi_config.keys[keyNum].pressed[i]);
+                }
             break;
             case AceButton::kEventReleased:
                 keyState &= ~(1<<keyNum);
@@ -126,6 +172,36 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
         updateKeyLeds();
     }
 };
+
+
+
+
+
+void HmiThread::handleKeyAction(keyAction& action) {
+    switch (action.type) {
+        case keyActionType::KA_MIDI:
+            //midi.sendControlChange(action.midi.midiChannel, action.midi.ccNum, action.midi.ccVal);
+        break;
+        case keyActionType::KA_KEY:
+            // TODO implement
+            for (int i=0;i<action.hid.num;i++) {
+                usb_hid.keyboardPress(RID_KEYBOARD, action.hid.key_codes[i]);
+            }
+        break;
+        case keyActionType::KA_MOUSE:
+            // TODO implement
+        break;
+        case keyActionType::KA_GAMEPAD:
+            // TODO implement
+        break;
+        case keyActionType::KA_PROFILE_CHANGE:
+            // TODO implement
+        break;
+    }
+};
+
+
+
 
 
 
