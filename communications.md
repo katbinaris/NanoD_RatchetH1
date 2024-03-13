@@ -280,6 +280,15 @@ Save the settings and profiles to SPIFFs:
 { "save": true }
 ```
 
+<hr>
+
+Reload the settings and profiles from SPIFFs:
+
+
+```json
+{ "load": true }
+```
+
 Note: the save command can be included with other commands, e.g. updating settings and saving at the same time...
 
 <hr>
