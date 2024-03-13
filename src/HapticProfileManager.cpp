@@ -284,7 +284,6 @@ HapticProfile::~HapticProfile() { };
 
 
 HapticProfile& HapticProfile::operator=(JsonObject& obj) {
-  haptic_parms = hapticParms(); // TODO this struct is not used??
   // if (!obj["id"].isNull())
   //   profile_id = obj["id"].as<int>();
   update_field(obj, name, profile_name);

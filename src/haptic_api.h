@@ -17,9 +17,6 @@
  * as they have no relevance to the haptic module.
  */
 
-
-
-
 typedef struct {
 
     // Feedback Settings
@@ -43,18 +40,18 @@ typedef struct {
 
         ###
 
+        Profile type [2] tells firmware switch to MotionController::Velocity
+        Profile Type 2 - UI locks renames attraction angle to position distance and locks range between 1-12,
+        On Firmware side this value is still defined as attract_distance
+
+        ###
+
         Profile Type [3] tells firmware to send current position as negative
         or positive number which is rounded up degree in range of [-180 ... 180].
         In this mode the default position is always 0, and as knob is being rotated CW or CCW the angular difference
         CCW [-180...0]; CW [0...180]
 
         Profile Type 3 - UI limits position number to 1 and does not render users ability to modify attractor angle
-
-        ###
-
-        Profile type [2] tells firmware switch to MotionController::Velocity
-        Profile Type 2 - UI locks renames attraction angle to position distance and locks range between 1-12,
-        On Firmware side this value is still defined as attract_distance
     */
 
     uint16_t position_num = 12;
@@ -115,31 +112,4 @@ typedef struct {
 
     */
 } hapticConfig;
-
-
-
-
-
-typedef struct {
-
-    // TODO it seems the hapticParams are not used in the haptic module...
-    //      dead code should be removed.
-
-    // Exponentially Weighted Moving Average (EWMA)
-    // Used to correct PID, if position near alignment centre
-    // but not there yet, adjust slowly to the centre
-    // TODO: Implement EWMA and compare perfromance w/wo
-    float dead_zone_percent = 0.2;
-    float dead_zone_rad = _PI/180;
-
-    float idle_velocity_ewma_alpha = 0.001;
-    float idle_velocity_rad_per_sec = 0.05;
-    float idle_check_velocity_ewma = 0;
-    float idle_correction_max_angle_rad = 5 * _PI/180;
-    float idle_correction_rate_alpha = 0.0005;
-
-    float last_idle_start = 0;
-    uint32_t idle_correction_delay_millis = 500;
-} hapticParms;
-
 

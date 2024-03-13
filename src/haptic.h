@@ -7,47 +7,70 @@
 #include <motor.h>
 #include "haptic_api.h"
 
+/**
+ * Define start and end positions. These are the physical detent limits.
+ * Coarse index and fine index track where in that range the dial is currently pointing.
+ * Coarse num and fine num are the number of detents for each region. 
+ * 
+*/
 
-class HapticState {
+typedef enum {
+    INCREASE, // When fine detents increment
+    DECREASE,  //..
+    EITHER,   // Fires anytime a coarse detent is reached
+    LIMIT_POS,  // At detent.end_pos
+    LIMIT_NEG   // At detent.start_pos
+} HapticEvt;
+
+typedef enum {
+    REGULAR,    //Only coarse detents used
+    VERNIER,    // Coarse with fine between
+    VISCOSE,    // Resistance while turning
+    SPRING      // Snap back to center point
+} HapticMode;
+
+typedef struct {
+    HapticMode mode;
+    uint16_t start_pos;
+    uint16_t end_pos;
+    uint16_t detent_count;
+    uint8_t vernier;
+} DetentProfile;
+
+typedef struct {
+    float angle;
+    int32_t turns;
+    float velocity;
+} AngleEvt;
+
+class HapticState 
+{
 public:
-    HapticState(uint16_t position_num = 12, float attract_distance = 20.0f);
+    HapticState(void);
+    HapticState(DetentProfile profile);
     ~HapticState();
 
-    uint8_t start_pos = 1;
-    uint16_t end_pos;
-    uint16_t total_pos = end_pos - start_pos +1;
+    DetentProfile detent_profile;
 
-    uint16_t last_pos = 0; // Record last position for a recall
-    float attract_angle = 0; // angle where PID will point to
+    uint16_t current_pos = 0;
+    uint16_t last_pos = 0; 
+
+    float attract_angle = 0; 
     float last_attract_angle = 0;
 
-    // Current Position Behavior
-    uint16_t current_pos = 1; // Current Actual Position
-    /* 
-    Current position is always represented as integer
-    */
+    float detent_strength_unit = 0.5; // PID (estimated) Current Limit
+    float endstop_strength_unit = 0.5; // PID (estimated) Current Limit
 
-    uint8_t detent_count = 0;
+    bool atLimit = 0;
 
-    float distance_pos; // Define attractior distance position and convert it to radians
-
-    float detent_strength_unit = 0.34; // PID (estimated) Current Limit
-
-    float endstop_strength_unit = 0.34; // PID (estimated) Current Limit
-
-    float click_strength = 0.4; //  PID (estimated) Current Limit
+    void load_profile(DetentProfile);
 };
-
-
-
-
-
 
 class HapticInterface
 {
 public:
     hapticConfig haptic_config; // Haptic configuration
-    hapticParms* haptic_params; // TODO this struct is not used??
+    HapticState haptic_state;   // Haptic state
 
     BLDCMotor* motor;
     PIDController* haptic_pid;
@@ -57,27 +80,16 @@ public:
     HapticInterface(BLDCMotor* _motor, PIDController* _pid);
     HapticInterface(BLDCMotor* _motor, hapticConfig* _config);
     HapticInterface(BLDCMotor* _motor, PIDController* _pid, hapticConfig* _config);
-    HapticInterface(BLDCMotor* _motor, PIDController* _pid, hapticConfig* _config, hapticParms* _parms);
-
 
     void init(void);
     void haptic_loop(void);
-    void haptic_click(void);
+    void HapticEventCallback(HapticEvt);
+    void UserHapticEventCallback(HapticEvt, float, uint16_t) __attribute__((weak));
 
-protected:
-    HapticState haptic_state;   // Haptic state
 private:
+    void offset_detent(void);
     void find_detent(void);
     void update_position(void);
-    void state_update(void);
     float haptic_target(void);
     void correct_pid(void);
 };
-
-
-typedef struct {
-    float angle;
-    int32_t turns;
-    float velocity;
-} AngleEvt;
-
