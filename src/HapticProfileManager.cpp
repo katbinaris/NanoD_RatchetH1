@@ -321,7 +321,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         JsonObject key = keys[i].as<JsonObject>();
         if (!key["pressed"].isNull()) {
           JsonArray actions = key["pressed"].as<JsonArray>();
-          hmi_config.keys[i].num_pressed_actions = actions.size();
+          hmi_config.keys[i].num_pressed_actions = min((int)actions.size(), MAX_KEY_ACTIONS);
           for (int j=0;j<hmi_config.keys[i].num_pressed_actions;j++) {
             JsonObject obj = actions[j].as<JsonObject>();
             keyActionFromJSON(obj, hmi_config.keys[i].pressed[j]);
@@ -329,7 +329,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         }
         if (!key["released"].isNull()) {
           JsonArray actions = key["released"].as<JsonArray>();
-          hmi_config.keys[i].num_released_actions = actions.size();
+          hmi_config.keys[i].num_released_actions = min((int)actions.size(), MAX_KEY_ACTIONS);
           for (int j=0;j<hmi_config.keys[i].num_released_actions;j++) {
             JsonObject obj = actions[j].as<JsonObject>();
             keyActionFromJSON(obj, hmi_config.keys[i].released[j]);
@@ -337,7 +337,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         }
         if (!key["held"].isNull()) {
           JsonArray actions = key["held"].as<JsonArray>();
-          hmi_config.keys[i].num_held_actions = actions.size();
+          hmi_config.keys[i].num_held_actions = min((int)actions.size(), MAX_KEY_ACTIONS);
           for (int j=0;j<hmi_config.keys[i].num_held_actions;j++) {
             JsonObject obj = actions[j].as<JsonObject>();
             keyActionFromJSON(obj, hmi_config.keys[i].held[j]);
@@ -369,7 +369,7 @@ void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
       action.type = keyActionType::KA_KEY;
       if (!obj["keyCodes"].isNull()) {
         JsonArray keys = obj["keyCodes"].as<JsonArray>();
-        action.hid.num = keys.size();
+        action.hid.num = min((int)keys.size(), MAX_KEY_KEYCODES);
         for (int k=0; k<action.hid.num; k++) {
           action.hid.key_codes[k] = keys[k].as<uint8_t>();
         }

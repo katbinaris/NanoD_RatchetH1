@@ -9,7 +9,7 @@
 
 
 
-ComThread::ComThread(const uint8_t task_core) : Thread("COM", 4096, 1, task_core) {
+ComThread::ComThread(const uint8_t task_core) : Thread("COM", 8192, 1, task_core) {
     _q_strings_in = xQueueCreate(5, sizeof( StringMessage ));
 };
 
@@ -217,6 +217,10 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
 
 
 bool ComThread::isProfileNameOk(String& name){
+  if (name==nullptr)
+    return false;
+  if (name.length()<1 || name.length()>20)
+    return false;
   // TODO check for invalid characters
   return true;
 };

@@ -4,6 +4,12 @@
 #include <inttypes.h>
 
 
+#define MAX_KEY_ACTIONS 5
+#define MAX_KNOB_VALUES 8
+#define MAX_KEY_KEYCODES 32
+
+
+
 typedef struct  {
     uint8_t channel;
     uint8_t cc;
@@ -13,7 +19,7 @@ typedef struct  {
 
 typedef struct {
     uint8_t num;
-    uint8_t key_codes[32];
+    uint8_t key_codes[MAX_KEY_KEYCODES];
 } nanoKeyboardConfig;
 
 
@@ -54,9 +60,9 @@ typedef struct {
     uint8_t num_pressed_actions = 0;
     uint8_t num_held_actions = 0;
     uint8_t num_released_actions = 0;
-    keyAction pressed[5];
-    keyAction held[5];
-    keyAction released[5];
+    keyAction pressed[MAX_KEY_ACTIONS];
+    keyAction held[MAX_KEY_ACTIONS];
+    keyAction released[MAX_KEY_ACTIONS];
 } keyMapping;
 
 
