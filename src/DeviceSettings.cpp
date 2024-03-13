@@ -26,6 +26,8 @@ DeviceSettings::DeviceSettings() {
     serialNumber = String(ESP.getEfuseMac(), HEX);
     deviceName = "Nano_" + serialNumber;
     firmwareVersion = String(NANO_FIRMWARE_VERSION);
+    midiUsb = midiSettings();
+    midi2 = midiSettings();
     dirty = true;
 };
 
@@ -46,9 +48,32 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         maxVoltage = obj["maxVoltage"].as<float>();
     if (obj["deviceName"]!=nullptr)
         deviceName = obj["deviceName"].as<String>();
+    if (obj["midiUsb"]!=nullptr) {
+        JsonObject midiUsbObj = obj["midiUsb"].as<JsonObject>();
+        if (midiUsbObj["in"]!=nullptr)
+            midiUsb.in = midiUsbObj["in"].as<bool>();
+        if (midiUsbObj["out"]!=nullptr)
+            midiUsb.out = midiUsbObj["out"].as<bool>();
+        if (midiUsbObj["thru"]!=nullptr)
+            midiUsb.thru = midiUsbObj["thru"].as<bool>();
+        if (midiUsbObj["route"]!=nullptr)
+            midiUsb.route = midiUsbObj["route"].as<bool>();
+    }
+    if (obj["midi2"]!=nullptr) {
+        JsonObject midi2Obj = obj["midi2"].as<JsonObject>();
+        if (midi2Obj["in"]!=nullptr)
+            midi2.in = midi2Obj["in"].as<bool>();
+        if (midi2Obj["out"]!=nullptr)
+            midi2.out = midi2Obj["out"].as<bool>();
+        if (midi2Obj["thru"]!=nullptr)
+            midi2.thru = midi2Obj["thru"].as<bool>();
+        if (midi2Obj["route"]!=nullptr)
+            midi2.route = midi2Obj["route"].as<bool>();
+    }
     dirty = true;
     return *this;
 };
+
 
 
 void DeviceSettings::toJSON(JsonDocument& doc){
@@ -59,7 +84,20 @@ void DeviceSettings::toJSON(JsonDocument& doc){
     doc["deviceName"] = deviceName;
     doc["serialNumber"] = serialNumber;
     doc["firmwareVersion"] = firmwareVersion;
+    JsonObject midiUsbObj = doc["midiUsb"].to<JsonObject>();
+    midiUsbObj["in"] = midiUsb.in;
+    midiUsbObj["out"] = midiUsb.out;
+    midiUsbObj["thru"] = midiUsb.thru;
+    midiUsbObj["route"] = midiUsb.route;
+    midiUsbObj["nano"] = midiUsb.nano;
+    JsonObject midi2Obj = doc["midi2"].to<JsonObject>();
+    midi2Obj["in"] = midi2.in;
+    midi2Obj["out"] = midi2.out;
+    midi2Obj["thru"] = midi2.thru;
+    midi2Obj["route"] = midi2.route;
+    midi2Obj["nano"] = midi2.nano;
 };
+
 
 
 bool DeviceSettings::toSPIFFS(){

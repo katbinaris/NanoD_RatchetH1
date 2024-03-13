@@ -9,7 +9,8 @@ using namespace ace_button;
 
 Adafruit_USBD_MIDI usb_midi(1);
 
-MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, MIDI_IO);
+MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, midiu);
+MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
 
 enum
 {
@@ -46,6 +47,9 @@ void HmiThread::init_usb() {
   //usb_midi.setCableName(1, "Port1");
   //usb_midi.setCableName(2, "Port THRU");
   usb_midi.begin();
+  midiu.begin();
+//   midi1.setThruFilterMode(midi::Thru::Off);
+//   midi2.setThruFilterMode(midi::Thru::Off);
 
   usb_hid.setBootProtocol(HID_ITF_PROTOCOL_NONE);
   usb_hid.setPollInterval(2);
@@ -60,6 +64,9 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     led_config = initial_led_config;
     hmi_config = initial_hmi_config;
     FastLED.setBrightness(led_config.led_brightness);
+    midiUsbSettings = DeviceSettings::getInstance().midiUsb;
+    midi2Settings = DeviceSettings::getInstance().midi2;
+    midi2.begin();
 };
 
 
@@ -120,6 +127,7 @@ void HmiThread::run() {
         keyC.check();
         keyD.check();
         handleConfig();
+        handleMidi();
         updateLeds();
         unsigned long us = micros();
         FastLED.show();
@@ -165,6 +173,12 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
             break;
             case AceButton::kEventReleased:
                 keyState &= ~(1<<keyNum);
+                for (int i=0; i<hmi_config.keys[keyNum].num_released_actions; i++) {
+                    handleKeyAction(hmi_config.keys[keyNum].released[i]);
+                }
+                if (keyState==0) {
+                    usb_hid.keyboardRelease(RID_KEYBOARD);
+                }
             break;
         }
         KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)keyNum, .keyState=keyState };
@@ -180,13 +194,15 @@ void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t button
 void HmiThread::handleKeyAction(keyAction& action) {
     switch (action.type) {
         case keyActionType::KA_MIDI:
-            //midi.sendControlChange(action.midi.midiChannel, action.midi.ccNum, action.midi.ccVal);
+            if (midiUsbSettings.nano)
+                midiu.sendControlChange(action.midi.channel, action.midi.cc, action.midi.val);
+            if (midi2Settings.nano)
+                midi2.sendControlChange(action.midi.channel, action.midi.cc, action.midi.val);
         break;
         case keyActionType::KA_KEY:
-            // TODO implement
-            for (int i=0;i<action.hid.num;i++) {
-                usb_hid.keyboardPress(RID_KEYBOARD, action.hid.key_codes[i]);
-            }
+            usb_hid.keyboardReport(RID_KEYBOARD, 0, action.hid.key_codes); 
+            // TODO enable combinations of nano-keys, enable modifier keys, enable multiple key-actions per nano-key
+            // this is a bit complicated and the current state of the UI/settings doesn't match the capabilities of the HID
         break;
         case keyActionType::KA_MOUSE:
             // TODO implement
@@ -200,6 +216,30 @@ void HmiThread::handleKeyAction(keyAction& action) {
     }
 };
 
+
+
+
+
+void HmiThread::handleMidi() {
+    if (midiu.read()) {
+        midi::MidiType t = midiu.getType();
+        uint8_t d1 = midiu.getData1();
+        uint8_t d2 = midiu.getData2();
+        uint8_t c = midiu.getChannel();
+        if (midiUsbSettings.route && midi2Settings.out) {
+            midi2.send(t, d1, d2, c);        
+        }
+    }
+    if (midi2.read()) {
+        midi::MidiType t = midi2.getType();
+        uint8_t d1 = midi2.getData1();
+        uint8_t d2 = midi2.getData2();
+        uint8_t c = midi2.getChannel();
+        if (midi2Settings.route && midiUsbSettings.out) {
+            midiu.send(t, d1, d2, c);        
+        }
+    }
+};
 
 
 

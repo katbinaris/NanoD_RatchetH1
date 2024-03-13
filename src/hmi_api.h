@@ -6,7 +6,7 @@
 
 #define MAX_KEY_ACTIONS 5
 #define MAX_KNOB_VALUES 8
-#define MAX_KEY_KEYCODES 32
+#define MAX_KEY_KEYCODES 6
 
 
 

@@ -6,6 +6,16 @@
 #include <ArduinoJSON.h>
 
 
+typedef struct {
+    bool in = true;
+    bool out = true;
+    bool thru = false;
+    bool route = true;
+    bool nano = true;
+} midiSettings;
+
+
+
 /**
  * Device settings.
  * For use from setup() or comms thread only.
@@ -30,6 +40,8 @@ public:
     float maxVoltage;
     String deviceName;
     uint8_t deviceOrientation;
+    midiSettings midiUsb;
+    midiSettings midi2;
 
     // read-only settings
     String serialNumber;

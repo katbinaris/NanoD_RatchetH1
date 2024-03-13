@@ -7,6 +7,7 @@
 #include "nanofoc_d.h"
 #include "./led_api.h"
 #include "./hmi_api.h"
+#include "./DeviceSettings.h"
 
 
 class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
@@ -53,6 +54,11 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         // button handler
         void handleEvent(ace_button::AceButton* button, uint8_t eventType, uint8_t buttonState) override;
         void handleKeyAction(keyAction& action);
+
+        // midi config
+        void handleMidi();
+        midiSettings midiUsbSettings;
+        midiSettings midi2Settings;
 
         // animations
         bool gReverseDirection = false;
