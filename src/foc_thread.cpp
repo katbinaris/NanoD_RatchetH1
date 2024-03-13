@@ -53,12 +53,13 @@ void FocThread::run() {
     motor.init();
     motor.initFOC();
     haptic.init();
+
+    haptic.motor->sensor_offset = haptic.motor->shaft_angle;
     
     float lastang = encoder.getAngle();
     unsigned long ts = micros();
     while (true) {
         haptic.haptic_loop();
-        encoder.update(); // TODO remove me when haptic is working
         float ang = encoder.getAngle();
         unsigned long now = micros();
         if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
@@ -74,7 +75,6 @@ void FocThread::run() {
     }
         
 };
-
 
 void FocThread::put_motor_command(String* message) {
     if (message!=nullptr)

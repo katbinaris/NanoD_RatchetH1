@@ -43,29 +43,33 @@ typedef struct {
     float velocity;
 } AngleEvt;
 
-class HapticState {
+class HapticState 
+{
 public:
-    HapticState(uint16_t position_num = 12);
+    HapticState(void);
+    HapticState(DetentProfile profile);
     ~HapticState();
 
-    DetentProfile detent_config;
+    DetentProfile detent_profile;
+
     uint16_t current_pos = 0;
     uint16_t last_pos = 0; 
 
     float attract_angle = 0; 
     float last_attract_angle = 0;
 
+    float detent_strength_unit = 0.5; // PID (estimated) Current Limit
+    float endstop_strength_unit = 0.5; // PID (estimated) Current Limit
+
     bool atLimit = 0;
 
-    float detent_strength_unit = 0.34; // PID (estimated) Current Limit
-    float endstop_strength_unit = 0.34; // PID (estimated) Current Limit
+    void load_profile(DetentProfile);
 };
 
 class HapticInterface
 {
 public:
     hapticConfig haptic_config; // Haptic configuration
-
     HapticState haptic_state;   // Haptic state
 
     BLDCMotor* motor;
@@ -83,6 +87,7 @@ public:
     void UserHapticEventCallback(HapticEvt, float, uint16_t) __attribute__((weak));
 
 private:
+    void offset_detent(void);
     void find_detent(void);
     void update_position(void);
     float haptic_target(void);
