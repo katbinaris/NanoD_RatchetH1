@@ -57,7 +57,7 @@ void loop() {
   vTaskDelay(1000);
 }
 
-extern "C" void HapticInterface::HapticEventCallback(HapticEvt event){
+extern "C" void HapticInterface::UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
   switch (event)
   {
   case HapticEvt::INCREASE:

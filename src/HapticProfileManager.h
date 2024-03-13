@@ -45,7 +45,6 @@ public:
     bool show_desc;
 
     hapticConfig haptic_config;
-    hapticParms haptic_parms;   // TODO it seems the hapticParams are not used in the haptic module... dead code should be removed.
     ledConfig led_config;
     keyConfig key_config;
     audioConfig audio_config;
