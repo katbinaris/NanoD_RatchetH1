@@ -238,17 +238,27 @@ Get device settings:
 Response (formatted on multiple lines for clarity):
 
 ```json
-{ 
-    "settings": {
-        "debug": false,
-        "ledMaxBrightness": 125,
-        "maxVelocity": 50.0,
-        "maxVoltage": 3.0,
-        "firmwareVersion": "1.0.0",
-        "deviceId": "A300F377",
-        "deviceName": "Richard's Nano",
-        "auto_save": true
-        // TODO document other settings
+{
+    "debug": false,
+    "ledMaxBrightness": 150,
+    "maxVelocity": 10,
+    "maxVoltage": 50,
+    "deviceName": "Nano_b826cb7554dc",
+    "serialNumber": "b826cb7554dc",
+    "firmwareVersion": "1.0.0",
+    "midiUsb": {
+        "in": true,
+        "out": true,
+        "thru": false,
+        "route": true,
+        "nano": true
+    },
+    "midi2": {
+        "in": false,
+        "out": true,
+        "thru": false,
+        "route": true,
+        "nano": true
     }
 }
 ```

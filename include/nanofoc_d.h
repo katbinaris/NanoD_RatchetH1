@@ -58,6 +58,8 @@
 #define TFT_HEIGHT 240
 #define SPI_FREQUENCY 80000000
 
+#define PIN_SERIAL2_RX 44
+#define PIN_SERIAL2_TX 43
 
 // Misc
 #define NANO_FS 0

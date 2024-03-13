@@ -23,6 +23,8 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         // queues
         void put_led_config(ledConfig& new_config);
         bool get_key_event(KeyEvt* keyEvt);
+        void put_hmi_config(hmiConfig& new_config);
+        void put_settings(DeviceSettings& new_settings);
 
         // Light Effects
         void halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
@@ -33,9 +35,12 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
         void run();
         
         QueueHandle_t _q_config_in;
+        QueueHandle_t _q_hmi_config_in;
+        QueueHandle_t _q_settings_in;
         QueueHandle_t _q_keyevt_out;
         // internal queue handler
         void handleConfig();
+        void handleSettings();
 
         // LEDs
         ledConfig led_config;

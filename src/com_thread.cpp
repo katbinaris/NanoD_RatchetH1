@@ -78,6 +78,16 @@ void ComThread::run() {
                 HapticProfileManager::getInstance().toSPIFFS();
               }
             }
+            if (doc["load"]) { // load settings and profiles from SPIFFS
+              if (doc["load"].as<bool>()==true) {
+                DeviceSettings::getInstance().fromSPIFFS();
+                HapticProfileManager::getInstance().fromSPIFFS();
+                dispatchSettings();
+                dispatchHapticConfig();
+                dispatchLedConfig();
+                dispatchHmiConfig();
+              }
+            }
         }
 
         // send any outgoing messages
@@ -153,7 +163,7 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
   if (s.is<JsonObject>()) {
     JsonObject obj = s.as<JsonObject>();
     DeviceSettings::getInstance() = obj;
-    // TODO store to SPIFFS
+    dispatchSettings();
   }
 };
 
@@ -299,6 +309,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
     if (p==pm.getCurrentProfile()) {
       dispatchHapticConfig();
       dispatchLedConfig();
+      dispatchHmiConfig();
     }
   }
 };
@@ -309,6 +320,7 @@ void ComThread::setCurrentProfile(String name){
   if (profile!=nullptr) { // if we changed profile, send the new haptic config to the FOC thread
     dispatchHapticConfig();
     dispatchLedConfig();
+    dispatchHmiConfig();
   }
 };
 
@@ -321,8 +333,15 @@ void ComThread::dispatchLedConfig() {
     //hmi_thread.put_key_config(HapticProfileManager::getInstance().getCurrentProfile()->key_config);
 };
 
+
+void ComThread::dispatchHmiConfig() {
+    hmi_thread.put_hmi_config(HapticProfileManager::getInstance().getCurrentProfile()->hmi_config);
+};
+
 void ComThread::dispatchHapticConfig() {
     foc_thread.put_haptic_config(HapticProfileManager::getInstance().getCurrentProfile()->haptic_config);
 };
 
-
+void ComThread::dispatchSettings() {
+    hmi_thread.put_settings(DeviceSettings::getInstance());
+};

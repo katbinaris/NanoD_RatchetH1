@@ -10,7 +10,7 @@ typedef struct {
     bool in = true;
     bool out = true;
     bool thru = false;
-    bool route = true;
+    bool route = false;
     bool nano = true;
 } midiSettings;
 
@@ -21,6 +21,8 @@ typedef struct {
  * For use from setup() or comms thread only.
  */
 class DeviceSettings {
+    friend class HmiThread;
+    friend class ComThread;
 public:
     static DeviceSettings& getInstance();
 

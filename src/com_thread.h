@@ -43,6 +43,8 @@ class ComThread : public Thread<ComThread> {
 
         void dispatchLedConfig();
         void dispatchHapticConfig();
+        void dispatchHmiConfig();
+        void dispatchSettings();
 
         void sendError(String& error, String* msg = nullptr);
         void sendError(String& error, String& msg);

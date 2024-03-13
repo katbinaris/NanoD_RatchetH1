@@ -33,8 +33,10 @@ Adafruit_USBD_HID usb_hid;
 
 // Hmi thread controls LED via FastLed and buttons via AceButton
 
-HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 2048, 1, task_core), keyA(PIN_BTN_A), keyB(PIN_BTN_B), keyC(PIN_BTN_C), keyD(PIN_BTN_D) {
+HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_core), keyA(PIN_BTN_A), keyB(PIN_BTN_B), keyC(PIN_BTN_C), keyD(PIN_BTN_D) {
     _q_config_in = xQueueCreate(2, sizeof( ledConfig ));
+    _q_hmi_config_in = xQueueCreate(2, sizeof( hmiConfig ));
+    _q_settings_in = xQueueCreate(2, sizeof( DeviceSettings ));
     _q_keyevt_out = xQueueCreate(5, sizeof( KeyEvt ));
 }
 
@@ -66,6 +68,8 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     FastLED.setBrightness(led_config.led_brightness);
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
+    //Serial2.begin(31250);
+    Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
     midi2.begin();
 };
 
@@ -75,6 +79,15 @@ void HmiThread::put_led_config(ledConfig& new_config) {
 };
 
 
+void HmiThread::put_hmi_config(hmiConfig& new_config){
+    xQueueSend(_q_hmi_config_in, &new_config, (TickType_t)0);
+};
+
+
+void HmiThread::put_settings(DeviceSettings& new_settings){
+    xQueueSend(_q_settings_in, &new_settings, (TickType_t)0);
+};
+
 
 void HmiThread::handleConfig() {
     ledConfig newConfig;
@@ -82,6 +95,29 @@ void HmiThread::handleConfig() {
         led_config = newConfig;
         FastLED.setBrightness(led_config.led_brightness);
         updateKeyLeds();
+    }
+    hmiConfig newHmiConfig;
+    if (xQueueReceive(_q_hmi_config_in, &newHmiConfig, (TickType_t)0)) {
+        hmi_config = newHmiConfig;
+    }
+};
+
+
+void HmiThread::handleSettings() {
+    DeviceSettings newSettings;
+    if (xQueueReceive(_q_settings_in, &newSettings, (TickType_t)0)) {
+        midiUsbSettings = newSettings.midiUsb;
+        midi2Settings = newSettings.midi2;
+        midiu.setThruFilterMode(midiUsbSettings.thru? midi::Thru::Full : midi::Thru::Off);
+        midiu.setInputChannel(midiUsbSettings.in? MIDI_CHANNEL_OMNI : MIDI_CHANNEL_OFF);
+        midi2.setThruFilterMode(midi2Settings.thru? midi::Thru::Full : midi::Thru::Off);
+        midi2.setInputChannel(midi2Settings.in? MIDI_CHANNEL_OMNI : MIDI_CHANNEL_OFF);
+        if (FastLED.getBrightness() > newSettings.ledMaxBrightness) {
+            FastLED.setBrightness(newSettings.ledMaxBrightness);
+            led_config.led_brightness = newSettings.ledMaxBrightness;
+            updateKeyLeds();
+        }
+        Serial.println("Hmi settings updated from global settings");
     }
 };
 
@@ -126,6 +162,7 @@ void HmiThread::run() {
         keyB.check();
         keyC.check();
         keyD.check();
+        handleSettings();
         handleConfig();
         handleMidi();
         updateLeds();
@@ -195,9 +232,9 @@ void HmiThread::handleKeyAction(keyAction& action) {
     switch (action.type) {
         case keyActionType::KA_MIDI:
             if (midiUsbSettings.nano)
-                midiu.sendControlChange(action.midi.channel, action.midi.cc, action.midi.val);
+                midiu.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
             if (midi2Settings.nano)
-                midi2.sendControlChange(action.midi.channel, action.midi.cc, action.midi.val);
+                midi2.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
         break;
         case keyActionType::KA_KEY:
             usb_hid.keyboardReport(RID_KEYBOARD, 0, action.hid.key_codes); 

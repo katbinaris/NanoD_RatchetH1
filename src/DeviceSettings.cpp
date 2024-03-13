@@ -58,6 +58,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
             midiUsb.thru = midiUsbObj["thru"].as<bool>();
         if (midiUsbObj["route"]!=nullptr)
             midiUsb.route = midiUsbObj["route"].as<bool>();
+        if (midiUsbObj["nano"]!=nullptr)
+            midiUsb.nano = midiUsbObj["nano"].as<bool>();
     }
     if (obj["midi2"]!=nullptr) {
         JsonObject midi2Obj = obj["midi2"].as<JsonObject>();
@@ -69,6 +71,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
             midi2.thru = midi2Obj["thru"].as<bool>();
         if (midi2Obj["route"]!=nullptr)
             midi2.route = midi2Obj["route"].as<bool>();
+        if (midi2Obj["nano"]!=nullptr)
+            midi2.nano = midi2Obj["nano"].as<bool>();
     }
     dirty = true;
     return *this;
