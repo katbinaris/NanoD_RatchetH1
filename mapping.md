@@ -34,12 +34,11 @@ Depending on the value type, there may be more/less configuration options.
 
 The behavior of the knob (haptics, rotation range, step count) is determined by the first/topmost active value in the profile.
 
-Values can be active/inactive based on a key condition which encompasses three possible states per key:
-- Irrelevant `[-]`
-- Pressed `[D]`
-- Not pressed `[U]`
+Values can be active/inactive based on a key condition which is met if the right keys are pressed/not pressed:
+- Pressed `[x]`
+- Not pressed `[-]`
 
-So a value with the condition `[-][-][-][-]` would always be active, while a value with the condition `[D][-][-][U]` would only be active when the first key is pressed and the last key is not pressed.
+So a value with the condition `[-][-][-][-]` would always be active, while a value with the condition `[x][-][-][x]` would only be active when the first and last key are pressed.
 
 ## Actions
 Actions can be assigned to the press/release/holding (configurable time) of the keys and to the Actions value type.

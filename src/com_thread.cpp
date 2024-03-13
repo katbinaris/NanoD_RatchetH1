@@ -274,7 +274,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
     p = pm.getCurrentProfile();
 
   if (updates.isNull()) {
-    JsonDocument doc;
+    JsonDocument doc, profileDoc;
     // send the selected profile
     JsonObject obj = doc["profile"].to<JsonObject>();
     p->toJSON(obj);
