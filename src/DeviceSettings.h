@@ -27,7 +27,7 @@ public:
     static DeviceSettings& getInstance();
 
     DeviceSettings& operator=(JsonObject& obj);
-    void toJSON(JsonDocument& doc);
+    void toJSON(JsonObject& obj);
 
     bool toSPIFFS();
 
@@ -41,7 +41,7 @@ public:
     float maxVelocity;
     float maxVoltage;
     String deviceName;
-    uint8_t deviceOrientation;
+    uint16_t deviceOrientation;
     midiSettings midiUsb;
     midiSettings midi2;
 

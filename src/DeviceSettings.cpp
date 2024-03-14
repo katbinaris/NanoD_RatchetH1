@@ -46,6 +46,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         maxVelocity = obj["maxVelocity"].as<float>();
     if (obj["maxVoltage"]!=nullptr)
         maxVoltage = obj["maxVoltage"].as<float>();
+    if (obj["deviceOrientation"]!=nullptr)
+        deviceOrientation = obj["deviceOrientation"].as<uint8_t>();
     if (obj["deviceName"]!=nullptr)
         deviceName = obj["deviceName"].as<String>();
     if (obj["midiUsb"]!=nullptr) {
@@ -80,21 +82,22 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
 
 
 
-void DeviceSettings::toJSON(JsonDocument& doc){
-    doc["debug"] = debug;
-    doc["ledMaxBrightness"] = ledMaxBrightness;
-    doc["maxVelocity"] = maxVelocity;
-    doc["maxVoltage"] = maxVoltage;
-    doc["deviceName"] = deviceName;
-    doc["serialNumber"] = serialNumber;
-    doc["firmwareVersion"] = firmwareVersion;
-    JsonObject midiUsbObj = doc["midiUsb"].to<JsonObject>();
+void DeviceSettings::toJSON(JsonObject& obj){
+    obj["debug"] = debug;
+    obj["ledMaxBrightness"] = ledMaxBrightness;
+    obj["maxVelocity"] = maxVelocity;
+    obj["maxVoltage"] = maxVoltage;
+    obj["deviceOrientation"] = deviceOrientation;
+    obj["deviceName"] = deviceName;
+    obj["serialNumber"] = serialNumber;
+    obj["firmwareVersion"] = firmwareVersion;
+    JsonObject midiUsbObj = obj["midiUsb"].to<JsonObject>();
     midiUsbObj["in"] = midiUsb.in;
     midiUsbObj["out"] = midiUsb.out;
     midiUsbObj["thru"] = midiUsb.thru;
     midiUsbObj["route"] = midiUsb.route;
     midiUsbObj["nano"] = midiUsb.nano;
-    JsonObject midi2Obj = doc["midi2"].to<JsonObject>();
+    JsonObject midi2Obj = obj["midi2"].to<JsonObject>();
     midi2Obj["in"] = midi2.in;
     midi2Obj["out"] = midi2.out;
     midi2Obj["thru"] = midi2.thru;
@@ -115,7 +118,8 @@ bool DeviceSettings::toSPIFFS(){
         }
         // create the JSON
         JsonDocument doc;
-        toJSON(doc);
+        JsonObject obj = doc.to<JsonObject>();
+        toJSON(obj);
         // write the JSON to the file
         serializeJson(doc, file);
         file.close();

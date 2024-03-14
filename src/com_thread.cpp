@@ -80,6 +80,14 @@ void ComThread::run() {
             }
             if (doc["load"]) { // load settings and profiles from SPIFFS
               if (doc["load"].as<bool>()==true) {
+                // first nuke existing profiles
+                for (int i=0; i<MAX_PROFILES; i++) {
+                  HapticProfile* p = HapticProfileManager::getInstance()[i];
+                  if (p!=nullptr) {
+                    String name = p->profile_name;
+                    HapticProfileManager::getInstance().remove(name);
+                  }
+                }
                 DeviceSettings::getInstance().fromSPIFFS();
                 HapticProfileManager::getInstance().fromSPIFFS();
                 dispatchSettings();
@@ -156,7 +164,8 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
   if (s.is<String>()) {
     // send the settings
     JsonDocument doc;
-    DeviceSettings::getInstance().toJSON(doc);
+    JsonObject obj = doc["settings"].to<JsonObject>();
+    DeviceSettings::getInstance().toJSON(obj);
     serializeJson(doc, Serial);
     Serial.println(); // add a newline
   }
@@ -204,11 +213,11 @@ void ComThread::handleMessages() {
 
 void ComThread::handleProfilesCommand(JsonVariant p) {
   if (p.isNull()) return;
+  HapticProfileManager& pm = HapticProfileManager::getInstance();
   if (p.is<String>()) {
     String s = p.as<String>();
     if (s=="#all") {
       // send the list of all profile names
-      HapticProfileManager& pm = HapticProfileManager::getInstance();
       JsonDocument doc;
       JsonArray arr = doc["profiles"].to<JsonArray>();
       for (int i=0; i<pm.size(); i++) {
@@ -219,8 +228,29 @@ void ComThread::handleProfilesCommand(JsonVariant p) {
       Serial.println(); // add a newline
     }
   }
-  // TODO reorder and/or delete profiles
-  // TODO store to SPIFFS
+  if (p.is<JsonArray>()) {
+    JsonArray arr = p.as<JsonArray>();
+    for (int i=0; i<MAX_PROFILES; i++) {
+      HapticProfile* p = pm[i];
+      if (p!=nullptr) {
+        bool found = false;
+        for (int i=0; i<arr.size(); i++) {
+          if (arr[i].is<String>()) {
+            String s = arr[i].as<String>();
+            if (s==p->profile_name) {
+              found = true;
+              break;
+            }
+          }
+        }
+        if (!found) {
+          Serial.println("Deleting profile "+p->profile_name);
+          pm.remove(p->profile_name);
+        }
+      }
+    }
+  }
+  // TODO reorder profiles
 };
 
 

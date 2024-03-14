@@ -213,23 +213,26 @@ void HapticProfileManager::toSPIFFS() {
   }
   File file = dir.openNextFile();
   while (file) {
-    if (!file.isDirectory() && String(file.name()).endsWith(".json")) {
+    String filename = file.name();
+    if (!file.isDirectory() && String(filename).endsWith(".json")) {
       bool found = false;
       for (int i=0; i<MAX_PROFILES; i++) {
         if (profiles[i].profile_name!="") {
-          if (String(file.name()).endsWith(profiles[i].profile_name+".json")) {
+          if (String(filename).endsWith(profiles[i].profile_name+".json")) {
             found = true;
             break;
           }
         }
       }
+      file.close();
       if (!found) {
+        String remove = PROFILES_DIRECTORY;
+        remove += "/" + filename;
         Serial.print("Removing deleted profile: ");
-        Serial.println(file.name());
-        SPIFFS.remove(file.name());
+        Serial.println(remove);
+        SPIFFS.remove(remove);
       }
     }
-    file.close();
     file = dir.openNextFile();
   }
   // then save any dirty profiles to SPIFFS
@@ -244,7 +247,7 @@ void HapticProfileManager::toSPIFFS() {
       File file = SPIFFS.open(filename, "w");
       if (file) {
         JsonDocument doc;
-        JsonObject obj = doc.as<JsonObject>();
+        JsonObject obj = doc.to<JsonObject>();
         profiles[i].toJSON(obj);
         serializeJson(doc, file);
         file.close();
