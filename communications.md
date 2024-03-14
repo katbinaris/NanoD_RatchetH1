@@ -243,6 +243,7 @@ Response (formatted on multiple lines for clarity):
     "ledMaxBrightness": 150,
     "maxVelocity": 10,
     "maxVoltage": 50,
+    "screenOrientation": 90,
     "deviceName": "Nano_b826cb7554dc",
     "serialNumber": "b826cb7554dc",
     "firmwareVersion": "1.0.0",
