@@ -285,7 +285,7 @@ void HapticInterface::HapticEventCallback(HapticEvt event){
 }
 
 // For user implementation
-void UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
+void HapticInterface::UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
     /**
      * This function should not be modified.
      * To use this, implement the function in your main application.
