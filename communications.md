@@ -124,6 +124,12 @@ The response includes all profile fields, and would arrive in one line, but is s
                         "keyCodes": [
                             17
                         ]
+                    },
+                    {
+                        "type": "midi",
+                        "channel": 5,
+                        "cc": 5,
+                        "val": 5
                     }
                 ]
             },
