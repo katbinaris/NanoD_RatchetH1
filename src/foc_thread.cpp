@@ -63,7 +63,7 @@ void FocThread::run() {
         float ang = encoder.getAngle();
         unsigned long now = micros();
         if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
-            AngleEvt ae = { encoder.getMechanicalAngle(), encoder.getFullRotations(), encoder.getVelocity() };
+            AngleEvt ae = { motor.shaft_angle, encoder.getFullRotations(), encoder.getVelocity() };
             xQueueSend(_q_angleevt_out, &ae, (TickType_t)0);
             lastang = ang;
             ts = now;

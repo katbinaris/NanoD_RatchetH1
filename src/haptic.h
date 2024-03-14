@@ -89,6 +89,7 @@ public:
 private:
     void offset_detent(void);
     void find_detent(void);
+    void detent_handler(void);
     void update_position(void);
     float haptic_target(void);
     void correct_pid(void);
