@@ -10,8 +10,24 @@
 #include "./DeviceSettings.h"
 
 
-class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
+using namespace ace_button;
+
+
+class HmiThreadButtonHandler : public IEventHandler  {
+public:
+    HmiThreadButtonHandler(uint8_t _index = 0);
+    uint8_t index;
+    void handleEvent(AceButton* button, uint8_t eventType, uint8_t buttonState) override;
+};
+
+
+
+class HmiThread : public Thread<HmiThread> {
     friend class Thread<HmiThread>; //Allow Base Thread to invoke protected run()
+    friend class HmiThreadButtonHandler;
+
+
+
 
     public:
         HmiThread(const uint8_t task_core);
@@ -51,14 +67,25 @@ class HmiThread : public Thread<HmiThread>, public ace_button::IEventHandler {
 
         // buttons
         hmiConfig hmi_config;
-        ace_button::AceButton keyA;
-        ace_button::AceButton keyB;
-        ace_button::AceButton keyC;
-        ace_button::AceButton keyD;
+        HmiThreadButtonHandler button_handler[4];
+        ace_button::AceButton* buttons[4];
+        uint8_t num_key_codes = 0;
+        uint8_t last_num_key_codes = 0;
+        uint8_t current_key_codes[6] = { 0 };
         uint8_t keyState = 0;
+        uint8_t current_mouse_buttons = 0;
+        uint8_t last_mouse_buttons = 0;
+        uint8_t current_pad_buttons = 0;
+        uint8_t last_pad_buttons = 0;
+
         // button handler
-        void handleEvent(ace_button::AceButton* button, uint8_t eventType, uint8_t buttonState) override;
-        void handleKeyAction(keyAction& action);
+        void handleKeyAction(keyAction& action, uint8_t eventType);
+        void handleHid();
+
+        // knob
+        float lastValue;
+        float currentValue;
+        void updateValue();
 
         // midi config
         void handleMidi();

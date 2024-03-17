@@ -29,6 +29,7 @@ void setup() {
   Serial.begin(DEFAULT_SERIAL_SPEED);
   while( !TinyUSBDevice.mounted() ) delay(1);
 
+  delay(100);
   Serial.println("Welcome to Nano_D++!");
   Serial.print("Firmware version: ");
   Serial.println(NANO_FIRMWARE_VERSION);

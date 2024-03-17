@@ -136,20 +136,16 @@ The response includes all profile fields, and would arrive in one line, but is s
             {
                 "pressed": [
                     {
-                        "type": "key",
-                        "keyCodes": [
-                            4
-                        ]
+                        "type": "mouse",
+                        "buttons": 1
                     }
                 ]
             },
             {
                 "pressed": [
                     {
-                        "type": "key",
-                        "keyCodes": [
-                            17
-                        ]
+                        "type": "gamepad",
+                        "buttons": 1
                     }
                 ]
             },
@@ -164,6 +160,20 @@ The response includes all profile fields, and would arrive in one line, but is s
                 ]
             }
         ],
+        "knob": [
+            {
+                "keyState": 0,
+                "angleMin": 0,
+                "angleMax": 6.283185307179586,
+                "valueMin": 0,
+                "valueMax": 127,
+                "step": 1,
+                "wrap": false,
+                "type": "midi",
+                "channel": 5,
+                "cc": 5
+            }
+        ]
         "guiEnable": false
     }
 }

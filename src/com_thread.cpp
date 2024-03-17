@@ -29,7 +29,7 @@ void ComThread::run() {
     Serial.println("COM thread started");
     // TODO set the active profile to the other threads
     unsigned long ts = millis();
-    unsigned long ts_last_activity = ts;
+    ts_last_activity = ts;
     JsonDocument idleDoc;
     while (true) {
         JsonDocument doc;

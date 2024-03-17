@@ -15,13 +15,15 @@ MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
 enum
 {
   RID_KEYBOARD = 1,
-  RID_MOUSE = 2
+  RID_MOUSE = 2,
+  RID_GAMEPAD = 3,
 };
 
 
 uint8_t const desc_hid_report[] = {
   TUD_HID_REPORT_DESC_KEYBOARD( HID_REPORT_ID(RID_KEYBOARD) ),
-  TUD_HID_REPORT_DESC_MOUSE   ( HID_REPORT_ID(RID_MOUSE) )
+  TUD_HID_REPORT_DESC_MOUSE   ( HID_REPORT_ID(RID_MOUSE) ),
+  TUD_HID_REPORT_DESC_GAMEPAD( HID_REPORT_ID(RID_GAMEPAD) )
 };
 
 // USB HID object
@@ -33,7 +35,7 @@ Adafruit_USBD_HID usb_hid;
 
 // Hmi thread controls LED via FastLed and buttons via AceButton
 
-HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_core), keyA(PIN_BTN_A), keyB(PIN_BTN_B), keyC(PIN_BTN_C), keyD(PIN_BTN_D) {
+HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_core) {
     _q_config_in = xQueueCreate(2, sizeof( ledConfig ));
     _q_hmi_config_in = xQueueCreate(2, sizeof( hmiConfig ));
     _q_settings_in = xQueueCreate(2, sizeof( DeviceSettings ));
@@ -68,7 +70,6 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     FastLED.setBrightness(led_config.led_brightness);
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
-    //Serial2.begin(31250);
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
     midi2.begin();
 };
@@ -122,10 +123,10 @@ void HmiThread::handleSettings() {
 };
 
 
-
 bool HmiThread::get_key_event(KeyEvt* keyEvt){
     return xQueueReceive(_q_keyevt_out, keyEvt, (TickType_t)0);
 };
+
 
 
 void HmiThread::run() {
@@ -136,18 +137,16 @@ void HmiThread::run() {
     pinMode(PIN_BTN_B, INPUT_PULLUP);
     pinMode(PIN_BTN_C, INPUT_PULLUP);
     pinMode(PIN_BTN_D, INPUT_PULLUP);
-    keyA.getButtonConfig()->setIEventHandler(this);
-    keyB.getButtonConfig()->setIEventHandler(this);
-    keyC.getButtonConfig()->setIEventHandler(this);
-    keyD.getButtonConfig()->setIEventHandler(this);
-    keyA.getButtonConfig()->setClickDelay(50);
-    keyB.getButtonConfig()->setClickDelay(50);
-    keyC.getButtonConfig()->setClickDelay(50);
-    keyD.getButtonConfig()->setClickDelay(50);
-    keyA.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
-    keyB.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
-    keyC.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
-    keyD.getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
+    buttons[0] = new AceButton(new ButtonConfig(), PIN_BTN_A);
+    buttons[1] = new AceButton(new ButtonConfig(), PIN_BTN_B);
+    buttons[2] = new AceButton(new ButtonConfig(), PIN_BTN_C);
+    buttons[3] = new AceButton(new ButtonConfig(), PIN_BTN_D);
+    for (int i = 0; i < 4; i++) {
+        button_handler[i] = HmiThreadButtonHandler(i);
+        buttons[i]->getButtonConfig()->setIEventHandler(&button_handler[i]);
+        buttons[i]->getButtonConfig()->setClickDelay(50);
+        buttons[i]->getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
+    }
     ledsp[0] = CRGB(led_config.button_A_col_idle);
     ledsp[1] = CRGB(led_config.button_B_col_idle);
     ledsp[2] = CRGB(led_config.button_C_col_idle);
@@ -158,13 +157,13 @@ void HmiThread::run() {
     unsigned long ts = micros();
 
     while (1) {
-        keyA.check();
-        keyB.check();
-        keyC.check();
-        keyD.check();
         handleSettings();
         handleConfig();
         handleMidi();
+        for (int i = 0; i < 4; i++)
+            buttons[i]->check();
+        updateValue();
+        handleHid();
         updateLeds();
         unsigned long us = micros();
         FastLED.show();
@@ -189,63 +188,69 @@ void HmiThread::run() {
 
 
 
-void HmiThread::handleEvent(AceButton* button, uint8_t eventType, uint8_t buttonState) {
-    int8_t keyNum = -1;
-    if (button == &keyA) {
-        keyNum = 0;
-    } else if (button == &keyB) {
-        keyNum = 1;
-    } else if (button == &keyC) {
-        keyNum = 2;
-    } else if (button == &keyD) {
-        keyNum = 3;
+HmiThreadButtonHandler::HmiThreadButtonHandler(uint8_t _index) : index(_index) {};
+
+void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, uint8_t buttonState) {
+    switch (eventType) {
+        case AceButton::kEventPressed:
+            hmi_thread.keyState |= (1<<index);
+            for (int i=0; i<hmi_thread.hmi_config.keys[index].num_pressed_actions; i++) {
+                hmi_thread.handleKeyAction(hmi_thread.hmi_config.keys[index].pressed[i], eventType);
+            }
+        break;
+        case AceButton::kEventReleased:
+            hmi_thread.keyState &= ~(1<<index);
+            for (int i=0; i<hmi_thread.hmi_config.keys[index].num_pressed_actions; i++) {
+                hmi_thread.handleKeyAction(hmi_thread.hmi_config.keys[index].pressed[i], eventType);
+            }            
+            for (int i=0; i<hmi_thread.hmi_config.keys[index].num_released_actions; i++) {
+                hmi_thread.handleKeyAction(hmi_thread.hmi_config.keys[index].released[i], eventType);
+            }
+        break;
     }
-    if (keyNum >= 0) {
-        switch (eventType) {
-            case AceButton::kEventPressed:
-                keyState |= (1<<keyNum);
-                for (int i=0; i<hmi_config.keys[keyNum].num_pressed_actions; i++) {
-                    handleKeyAction(hmi_config.keys[keyNum].pressed[i]);
-                }
-            break;
-            case AceButton::kEventReleased:
-                keyState &= ~(1<<keyNum);
-                for (int i=0; i<hmi_config.keys[keyNum].num_released_actions; i++) {
-                    handleKeyAction(hmi_config.keys[keyNum].released[i]);
-                }
-                if (keyState==0) {
-                    usb_hid.keyboardRelease(RID_KEYBOARD);
-                }
-            break;
-        }
-        KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)keyNum, .keyState=keyState };
-        xQueueSend(_q_keyevt_out, &keyEvt, (TickType_t)0);
-        updateKeyLeds();
-    }
+    KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)index, .keyState=hmi_thread.keyState };
+    xQueueSend(hmi_thread._q_keyevt_out, &keyEvt, (TickType_t)0);
+    hmi_thread.updateKeyLeds();
 };
 
 
 
 
-
-void HmiThread::handleKeyAction(keyAction& action) {
+void HmiThread::handleKeyAction(keyAction& action, uint8_t eventType) {
     switch (action.type) {
         case keyActionType::KA_MIDI:
-            if (midiUsbSettings.nano)
-                midiu.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
-            if (midi2Settings.nano)
-                midi2.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
+            if (eventType==AceButton::kEventPressed) {
+                if (midiUsbSettings.nano)
+                    midiu.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
+                if (midi2Settings.nano)
+                    midi2.sendControlChange(action.midi.cc, action.midi.val, action.midi.channel);
+            }
         break;
         case keyActionType::KA_KEY:
-            usb_hid.keyboardReport(RID_KEYBOARD, 0, action.hid.key_codes); 
-            // TODO enable combinations of nano-keys, enable modifier keys, enable multiple key-actions per nano-key
-            // this is a bit complicated and the current state of the UI/settings doesn't match the capabilities of the HID
+            if (num_key_codes<6 && eventType==AceButton::kEventPressed)
+                current_key_codes[num_key_codes++] = action.hid.key_codes[0];
+            else if (num_key_codes>0 && eventType==AceButton::kEventReleased) {
+                for (int i=0; i<num_key_codes; i++) {
+                    if (current_key_codes[i]==action.hid.key_codes[0]) {
+                        for (int j=i; j<num_key_codes-1; j++)
+                            current_key_codes[j] = current_key_codes[j+1];
+                        num_key_codes--;
+                        break;
+                    }
+                }
+            }
         break;
         case keyActionType::KA_MOUSE:
-            // TODO implement
+            if (eventType==AceButton::kEventPressed)
+                current_mouse_buttons |= action.mouse.buttons;
+            else
+                current_mouse_buttons &= ~action.mouse.buttons;
         break;
         case keyActionType::KA_GAMEPAD:
-            // TODO implement
+            if (eventType==AceButton::kEventPressed)
+                current_pad_buttons |= action.pad.buttons;
+            else
+                current_pad_buttons &= ~action.pad.buttons;
         break;
         case keyActionType::KA_PROFILE_CHANGE:
             // TODO implement
@@ -254,6 +259,78 @@ void HmiThread::handleKeyAction(keyAction& action) {
 };
 
 
+
+void HmiThread::updateValue() {
+    if (hmi_config.knob.num>0) {
+        float angle = foc_thread.get_motor_angle();
+        for (int i=0;i<hmi_config.knob.num;i++) {
+            knobValue& v = hmi_config.knob.values[i];
+            if (v.key_state==keyState) {
+                float value = 0;
+                if (v.angle_min<v.angle_max) {
+                    _constrain(angle, v.angle_min, v.angle_max);
+                }
+                else {
+                    _constrain(angle, v.angle_max, v.angle_min);
+                }
+                if (v.angle_max == v.angle_min) {
+                    value = v.value_min;
+                }
+                else {
+                    value = (angle - v.angle_min) * (v.value_max - v.value_min) / (v.angle_max - v.angle_min) + v.value_min;
+                }
+                if (v.step!=0) {
+                    value = round(value / v.step) * v.step;
+                }
+                currentValue = value;
+                if (currentValue!=lastValue) {
+                    if (v.type==knobValueType::KV_MIDI) {
+                        uint8_t midi_value = (uint8_t)(value);
+                        midi_value = _constrain(midi_value, 0, 127);
+                        if (midiUsbSettings.nano)
+                            midiu.sendControlChange(v.midi.cc, midi_value, v.midi.channel);
+                        if (midi2Settings.nano)
+                            midi2.sendControlChange(v.midi.cc, midi_value, v.midi.channel);
+                    }
+                    lastValue = currentValue;
+                }
+            }
+        } // for over values
+    }
+};
+
+
+
+void HmiThread::handleHid() {
+
+    bool keys_changed = (num_key_codes!=last_num_key_codes);
+    bool mouse_changed = (current_mouse_buttons!=last_mouse_buttons);
+    bool pad_changed = (current_pad_buttons!=last_pad_buttons);
+
+    if ( TinyUSBDevice.suspended() && (keys_changed||mouse_changed||pad_changed) ) {
+        TinyUSBDevice.remoteWakeup();
+    }
+
+    if (usb_hid.ready()) {
+        if (keys_changed) {
+            if (num_key_codes>0)
+                usb_hid.keyboardReport(RID_KEYBOARD, 0, current_key_codes);
+            else
+                usb_hid.keyboardRelease(RID_KEYBOARD);
+            last_num_key_codes = num_key_codes;
+        }
+        if (mouse_changed) {
+            usb_hid.mouseButtonPress(RID_MOUSE, current_mouse_buttons);
+            last_mouse_buttons = current_mouse_buttons;
+        }
+        if (pad_changed) {
+            hid_gamepad_report_t report;
+            report.buttons = current_pad_buttons;
+            usb_hid.sendReport(RID_GAMEPAD, &report, sizeof(report));
+            last_pad_buttons = current_pad_buttons;
+        }
+    }
+};
 
 
 

@@ -24,13 +24,15 @@ typedef struct {
 
 
 typedef struct {
-
+    uint8_t buttons;
+    uint8_t axis;
 } nanoGamepadConfig;
 
 
 
 typedef struct {
-
+    uint8_t buttons;
+    uint8_t axis;
 } nanoMouseConfig;
 
 
@@ -105,7 +107,7 @@ typedef struct {
     float angle_max;    // maximum angle of the knob
     bool max_exclusive; // if true, then angle_max is exclusive, otherwise it is inclusive
     bool wrap;          // if true, the value will wrap around from min to max and vice versa    
-    uint32_t steps;     // quantize the values output with the given number of steps
+    float step;         // quantize the values output with the given step-size
                         // note: if steps is 0, the value is continuous
                         //       if steps is 1, integer values are returned
     bool recenter;      // if true, angle_min and angle_max are recalculated to be centred around the current angle

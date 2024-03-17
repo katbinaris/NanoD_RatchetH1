@@ -20,7 +20,7 @@ HapticCommander commander = HapticCommander(&motor);
 
 
 
-FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 2048, 1, task_core) {
+FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 4096, 1, task_core) {
     _q_motor_in = xQueueCreate(5, sizeof( String* ));
     _q_haptic_in = xQueueCreate(2, sizeof( hapticConfig ));
     _q_angleevt_out = xQueueCreate(5, sizeof( AngleEvt ));
@@ -93,7 +93,7 @@ bool FocThread::get_angle_event(AngleEvt* evt) {
 
 
 float FocThread::get_motor_angle() {
-    return encoder.getMechanicalAngle();
+    return encoder.getMechanicalAngle() * motor.sensor_direction;
 };
 
 void FocThread::handleMessage() {
