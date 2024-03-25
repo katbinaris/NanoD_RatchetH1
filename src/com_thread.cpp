@@ -192,6 +192,7 @@ void ComThread::handleMessages() {
           doc["error"] = *incoming.message;
           break;
         case STRING_MESSAGE_MOTOR:
+          Serial.println("Replying...");
           doc["r"] = *incoming.message;
           break;
         default:

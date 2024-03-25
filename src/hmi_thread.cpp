@@ -324,8 +324,16 @@ void HmiThread::handleHid() {
             last_mouse_buttons = current_mouse_buttons;
         }
         if (pad_changed) {
-            hid_gamepad_report_t report;
-            report.buttons = current_pad_buttons;
+            hid_gamepad_report_t report = {
+                .x = 0,
+                .y = 0,
+                .z = 0,
+                .rz = 0,
+                .rx = 0,
+                .ry = 0,
+                .hat = 0,
+                .buttons = current_pad_buttons
+            };
             usb_hid.sendReport(RID_GAMEPAD, &report, sizeof(report));
             last_pad_buttons = current_pad_buttons;
         }

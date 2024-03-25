@@ -3,7 +3,7 @@
 
 HapticCommander::HapticCommander(BLDCMotor* motor) : motor(motor) {};
 
-void HapticCommander::handleMessage(String* message) {
+void HapticCommander::handleMessage(String* message) {    
     msg_in = (char*)message->c_str();
     uint8_t reg = atoi(msg_in);
     msg_in = strchr(msg_in, '=');
