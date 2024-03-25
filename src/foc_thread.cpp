@@ -124,7 +124,8 @@ void FocThread::handleMessage() {
 void FocThread::handleHapticConfig() {
     DetentProfile profile;
     if (xQueueReceive(_q_haptic_in, &profile, (TickType_t)0)) {
-        // TODO apply haptic config to motor
+        // apply haptic config to motor
+        haptic.haptic_state = HapticState(profile);
     }
 };
 

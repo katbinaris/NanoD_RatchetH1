@@ -375,6 +375,7 @@ void ComThread::dispatchHmiConfig() {
 };
 
 void ComThread::dispatchHapticConfig() {
+  if (HapticProfileManager::getInstance().getCurrentProfile()->hmi_config.knob.num>0)
     foc_thread.put_haptic_config(HapticProfileManager::getInstance().getCurrentProfile()->hmi_config.knob.values[0].haptic);
 };
 
