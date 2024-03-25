@@ -76,6 +76,10 @@ void ComThread::run() {
               if (doc["save"].as<bool>()==true) {
                 DeviceSettings::getInstance().toSPIFFS();
                 HapticProfileManager::getInstance().toSPIFFS();
+                JsonDocument reply;
+                reply["saved"] = true;
+                serializeJson(reply, Serial);
+                Serial.println(); // add a newline
               }
             }
             if (doc["load"]) { // load settings and profiles from SPIFFS
