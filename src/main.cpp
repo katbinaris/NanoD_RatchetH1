@@ -34,23 +34,21 @@ void setup() {
   Serial.print("Firmware version: ");
   Serial.println(NANO_FIRMWARE_VERSION);
   Serial.println("Initializing...");
-  if (SPIFFS.begin(true)) {
-    Serial.println("SPIFFS mounted successfully");
-  }
-  else {
-    Serial.println("ERROR: SPIFFS mount failed");
-    // TODO this is kind of fatal...
-  }
-
   // before we begin, load our global settings...
   DeviceSettings& settings = DeviceSettings::getInstance();
+  settings.init();
   settings.fromSPIFFS(); // attempt to load settings from SPIFFS
   // then load the profiles
   HapticProfileManager& profileManager = HapticProfileManager::getInstance();
   profileManager.fromSPIFFS(); // attempt to load profiles from SPIFFS
 
-  // TODO load motor calibration from Preferences
-  // TODO load current profile from Preferences
+  // load motor calibration from Preferences
+  MotorCalibration cal = settings.loadCalibration();
+  foc_thread.setCalibration(cal);
+  
+  // load current profile from Preferences
+  String current_profile = settings.loadCurrentProfile();
+  profileManager.setCurrentProfile(current_profile);
 
   // init threads
   hmi_thread.init(profileManager.getCurrentProfile()->led_config, profileManager.getCurrentProfile()->hmi_config);

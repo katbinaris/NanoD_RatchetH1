@@ -196,7 +196,6 @@ void HapticProfileManager::fromSPIFFS() {
 
 
 void HapticProfileManager::toSPIFFS() {
-  // TODO first iterate over the existing profiles and remove any that are not in the current list
   Serial.println("Saving profiles to SPIFFS...");
   File dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
   if (!dir) {
@@ -211,6 +210,7 @@ void HapticProfileManager::toSPIFFS() {
       return;
     }
   }
+  // first iterate over the existing profiles and remove any that are not in the current list
   File file = dir.openNextFile();
   while (file) {
     String filename = file.name();

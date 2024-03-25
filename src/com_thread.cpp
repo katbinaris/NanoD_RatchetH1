@@ -56,7 +56,7 @@ void ComThread::run() {
               String* cmdstr = new String(cmd);
               foc_thread.put_motor_command(cmdstr);
             }
-            v = doc["message"]; // TOOD can we re-use the JsonVariant in this way?
+            v = doc["message"];
             if (v!=nullptr) { // its a message
               // TODO send message to screen
             }

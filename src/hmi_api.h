@@ -168,7 +168,6 @@ typedef struct {
         Case 2: Mapped Button can toggle current/active CC # - knob sends values 0-127 the output message
         Case 3: Mapped Button can send specific CC # with specific value
         Case 4: Mapped Button contains mapping value that can be parsed by RobotJS (eg. Key 'B' or 'Arrow Up' or 'Ctrl')
-        TODO: how mappings for buttons and knob should be stored as?
 
     */
 

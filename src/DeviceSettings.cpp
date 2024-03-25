@@ -3,12 +3,16 @@
 #include <Arduino.h>
 #include "nanofoc_d.h"
 #include "SPIFFS.h"
+#include <Preferences.h>
+#include <common/foc_utils.h>
 
 #define DEVICE_SETTINGS_FILE "/device_settings.json"
 
 
 // global singleton instance
 DeviceSettings DeviceSettings::instance = DeviceSettings();
+
+Preferences nano_preferences; 
 
 
 DeviceSettings& DeviceSettings::getInstance() {
@@ -158,3 +162,43 @@ bool DeviceSettings::fromSPIFFS(){
     return true;
 };
 
+
+bool DeviceSettings::init() {
+    if (!nano_preferences.begin("nano_D", false)) {
+        Serial.println("ERROR: unable to open Preferences!");
+        return false;
+    }
+    if (SPIFFS.begin(true)) {
+        Serial.println("SPIFFS mounted successfully");
+    }
+    else {
+        Serial.println("ERROR: SPIFFS mount failed");
+        // TODO this is kind of fatal...
+    }
+    return true;
+};
+
+
+void DeviceSettings::storeCalibration(MotorCalibration& cal) {
+    nano_preferences.putUChar("direction", cal.direction);
+    nano_preferences.putFloat("zero_angle", cal.zero_angle);
+};
+
+
+MotorCalibration DeviceSettings::loadCalibration() {
+    MotorCalibration result;
+    result.direction = nano_preferences.getUChar("direction", 0);
+    result.zero_angle = nano_preferences.getFloat("zero_angle", NOT_SET);
+    return result;
+};
+
+
+String DeviceSettings::loadCurrentProfile() {
+    String profile = nano_preferences.getString("current_profile", "Default Profile");
+    return profile;
+};
+
+
+void DeviceSettings::storeCurrentProfile(String profile) {
+    nano_preferences.putString("current_profile", profile);
+};

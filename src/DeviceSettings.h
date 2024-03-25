@@ -15,6 +15,12 @@ typedef struct {
 } midiSettings;
 
 
+typedef struct {
+    uint8_t direction;
+    float zero_angle;
+} MotorCalibration;
+
+
 
 /**
  * Device settings.
@@ -33,6 +39,12 @@ public:
 
     // load settings - call only from main or in comms thread
     bool fromSPIFFS();
+
+    void storeCurrentProfile(String profile);
+    String loadCurrentProfile();
+    MotorCalibration loadCalibration();
+    void storeCalibration(MotorCalibration& cal);
+    bool init();
 
     bool dirty;
 

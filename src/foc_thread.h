@@ -4,6 +4,7 @@
 #include "thread_crtp.h"
 #include "haptic.h"
 #include "nanofoc_d.h"
+#include "DeviceSettings.h"
 
 
 class FocThread : public Thread<FocThread> {
@@ -20,6 +21,8 @@ class FocThread : public Thread<FocThread> {
         bool get_angle_event(AngleEvt* evt);
 
         float get_motor_angle();
+
+        void setCalibration(MotorCalibration& cal);
 
     protected:
         void run();

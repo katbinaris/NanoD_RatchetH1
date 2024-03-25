@@ -114,3 +114,8 @@ void FocThread::handleHapticConfig() {
     }
 };
 
+
+void FocThread::setCalibration(MotorCalibration& cal){
+    haptic.motor->zero_electric_angle = cal.zero_angle;
+    haptic.motor->sensor_direction = cal.direction==0 ? Direction::UNKNOWN : ( cal.direction==1 ? Direction::CW : Direction::CCW);
+};
