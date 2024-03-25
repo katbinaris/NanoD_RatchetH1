@@ -171,7 +171,14 @@ The response includes all profile fields, and would arrive in one line, but is s
                 "wrap": false,
                 "type": "midi",
                 "channel": 5,
-                "cc": 5
+                "cc": 5,
+                "haptic": {
+                    "mode": 0,
+                    "startPos": 0,
+                    "endPos": 6.283185307179586,
+                    "detentCount": 16,
+                    "vernier": 0
+                }                
             }
         ]
         "guiEnable": false
