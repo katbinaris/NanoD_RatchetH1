@@ -173,7 +173,8 @@ bool DeviceSettings::init() {
     }
     else {
         Serial.println("ERROR: SPIFFS mount failed");
-        // TODO this is kind of fatal...
+        // this is kind of fatal...
+        return false;
     }
     return true;
 };
