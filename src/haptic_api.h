@@ -17,19 +17,19 @@
  * as they have no relevance to the haptic module.
  */
 
-typedef enum {
-    INCREASE, // When fine detents increment
-    DECREASE,  //..
-    EITHER,   // Fires anytime a coarse detent is reached
-    LIMIT_POS,  // At detent.end_pos
-    LIMIT_NEG   // At detent.start_pos
+typedef enum : uint8_t {
+    INCREASE = 0,   // When fine detents increment
+    DECREASE = 1,   //..
+    EITHER = 2,     // Fires anytime a coarse detent is reached
+    LIMIT_POS = 3,  // At detent.end_pos
+    LIMIT_NEG = 4   // At detent.start_pos
 } HapticEvt;
 
-typedef enum {
-    REGULAR,    //Only coarse detents used
-    VERNIER,    // Coarse with fine between
-    VISCOSE,    // Resistance while turning
-    SPRING      // Snap back to center point
+typedef enum : uint8_t {
+    REGULAR = 0,    //Only coarse detents used
+    VERNIER = 1,    // Coarse with fine between
+    VISCOSE = 2,    // Resistance while turning
+    SPRING = 3     // Snap back to center point
 } HapticMode;
 
 typedef struct {
