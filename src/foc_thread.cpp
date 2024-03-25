@@ -22,7 +22,7 @@ HapticCommander commander = HapticCommander(&motor);
 
 FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 4096, 1, task_core) {
     _q_motor_in = xQueueCreate(5, sizeof( String* ));
-    _q_haptic_in = xQueueCreate(2, sizeof( hapticConfig ));
+    _q_haptic_in = xQueueCreate(2, sizeof( DetentProfile ));
     _q_angleevt_out = xQueueCreate(5, sizeof( AngleEvt ));
     assert(_q_motor_in != NULL);
     assert(_q_haptic_in != NULL);
@@ -32,8 +32,8 @@ FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 4096, 1, task_core
 FocThread::~FocThread() {}
 
 
-void FocThread::init(hapticConfig& initialConfig) {
-    haptic.haptic_config = initialConfig;
+void FocThread::init(DetentProfile& initialConfig) {
+    haptic.haptic_state = HapticState(initialConfig);
 };
 
 
@@ -51,7 +51,19 @@ void FocThread::run() {
     motor.LPF_velocity.Tf = 0.01;
     motor.current_limit = 1.22;
     motor.init();
-    motor.initFOC();
+    Direction dir = motor.sensor_direction;
+    if (dir == Direction::UNKNOWN) {
+        com_thread.put_string_message(StringMessage(new String("Calibration required..."), StringMessageType::STRING_MESSAGE_DEBUG));
+    }
+    int initResult = motor.initFOC();
+    if (motor.sensor_direction != dir && initResult != 0) {
+        com_thread.put_string_message(StringMessage(new String("Storing calibration in Preferences..."), StringMessageType::STRING_MESSAGE_DEBUG));
+        MotorCalibration cal = { motor.sensor_direction, motor.zero_electric_angle };
+        DeviceSettings::getInstance().storeCalibration(cal);
+    }
+    if (initResult == 0) {
+        com_thread.put_string_message(StringMessage(new String("Motor init failed!"), StringMessageType::STRING_MESSAGE_ERROR));
+    }
     haptic.init();
 
     haptic.motor->sensor_offset = haptic.motor->shaft_angle;
@@ -78,11 +90,11 @@ void FocThread::run() {
 
 void FocThread::put_motor_command(String* message) {
     if (message!=nullptr)
-        xQueueSend(_q_motor_in, (void*) message, (TickType_t)0);
+        xQueueSend(_q_motor_in, &message, (TickType_t)0);
 };
 
 
-void FocThread::put_haptic_config(hapticConfig& profile) {
+void FocThread::put_haptic_config(DetentProfile& profile) {
     xQueueSend(_q_haptic_in, &profile, (TickType_t)0);
 };
 
@@ -100,6 +112,7 @@ void FocThread::handleMessage() {
     String* message = nullptr;
     if (xQueueReceive(_q_motor_in, &message, (TickType_t)0)) {
         if (message!=nullptr) {
+            Serial.println("Received and handling message: "+*message);
             commander.handleMessage(message);
             StringMessage smsg(message, StringMessageType::STRING_MESSAGE_MOTOR);
             com_thread.put_string_message(smsg); // message String* is returned to comms thread, where it is deleted if necessary
@@ -109,7 +122,8 @@ void FocThread::handleMessage() {
 
 
 void FocThread::handleHapticConfig() {
-    if (xQueueReceive(_q_haptic_in, &haptic.haptic_config, (TickType_t)0)) {
+    DetentProfile profile;
+    if (xQueueReceive(_q_haptic_in, &profile, (TickType_t)0)) {
         // TODO apply haptic config to motor
     }
 };

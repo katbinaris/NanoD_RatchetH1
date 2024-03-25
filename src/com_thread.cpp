@@ -18,7 +18,7 @@ ComThread::~ComThread() {
 };
 
 
-void ComThread::put_string_message(StringMessage& msg){
+void ComThread::put_string_message(const StringMessage& msg){
     xQueueSend(_q_strings_in, &msg, (TickType_t)0);
 };
 
@@ -198,7 +198,6 @@ void ComThread::handleMessages() {
           doc["error"] = *incoming.message;
           break;
         case STRING_MESSAGE_MOTOR:
-          Serial.println("Replying...");
           doc["r"] = *incoming.message;
           break;
         default:
@@ -376,7 +375,7 @@ void ComThread::dispatchHmiConfig() {
 };
 
 void ComThread::dispatchHapticConfig() {
-    foc_thread.put_haptic_config(HapticProfileManager::getInstance().getCurrentProfile()->haptic_config);
+    foc_thread.put_haptic_config(HapticProfileManager::getInstance().getCurrentProfile()->hmi_config.knob.values[0].haptic);
 };
 
 void ComThread::dispatchSettings() {

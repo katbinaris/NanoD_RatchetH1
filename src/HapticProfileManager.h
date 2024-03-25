@@ -46,7 +46,6 @@ public:
     int profile_type;    // TODO enum
     bool show_desc;
 
-    hapticConfig haptic_config;
     ledConfig led_config;
     hmiConfig hmi_config;
     audioConfig audio_config;

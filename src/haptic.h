@@ -14,35 +14,6 @@
  * 
 */
 
-typedef enum {
-    INCREASE, // When fine detents increment
-    DECREASE,  //..
-    EITHER,   // Fires anytime a coarse detent is reached
-    LIMIT_POS,  // At detent.end_pos
-    LIMIT_NEG   // At detent.start_pos
-} HapticEvt;
-
-typedef enum {
-    REGULAR,    //Only coarse detents used
-    VERNIER,    // Coarse with fine between
-    VISCOSE,    // Resistance while turning
-    SPRING      // Snap back to center point
-} HapticMode;
-
-typedef struct {
-    HapticMode mode;
-    uint16_t start_pos;
-    uint16_t end_pos;
-    uint16_t detent_count;
-    uint8_t vernier;
-} DetentProfile;
-
-typedef struct {
-    float angle;
-    int32_t turns;
-    float velocity;
-} AngleEvt;
-
 class HapticState 
 {
 public:
@@ -69,7 +40,6 @@ public:
 class HapticInterface
 {
 public:
-    hapticConfig haptic_config; // Haptic configuration
     HapticState haptic_state;   // Haptic state
 
     BLDCMotor* motor;
@@ -78,8 +48,6 @@ public:
     // All the various constructors.
     HapticInterface(BLDCMotor* _motor);
     HapticInterface(BLDCMotor* _motor, PIDController* _pid);
-    HapticInterface(BLDCMotor* _motor, hapticConfig* _config);
-    HapticInterface(BLDCMotor* _motor, PIDController* _pid, hapticConfig* _config);
 
     void init(void);
     void haptic_loop(void);

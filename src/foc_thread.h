@@ -14,10 +14,10 @@ class FocThread : public Thread<FocThread> {
         FocThread(const uint8_t task_core);
         ~FocThread();
 
-        void init(hapticConfig& initialConfig);
+        void init(DetentProfile& initialConfig);
 
         void put_motor_command(String* msg);
-        void put_haptic_config(hapticConfig& profile);
+        void put_haptic_config(DetentProfile& profile);
         bool get_angle_event(AngleEvt* evt);
 
         float get_motor_angle();

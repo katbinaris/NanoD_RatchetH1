@@ -34,7 +34,6 @@ HapticProfile* HapticProfileManager::add(String name) {
       profiles[i].dirty = true;
       profiles[i].profile_desc = "";
       profiles[i].profile_tag = "";
-      profiles[i].haptic_config = hapticConfig();
       profiles[i].led_config = ledConfig();
       profiles[i].hmi_config = hmiConfig(); // TODO init all fields explicitly
       profiles[i].gui_enable = false;
@@ -292,14 +291,6 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   update_field(obj, name, profile_name);
   update_field(obj, desc, profile_desc);
   update_field(obj, profileTag, profile_tag);
-  // transfer haptic_config fields
-  update_field(obj, profileType, haptic_config.profile_type);
-  update_field(obj, position_num, haptic_config.position_num);
-  update_field(obj, attract_distance, haptic_config.attract_distance);
-  update_field(obj, feedback_strength, haptic_config.feedback_strength);
-  update_field(obj, bounce_strength, haptic_config.bounce_strength);
-  update_field(obj, haptic_click_strength, haptic_config.haptic_click_strength);
-  update_field(obj, output_ramp, haptic_config.output_ramp);
   // led config fields
   update_field(obj, ledEnable, led_config.led_enable);
   update_field(obj, ledBrightness, led_config.led_brightness);
@@ -361,7 +352,15 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         update_field(value, wrap, hmi_config.knob.values[i].wrap);
         update_field(value, step, hmi_config.knob.values[i].step);
         update_field(value, keyState, hmi_config.knob.values[i].key_state);
-        // TODO haptics fields
+        // haptics fields
+        JsonObject haptic = value["haptic"].as<JsonObject>();
+        if (haptic!=nullptr) {
+          update_field(haptic, mode, hmi_config.knob.values[i].haptic.mode);
+          update_field(haptic, startPos, hmi_config.knob.values[i].haptic.start_pos);
+          update_field(haptic, endPos, hmi_config.knob.values[i].haptic.end_pos);
+          update_field(haptic, detentCount, hmi_config.knob.values[i].haptic.detent_count);
+          update_field(haptic, vernier, hmi_config.knob.values[i].haptic.vernier);
+        }
         String type = value["type"].as<String>();
         if (type=="midi") {
           hmi_config.knob.values[i].type = knobValueType::KV_MIDI;
@@ -465,15 +464,6 @@ void HapticProfile::toJSON(JsonObject& doc){
   doc["name"] = profile_name;
   doc["desc"] = profile_desc;
   doc["profileTag"] = profile_tag;
-  doc["profileType"] = haptic_config.profile_type;
-  // transfer haptic_config fields
-  doc["profile_type"] = haptic_config.profile_type;
-  doc["position_num"] = haptic_config.position_num;
-  doc["attract_distance"] = haptic_config.attract_distance;
-  doc["feedback_strength"] = haptic_config.feedback_strength;
-  doc["bounce_strength"] = haptic_config.bounce_strength;
-  doc["haptic_click_strength"] = haptic_config.haptic_click_strength;
-  doc["output_ramp"] = haptic_config.output_ramp;
   // transfer led_config fields
   doc["ledEnable"] = led_config.led_enable;
   doc["ledBrightness"] = led_config.led_brightness;
@@ -531,7 +521,13 @@ void HapticProfile::toJSON(JsonObject& doc){
     value["wrap"] = hmi_config.knob.values[i].wrap;
     value["step"] = hmi_config.knob.values[i].step;
     value["keyState"] = hmi_config.knob.values[i].key_state;
-    // TODO haptics fields
+    // haptics fields
+    JsonObject haptic = value["haptic"].to<JsonObject>();
+    haptic["mode"] = hmi_config.knob.values[i].haptic.mode;
+    haptic["startPos"] = hmi_config.knob.values[i].haptic.start_pos;
+    haptic["endPos"] = hmi_config.knob.values[i].haptic.end_pos;
+    haptic["detentCount"] = hmi_config.knob.values[i].haptic.detent_count;
+    haptic["vernier"] = hmi_config.knob.values[i].haptic.vernier;
     switch (hmi_config.knob.values[i].type) {
       case knobValueType::KV_MIDI:
         value["type"] = "midi";

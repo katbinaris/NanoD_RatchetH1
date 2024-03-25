@@ -52,7 +52,8 @@ void setup() {
 
   // init threads
   hmi_thread.init(profileManager.getCurrentProfile()->led_config, profileManager.getCurrentProfile()->hmi_config);
-  foc_thread.init(profileManager.getCurrentProfile()->haptic_config);
+  if (profileManager.getCurrentProfile()->hmi_config.knob.num > 0)
+    foc_thread.init(profileManager.getCurrentProfile()->hmi_config.knob.values[0].haptic);
 
   // start threads
   Serial.println("Starting threads...");

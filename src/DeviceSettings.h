@@ -16,7 +16,7 @@ typedef struct {
 
 
 typedef struct {
-    uint8_t direction;
+    int8_t direction;
     float zero_angle;
 } MotorCalibration;
 

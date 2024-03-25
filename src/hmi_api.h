@@ -2,7 +2,7 @@
 #pragma once 
 
 #include <inttypes.h>
-
+#include "haptic_api.h"
 
 #define MAX_KEY_ACTIONS 5
 #define MAX_KNOB_VALUES 8
@@ -87,15 +87,6 @@ typedef struct {
 
 
 
-typedef struct {
-    // TODO: Add haptic feedback configuration
-    float angleMin; // minimum angle of the knob, inclusive
-    float angleMax; // maximum angle of the knob, inclusive, unless wrap is true, then exclusive
-    bool wrap; // if true, the angle will be allowed to wrap from min to max and vice versa
-               // if false, the motor will return to the min/max if released outside the range
-    uint32_t detents;
-} knobHapticConfig;
-
 
 
 typedef struct {
@@ -120,7 +111,7 @@ typedef struct {
     // note: if wrap is true, and angle_max-angle_min is a multiple of 2PI, the angle_max value will always be exclusive, regardless
     //       of the value of maxExclusive, and there will be no dead zone as there is no gap between max and min angles
 
-    knobHapticConfig haptic;
+    DetentProfile haptic;
     union {
         nanoMouseConfig mouse;
         nanoGamepadConfig pad;

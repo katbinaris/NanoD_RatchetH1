@@ -30,7 +30,7 @@ class ComThread : public Thread<ComThread> {
         ~ComThread();
 
         void setCurrentProfile(String name);
-        void put_string_message(StringMessage& msg);
+        void put_string_message(const StringMessage& msg);
         bool isProfileNameOk(String& name);
 
     protected:

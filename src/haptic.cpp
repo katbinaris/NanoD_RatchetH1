@@ -2,8 +2,6 @@
 #include "haptic_api.h"
 #include "utils.h"
 
-hapticConfig default_config;
-
 PIDController default_pid(1.0, 0.1, 0.004, 10000, 1.2);
 
 DetentProfile default_profile{
@@ -39,28 +37,12 @@ HapticState::~HapticState() {};
 HapticInterface::HapticInterface(BLDCMotor* _motor){
     motor = _motor;
     haptic_pid = &default_pid;
-    haptic_config = default_config; // copy default to active configuration
-    haptic_state = HapticState(default_profile);
-};
-
-HapticInterface::HapticInterface(BLDCMotor* _motor, hapticConfig* _config){
-    motor = _motor;
-    haptic_pid = &default_pid;
-    haptic_config = *_config;
     haptic_state = HapticState(default_profile);
 };
 
 HapticInterface::HapticInterface(BLDCMotor* _motor, PIDController* _pid){
     motor = _motor;
     haptic_pid = _pid;
-    haptic_config = default_config; // copy default to active configuration
-    haptic_state = HapticState(default_profile);
-};
-
-HapticInterface::HapticInterface(BLDCMotor* _motor, PIDController* _pid, hapticConfig* _config){
-    motor = _motor;
-    haptic_pid = _pid;
-    haptic_config = *_config; // copy over to active configuration
     haptic_state = HapticState(default_profile);
 };
 
