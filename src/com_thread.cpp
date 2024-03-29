@@ -2,6 +2,7 @@
 #include "./com_thread.h"
 #include "./foc_thread.h"
 #include "./hmi_thread.h"
+#include "./lcd_thread.h"
 #include <esp_task_wdt.h>
 #include "./DeviceSettings.h"
 
@@ -57,12 +58,18 @@ void ComThread::run() {
               foc_thread.put_motor_command(cmdstr);
             }
             v = doc["message"];
-            if (v!=nullptr) { // its a message
-              // TODO send message to screen
+            if (v.is<String>()) { // its a message
+              // send message to screen
+              StringMessage msg{new String(v.as<String>()), STRING_MESSAGE_DEBUG};
+              // TODO lcd_thread.put_string_message(msg);
             }
             v = doc["recalibrate"];
-            if (v!=nullptr) { // recalibrate motor
-              // TODO enter calibration mode
+            if (v.is<bool>()) { // recalibrate motor
+              // enter calibration mode
+              if (v.as<bool>()) {
+                Serial.println("Recalibrating motor");
+                foc_thread.put_motor_command(new String("129=1"));
+              }
             }
             v = doc["profiles"];
             if (v!=nullptr) { // list profiles

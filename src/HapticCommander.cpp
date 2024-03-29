@@ -8,7 +8,19 @@ void HapticCommander::handleMessage(String* message) {
     uint8_t reg = atoi(msg_in);
     msg_in = strchr(msg_in, '=');
     if (msg_in != NULL) {
-        SimpleFOCRegisters::regs->commsToRegister(*this, reg, motor);
+        if (reg==REG_RECALIBRATE) {
+            uint8_t value; *this >> value;
+            if (value==1) {
+                motor->disable();
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
+                motor->sensor_direction = Direction::UNKNOWN;
+                motor->zero_electric_angle = NOT_SET;
+                motor->enable();
+                motor->initFOC();
+            }
+        }
+        else
+            SimpleFOCRegisters::regs->commsToRegister(*this, reg, motor);
     }
     msg_out = message;
     sendRegister(reg);
@@ -22,7 +34,11 @@ void HapticCommander::sendRegister(uint8_t reg) {
     msg_out->concat('r');
     msg_out->concat((int)reg);
     msg_out->concat('=');
-    SimpleFOCRegisters::regs->registerToComms(*this, reg, motor);
+    if (reg==REG_RECALIBRATE) {
+        msg_out->concat("0");
+    }
+    else
+        SimpleFOCRegisters::regs->registerToComms(*this, reg, motor);
 };
 
 

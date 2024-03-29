@@ -4,6 +4,11 @@
 #include "comms/SimpleFOCRegisters.h"
 #include "BLDCMotor.h"
 
+
+#define REG_RECALIBRATE 0x81
+
+
+
 /**
  * HapticCommander is an implementation of SimpleFOC RegisiterIO that operates on
  * messages received as Strings from the comms thread via ESP32 xQueue.
