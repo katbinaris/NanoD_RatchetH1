@@ -180,7 +180,11 @@ The response includes all profile fields, and would arrive in one line, but is s
                     "vernier": 0
                 }                
             }
-        ]
+        ],
+        "audio": {
+            "clickType": "hard",  // 'hard', 'soft', 'clack', 'loud', 'none'
+            "clickLevel": 100     // volume 0-125
+        },
         "guiEnable": false
     }
 }
