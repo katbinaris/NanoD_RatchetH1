@@ -81,9 +81,10 @@ void FocThread::run() {
             ts = now;
         }
         
+        
         handleMessage();
         handleHapticConfig();
-        vTaskDelay(1);
+        
     }
         
 };
@@ -102,6 +103,31 @@ void FocThread::put_haptic_config(DetentProfile& profile) {
 bool FocThread::get_angle_event(AngleEvt* evt) {
     return xQueueReceive(_q_angleevt_out, evt, (TickType_t)0);
 };
+
+
+
+uint16_t FocThread::pass_cur_pos(){
+    return haptic.haptic_state.current_pos;
+}
+
+uint16_t FocThread::pass_start_pos(){
+    return haptic.haptic_state.detent_profile.start_pos;
+}
+
+uint16_t FocThread::pass_end_pos(){
+    return haptic.haptic_state.detent_profile.end_pos;
+}
+
+uint16_t FocThread::pass_last_pos(){
+    return haptic.haptic_state.last_pos;
+}
+
+bool FocThread::pass_at_limit(){
+    return haptic.haptic_state.atLimit;
+}
+
+
+
 
 
 float FocThread::get_motor_angle() {

@@ -7,6 +7,9 @@
 #include <motor.h>
 #include "haptic_api.h"
 
+
+
+
 /**
  * Define start and end positions. These are the physical detent limits.
  * Coarse index and fine index track where in that range the dial is currently pointing.

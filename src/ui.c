@@ -81,5 +81,5 @@ ui_valueScreen_screen_init();
 ui_profSelectScreen_screen_init();
 ui_genericPopupScreen_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
-lv_disp_load_scr( ui_profSelectScreen);
+lv_disp_load_scr( ui_valueScreen);
 }
