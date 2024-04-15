@@ -5,10 +5,12 @@
 #include "haptic.h"
 #include "nanofoc_d.h"
 #include "DeviceSettings.h"
+#include "audio/audio_api.h"
 
 
 class FocThread : public Thread<FocThread> {
     friend class Thread<FocThread>; //Allow Base Thread to invoke protected run()
+    friend class HapticInterface;
 
     public:
         FocThread(const uint8_t task_core);

@@ -3,21 +3,16 @@
 #include "foc_thread.h"
 #include <Adafruit_TinyUSB.h>
 #include "MIDI.h"
-#define I2S_DOUT 9
-#define I2S_BLCK 10
-#define I2S_LRC 11
+#include "audio/audio.h"
 
 using namespace ace_button;
 
-XT_I2S_Class I2SAudio(I2S_LRC, I2S_BLCK, I2S_DOUT, I2S_NUM_0);
-XT_Wav_Class Click(soft);
 Adafruit_USBD_MIDI usb_midi(1);
 
 MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, midiu);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
 
-enum
-{
+enum {
   RID_KEYBOARD = 1,
   RID_MOUSE = 2,
   RID_GAMEPAD = 3,
@@ -76,6 +71,8 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     midi2Settings = DeviceSettings::getInstance().midi2;
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
     midi2.begin();
+
+    audioPlayer.audio_init();
 };
 
 
@@ -173,7 +170,6 @@ void HmiThread::run() {
         updateValue();
         handleHid();
         updateLeds();
-        playHaptics();
         
         unsigned long us = micros();
         FastLED.show();
@@ -190,10 +186,9 @@ void HmiThread::run() {
             total = 0;
             updates = 0;
         }
-        I2SAudio.Volume = 125;
-        I2SAudio.FillBuffer();
-        
-        vTaskDelay(1 / portTICK_PERIOD_MS);
+
+        audioPlayer.audio_loop();
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
 };
@@ -204,25 +199,6 @@ void HmiThread::run() {
 HmiThreadButtonHandler::HmiThreadButtonHandler(uint8_t _index) : index(_index) {};
 
 
-
-extern "C" void HapticInterface::UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
-  switch (event)
-  {
-  case HapticEvt::INCREASE:
-
-  I2SAudio.Play(&Click);
-    break;
-  
-  case HapticEvt::DECREASE:
-  I2SAudio.Play(&Click);
-    break;
-
-   default:
-   break;
-
-  }
-  
-};
 
 void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, uint8_t buttonState) {
     switch (eventType) {
@@ -425,21 +401,13 @@ void HmiThread::updateLeds() {
     vTaskDelay(5);
 }
 
-void HmiThread::playHaptics() {
-   // Actually not playing haptics Temporarily using it for LED
-
-}
     
 
 
 
 // Standard Pointer with two halves
 void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
-    
-    
     for (int i = 0; i < NANO_LED_A_NUM; ++i) {
-
-
          if(i < indicator) {
              leds[i] = postCol;
          }
@@ -447,8 +415,7 @@ void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, cons
              leds[i] = preCol;
          }
     }
-     
-        leds[indicator] = pointerCol;
+    leds[indicator] = pointerCol;
 };
 
 

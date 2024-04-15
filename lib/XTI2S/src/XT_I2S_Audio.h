@@ -7,7 +7,7 @@
 // you will have to alter your original code to work with the new if required.
 // NOTES: Wav samples can be mono or stereo and 8 or 16 bit. Maximum sample rate of 44100 samples per second. They must be 
 // signed waves NOT unsigned. Check you settings on your wavs.
-
+#pragma once
 
 #include "FreeRTOS.h"
 #include "driver/i2s.h"                 // Library of I2S routines, comes with ESP32 standard install

@@ -8,11 +8,6 @@
 #include "./led_api.h"
 #include "./hmi_api.h"
 #include "./DeviceSettings.h"
-// Auditory Haptics via I2S
-#include <XT_I2S_Audio.h>
-// Progmem Wavetable TODO: Move to SPIFFS
-#include <WavData.h>
-#include <MusicDefinitions.h>
 
 using namespace ace_button;
 

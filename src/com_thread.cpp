@@ -4,7 +4,7 @@
 #include "./hmi_thread.h"
 #include <esp_task_wdt.h>
 #include "./DeviceSettings.h"
-
+#include "audio/audio.h"
 
 
 
@@ -98,6 +98,7 @@ void ComThread::run() {
                 HapticProfileManager::getInstance().setCurrentProfile(DeviceSettings::getInstance().loadCurrentProfile());
                 dispatchSettings();
                 dispatchHapticConfig();
+                dispatchAudioConfig();
                 dispatchLedConfig();
                 dispatchHmiConfig();
               }
@@ -344,6 +345,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
     *p = obj; // assigning the JSON object to the profile will update the profile's fields
     if (p==pm.getCurrentProfile()) {
       dispatchHapticConfig();
+      dispatchAudioConfig();
       dispatchLedConfig();
       dispatchHmiConfig();
     }
@@ -357,6 +359,7 @@ void ComThread::setCurrentProfile(String name){
     dispatchHapticConfig();
     dispatchLedConfig();
     dispatchHmiConfig();
+    dispatchAudioConfig();
   }
 };
 
@@ -381,4 +384,9 @@ void ComThread::dispatchHapticConfig() {
 
 void ComThread::dispatchSettings() {
     hmi_thread.put_settings(DeviceSettings::getInstance());
+};
+
+
+void ComThread::dispatchAudioConfig() {
+    audioPlayer.put_audio_config(HapticProfileManager::getInstance().getCurrentProfile()->audio_config);
 };

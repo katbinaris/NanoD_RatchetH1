@@ -10,8 +10,8 @@ PIDController default_pid(4.0, 0.1, 0.004, 10000, 0.4);
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos = 100,
-    .detent_count = 100,
+    .end_pos = 0,
+    .detent_count = 0,
     .vernier = 10
 };
 
@@ -275,10 +275,10 @@ void HapticInterface::HapticEventCallback(HapticEvt event){
 }
 
 // For user implementation
-void UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
-    /**
-     * This function should not be modified.
-     * To use this, implement the function in your main application.
-     * extern "C" void HapticEventCallback(HapticEvt event, uint16_t currentPos)
-    */
-}
+//  __attribute__((weak)) void UserHapticEventCallback(HapticEvt event, float currentAngle, uint16_t currentPos){
+//     /**
+//      * This function should not be modified.
+//      * To use this, implement the function in your main application.
+//      * extern "C" void HapticEventCallback(HapticEvt event, uint16_t currentPos)
+//     */
+// }
