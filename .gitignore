@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 lib/Ardunio-FOC-drivers
+messages.txt
+lib/Arduino-FOC
