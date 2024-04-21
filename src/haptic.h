@@ -37,6 +37,7 @@ public:
     float endstop_strength_unit = 0.5; // PID (estimated) Current Limit
 
     bool atLimit = 0;
+    bool kxForce = 0;
 
     void load_profile(DetentProfile);
 };

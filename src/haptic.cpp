@@ -10,8 +10,8 @@ PIDController default_pid(4.0, 0.1, 0.004, 10000, 0.4);
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos = 50,
-    .detent_count = 50,
+    .end_pos = 100,
+    .detent_count = 100,
     .vernier = 10
 };
 
@@ -130,8 +130,11 @@ void HapticInterface::find_detent(void)
     float detent_width = 2 * _PI / haptic_state.detent_profile.detent_count;
     float vernier_width  = detent_width / haptic_state.detent_profile.vernier;
 
+    float hysteresisType = haptic_state.attract_hysteresis * (haptic_state.kxForce ? -1.0 : 1.0);
+    float minHysteresis = motor->shaft_angle * (1.0 - hysteresisType);
+    float maxHysteresis = motor->shaft_angle * (1.0 + hysteresisType);
 
-    if(haptic_state.attract_angle > (motor->shaft_angle * (1.0 + haptic_state.attract_hysteresis))){
+    if(haptic_state.attract_angle > minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
         switch(haptic_state.detent_profile.mode){
         case HapticMode::REGULAR:
@@ -150,7 +153,7 @@ void HapticInterface::find_detent(void)
             break;
         }
     }
-    else if(haptic_state.attract_angle < (motor->shaft_angle * (1.0 - haptic_state.attract_hysteresis))){
+    else if(haptic_state.attract_angle < maxHysteresis){
         // Knob is turned more than detent (right half of texture graph)
         switch(haptic_state.detent_profile.mode){
         case HapticMode::REGULAR:
