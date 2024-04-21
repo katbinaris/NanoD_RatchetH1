@@ -31,6 +31,7 @@ public:
 
     float attract_angle = 0; 
     float last_attract_angle = 0;
+    float attract_hysteresis = 0.05;
 
     float detent_strength_unit = 0.5; // PID (estimated) Current Limit
     float endstop_strength_unit = 0.5; // PID (estimated) Current Limit
