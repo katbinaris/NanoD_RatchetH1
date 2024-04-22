@@ -10,8 +10,8 @@ PIDController default_pid(4.0, 0.1, 0.004, 10000, 0.4);
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos = 100,
-    .detent_count = 100,
+    .end_pos = 50,
+    .detent_count = 50,
     .vernier = 10
 };
 
@@ -259,13 +259,17 @@ float HapticInterface::haptic_target(void)
 {
     // TODO: When out of bounds and return to position introduce easing so we avoid overshoot.
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
+    float error_threshold = 0.001;
 
     motor->loopFOC();
 
     // Prevent knob velocity from getting too high and overshooting.
     if(fabsf(motor->shaft_velocity) > 30) {
         motor->move(0);
-    } 
+    }
+    else if(abs(error) < error_threshold){
+        motor->move(0);
+    }
     else {
         motor->move(default_pid(error));
     }
