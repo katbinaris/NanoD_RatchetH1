@@ -182,8 +182,9 @@ The response includes all profile fields, and would arrive in one line, but is s
             }
         ],
         "audio": {
-            "clickType": "hard",  // 'hard', 'soft', 'clack', 'loud', 'none'
-            "clickLevel": 100     // volume 0-125
+            "clickType": "hard",      // 'hard', 'soft', 'clack', 'loud', 'none'
+            "keyClickType": "none",   // 'hard', 'soft', 'clack', 'loud', 'none'
+            "clickLevel": 100         // volume 0-125
         },
         "guiEnable": false
     }
