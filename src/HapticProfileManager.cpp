@@ -38,6 +38,7 @@ HapticProfile* HapticProfileManager::add(String name) {
       profiles[i].led_config = ledConfig();
       profiles[i].hmi_config = hmiConfig(); // TODO init all fields explicitly
       profiles[i].audio_config.audio_file = hard_wav;
+      profiles[i].audio_config.key_audio_file = clack_wav;
       profiles[i].audio_config.audio_feedback_lvl = 100;
       profiles[i].gui_enable = false;
       return &profiles[i];
@@ -412,18 +413,10 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
   if (obj["audio"].is<JsonObject>()) {
     JsonObject audio = obj["audio"].as<JsonObject>();
     if (audio["clickType"].is<String>()) {
-      if (audio["clickType"].as<String>()=="loud")
-        audio_config.audio_file = loud_wav;
-      else if (audio["clickType"].as<String>()=="soft")
-        audio_config.audio_file = soft_wav;
-      else if (audio["clickType"].as<String>()=="hard")
-        audio_config.audio_file = hard_wav;
-      else if (audio["clickType"].as<String>()=="clack")
-        audio_config.audio_file = clack_wav;
-      else if (audio["clickType"].as<String>()=="ping")
-        audio_config.audio_file = ping_wav;
-      else
-        audio_config.audio_file = nullptr;
+      audio_config.audio_file = get_audio_file(audio["clickType"].as<String>());
+    }
+    if (audio["keyClickType"].is<String>()) {
+      audio_config.key_audio_file = get_audio_file(audio["keyClickType"].as<String>());
     }
     if (audio["clickLevel"].is<int>()) {
       audio_config.audio_feedback_lvl = audio["clickLevel"].as<int>();
@@ -593,18 +586,8 @@ void HapticProfile::toJSON(JsonObject& doc){
   doc["guiEnable"] = gui_enable;
   // sound fields
   JsonObject audio = doc["audio"].to<JsonObject>();
-  if (audio_config.audio_file==hard_wav)
-    audio["clickType"] = "hard";
-  else if (audio_config.audio_file==soft_wav)
-    audio["clickType"] = "soft";
-  else if (audio_config.audio_file==loud_wav)
-    audio["clickType"] = "loud";
-  else if (audio_config.audio_file==clack_wav)
-    audio["clickType"] = "clack";
-  else if (audio_config.audio_file==ping_wav)
-    audio["clickType"] = "ping";
-  else
-    audio["clickType"] = "none";
+  audio["clickType"] = get_audio_filename(audio_config.audio_file);
+  audio["keyClickType"] = get_audio_filename(audio_config.key_audio_file);
   audio["clickLevel"] = audio_config.audio_feedback_lvl;
 };
 

@@ -9,6 +9,37 @@
 
 BinarisAudioPlayer audioPlayer; // global instance
 
+uint8_t* get_audio_file(String fName) {
+    if (fName=="loud")
+        return loud_wav;
+    else if (fName=="soft")
+        return soft_wav;
+    else if (fName=="hard")
+        return hard_wav;
+    else if (fName=="clack")
+        return clack_wav;
+    else if (fName=="ping")
+        return ping_wav;
+    return nullptr;  
+};
+
+
+
+
+String get_audio_filename(uint8_t* audio_file){
+    if (audio_file==loud_wav)
+        return "loud";
+    else if (audio_file==soft_wav)
+        return "soft";
+    else if (audio_file==hard_wav)
+        return "hard";
+    else if (audio_file==clack_wav)
+        return "clack";
+    else if (audio_file==ping_wav)
+        return "ping";
+    return "none";
+};
+
 
 BinarisAudioPlayer::BinarisAudioPlayer(){
     _q_audio_in = xQueueCreate(2, sizeof( AudioCommand ));
@@ -156,7 +187,7 @@ void BinarisAudioPlayer::audio_loop(){
     if (num_bytes_remaining == 0){
         // we have finished playing the audio file
         data_ptr = nullptr;
-        Serial.println("Audio done in "+String(iter));
+        //Serial.println("Audio done in "+String(iter));
         iter = 0;
     }
     else {

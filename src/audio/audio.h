@@ -23,6 +23,7 @@ struct AudioCommand {
 };
 
 class BinarisAudioPlayer {
+    friend class HmiThreadButtonHandler;
 public:
     BinarisAudioPlayer();
     ~BinarisAudioPlayer();
@@ -45,5 +46,6 @@ protected:
     size_t num_bytes_remaining = 0;
     uint8_t* data_ptr = nullptr;
 };
+
 
 extern BinarisAudioPlayer audioPlayer;

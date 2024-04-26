@@ -118,7 +118,6 @@ void ComThread::run() {
           idleDoc["idle"] = now-ts_last_activity;
           serializeJson(idleDoc, Serial);
           Serial.println(); // add a newline
-          audioPlayer.play_haptic_audio();
         }
 
         vTaskDelay(10); // give other threads a chance to run...
