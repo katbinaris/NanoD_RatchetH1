@@ -420,6 +420,8 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         audio_config.audio_file = hard_wav;
       else if (audio["clickType"].as<String>()=="clack")
         audio_config.audio_file = clack_wav;
+      else if (audio["clickType"].as<String>()=="ping")
+        audio_config.audio_file = ping_wav;
       else
         audio_config.audio_file = nullptr;
     }
@@ -599,6 +601,8 @@ void HapticProfile::toJSON(JsonObject& doc){
     audio["clickType"] = "loud";
   else if (audio_config.audio_file==clack_wav)
     audio["clickType"] = "clack";
+  else if (audio_config.audio_file==ping_wav)
+    audio["clickType"] = "ping";
   else
     audio["clickType"] = "none";
   audio["clickLevel"] = audio_config.audio_feedback_lvl;

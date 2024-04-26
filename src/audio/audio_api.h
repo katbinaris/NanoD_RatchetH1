@@ -37,5 +37,5 @@ extern uint8_t soft_wav[];
 extern uint8_t hard_wav[];
 extern uint8_t loud_wav[];
 extern uint8_t clack_wav[];
-
+extern uint8_t ping_wav[];
 

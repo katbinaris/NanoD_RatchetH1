@@ -25,6 +25,7 @@ void BinarisAudioPlayer::audio_init(){
     check_file(String("soft.wav"), soft_wav);
     check_file(String("clack.wav"), clack_wav);
     check_file(String("loud.wav"), loud_wav);
+    check_file(String("ping.wav"), ping_wav);
 
     audio_config.audio_feedback_lvl = 100;
     audio_config.audio_file = hard_wav;
@@ -62,7 +63,7 @@ void BinarisAudioPlayer::play_audio(uint8_t* audio_file, uint16_t volume){
 
 
 void BinarisAudioPlayer::put_audio_config(audioConfig& config){
-    AudioCommand command{ .type = AudioCommandType::PLAY_HAPTIC, .config = config };
+    AudioCommand command{ .type = AudioCommandType::CONFIG, .config = config };
     xQueueSend(_q_audio_in, &command, (TickType_t)0);
 };
 
@@ -129,6 +130,7 @@ void BinarisAudioPlayer::handle_audio_commands(){
                 }
                 break;
             case AudioCommandType::CONFIG:
+                Serial.println("Audio config");
                 audio_config = command.config;
                 break;
             default:
@@ -139,7 +141,7 @@ void BinarisAudioPlayer::handle_audio_commands(){
 };
 
 
-
+int iter = 0;
 
 // always call from one thread
 void BinarisAudioPlayer::audio_loop(){
@@ -154,6 +156,12 @@ void BinarisAudioPlayer::audio_loop(){
     if (num_bytes_remaining == 0){
         // we have finished playing the audio file
         data_ptr = nullptr;
+        Serial.println("Audio done in "+String(iter));
+        iter = 0;
+    }
+    else {
+        iter++;
+        data_ptr = data_ptr + num_bytes_written;
     }
 };
 
