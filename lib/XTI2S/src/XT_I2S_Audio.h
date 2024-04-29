@@ -7,7 +7,7 @@
 // you will have to alter your original code to work with the new if required.
 // NOTES: Wav samples can be mono or stereo and 8 or 16 bit. Maximum sample rate of 44100 samples per second. They must be 
 // signed waves NOT unsigned. Check you settings on your wavs.
-
+#pragma once
 
 #include "FreeRTOS.h"
 #include "driver/i2s.h"                 // Library of I2S routines, comes with ESP32 standard install
@@ -26,7 +26,7 @@
 #define MAX_WAVE_HEIGHT 32767			// Max height wave can be 
 #define MIN_WAVE_HEIGHT -32768			// Min height wave can be 
 
-#define DEFAULT_MASTER_VOLUME 50		// Master output volume for the final mixed sound
+#define DEFAULT_MASTER_VOLUME 100		// Master output volume for the final mixed sound
 
 class XT_Envelope_Class;						// forward ref for this class
 

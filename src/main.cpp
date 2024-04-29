@@ -62,7 +62,7 @@ void setup() {
   com_thread.begin();
   hmi_thread.begin();
   foc_thread.begin();
-  //lcd_thread.begin();
+  lcd_thread.begin();
   vTaskDelete(NULL);
 }
 

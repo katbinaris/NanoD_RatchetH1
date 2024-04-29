@@ -9,7 +9,6 @@
 #include "./hmi_api.h"
 #include "./DeviceSettings.h"
 
-
 using namespace ace_button;
 
 
@@ -25,7 +24,6 @@ public:
 class HmiThread : public Thread<HmiThread> {
     friend class Thread<HmiThread>; //Allow Base Thread to invoke protected run()
     friend class HmiThreadButtonHandler;
-
 
 
 
@@ -54,9 +52,11 @@ class HmiThread : public Thread<HmiThread> {
         QueueHandle_t _q_hmi_config_in;
         QueueHandle_t _q_settings_in;
         QueueHandle_t _q_keyevt_out;
+
         // internal queue handler
         void handleConfig();
         void handleSettings();
+
 
         // LEDs
         ledConfig led_config;
@@ -64,6 +64,7 @@ class HmiThread : public Thread<HmiThread> {
         CRGB ledsp[NANO_LED_B_NUM];
         void updateKeyLeds();
         void updateLeds();
+        void playHaptics();
 
         // buttons
         hmiConfig hmi_config;

@@ -3,11 +3,11 @@
 #include "HapticCommander.h"
 #include "./com_thread.h"
 
+
 /*
     FOC Thread runs BLDCHaptic Library in estimated current mode
     It sends and receives data from Com Thread.
 */
-
 
 
 // global variables
@@ -20,7 +20,7 @@ HapticCommander commander = HapticCommander(&motor);
 
 
 
-FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 4096, 1, task_core) {
+FocThread::FocThread(const uint8_t task_core) : Thread("FOC", 8192, 1, task_core) {
     _q_motor_in = xQueueCreate(5, sizeof( String* ));
     _q_haptic_in = xQueueCreate(2, sizeof( DetentProfile ));
     _q_angleevt_out = xQueueCreate(5, sizeof( AngleEvt ));
@@ -38,7 +38,6 @@ void FocThread::init(DetentProfile& initialConfig) {
 
 
 void FocThread::run() {
-
     SPIClass* spi = new SPIClass(HSPI);
     spi->begin(PIN_MAG_CLK, PIN_MAG_DO, -1, PIN_MAG_CS);
     encoder.init(spi);
@@ -49,7 +48,7 @@ void FocThread::run() {
     motor.linkSensor(&encoder);
     motor.linkDriver(&driver);
     motor.LPF_velocity.Tf = 0.01;
-    motor.current_limit = 1.22;
+    motor.current_limit = 0.9;
     motor.init();
     Direction dir = motor.sensor_direction;
     if (dir == Direction::UNKNOWN) {
@@ -65,9 +64,7 @@ void FocThread::run() {
         com_thread.put_string_message(StringMessage(new String("Motor init failed!"), StringMessageType::STRING_MESSAGE_ERROR));
     }
     haptic.init();
-
     haptic.motor->sensor_offset = haptic.motor->shaft_angle;
-    
     float lastang = encoder.getAngle();
     unsigned long ts = micros();
     while (true) {
@@ -81,9 +78,9 @@ void FocThread::run() {
             ts = now;
         }
         
+        
         handleMessage();
         handleHapticConfig();
-        vTaskDelay(1);
     }
         
 };
@@ -99,9 +96,36 @@ void FocThread::put_haptic_config(DetentProfile& profile) {
 };
 
 
+
+
 bool FocThread::get_angle_event(AngleEvt* evt) {
     return xQueueReceive(_q_angleevt_out, evt, (TickType_t)0);
 };
+
+
+
+uint16_t FocThread::pass_cur_pos(){
+    return haptic.haptic_state.current_pos;
+}
+
+uint16_t FocThread::pass_start_pos(){
+    return haptic.haptic_state.detent_profile.start_pos;
+}
+
+uint16_t FocThread::pass_end_pos(){
+    return haptic.haptic_state.detent_profile.end_pos;
+}
+
+uint16_t FocThread::pass_last_pos(){
+    return haptic.haptic_state.last_pos;
+}
+
+bool FocThread::pass_at_limit(){
+    return haptic.haptic_state.atLimit;
+}
+
+
+
 
 
 float FocThread::get_motor_angle() {
@@ -130,7 +154,11 @@ void FocThread::handleHapticConfig() {
 };
 
 
+
 void FocThread::setCalibration(MotorCalibration& cal){
     haptic.motor->zero_electric_angle = cal.zero_angle;
     haptic.motor->sensor_direction = cal.direction==0 ? Direction::UNKNOWN : ( cal.direction==1 ? Direction::CW : Direction::CCW);
 };
+
+
+

@@ -3,17 +3,16 @@
 #include "foc_thread.h"
 #include <Adafruit_TinyUSB.h>
 #include "MIDI.h"
+#include "audio/audio.h"
 
 using namespace ace_button;
-
 
 Adafruit_USBD_MIDI usb_midi(1);
 
 MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, midiu);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
 
-enum
-{
+enum {
   RID_KEYBOARD = 1,
   RID_MOUSE = 2,
   RID_GAMEPAD = 3,
@@ -72,6 +71,8 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     midi2Settings = DeviceSettings::getInstance().midi2;
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
     midi2.begin();
+
+    audioPlayer.audio_init();
 };
 
 
@@ -130,7 +131,7 @@ bool HmiThread::get_key_event(KeyEvt* keyEvt){
 
 
 void HmiThread::run() {
-    FastLED.addLeds<LED_CHIPSET, PIN_LED_A, LED_COL_ORDER>(leds, NANO_LED_A_NUM);
+    FastLED.addLeds<LED_CHIPSET, PIN_LED_A, RGB>(leds, NANO_LED_A_NUM);
     FastLED.addLeds<LED_CHIPSET, PIN_LED_B, LED_COL_ORDER>(ledsp, NANO_LED_B_NUM);
     FastLED.setBrightness( DEFAULT_LED_MAX_BRIGHTNESS );
     pinMode(PIN_BTN_A, INPUT_PULLUP);
@@ -147,10 +148,14 @@ void HmiThread::run() {
         buttons[i]->getButtonConfig()->setClickDelay(50);
         buttons[i]->getButtonConfig()->clearFeature(ButtonConfig::kFeatureDoubleClick);
     }
-    ledsp[0] = CRGB(led_config.button_A_col_idle);
-    ledsp[1] = CRGB(led_config.button_B_col_idle);
-    ledsp[2] = CRGB(led_config.button_C_col_idle);
-    ledsp[3] = CRGB(led_config.button_D_col_idle);
+    ledsp[3] = CRGB(led_config.button_A_col_idle);
+    ledsp[4] = CRGB(led_config.button_A_col_idle);
+    ledsp[2] = CRGB(led_config.button_B_col_idle);
+    ledsp[5] = CRGB(led_config.button_B_col_idle);
+    ledsp[1] = CRGB(led_config.button_C_col_idle);
+    ledsp[6] = CRGB(led_config.button_C_col_idle);
+    ledsp[0] = CRGB(led_config.button_D_col_idle);
+    ledsp[7] = CRGB(led_config.button_D_col_idle);
 
     unsigned long total = 0;
     unsigned long updates = 0;
@@ -165,6 +170,7 @@ void HmiThread::run() {
         updateValue();
         handleHid();
         updateLeds();
+        
         unsigned long us = micros();
         FastLED.show();
         unsigned long now = micros();
@@ -180,7 +186,9 @@ void HmiThread::run() {
             total = 0;
             updates = 0;
         }
-        vTaskDelay(5 / portTICK_PERIOD_MS);
+
+        audioPlayer.audio_loop();
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
 };
@@ -190,6 +198,8 @@ void HmiThread::run() {
 
 HmiThreadButtonHandler::HmiThreadButtonHandler(uint8_t _index) : index(_index) {};
 
+
+
 void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, uint8_t buttonState) {
     switch (eventType) {
         case AceButton::kEventPressed:
@@ -197,6 +207,7 @@ void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, u
             for (int i=0; i<hmi_thread.hmi_config.keys[index].num_pressed_actions; i++) {
                 hmi_thread.handleKeyAction(hmi_thread.hmi_config.keys[index].pressed[i], eventType);
             }
+            audioPlayer.play_audio(audioPlayer.audio_config.key_audio_file, audioPlayer.audio_config.audio_feedback_lvl);
         break;
         case AceButton::kEventReleased:
             hmi_thread.keyState &= ~(1<<index);
@@ -368,35 +379,44 @@ void HmiThread::handleMidi() {
 
 
 void HmiThread::updateKeyLeds() {
-    ledsp[0] = CRGB((keyState&0x1)?led_config.button_A_col_press:led_config.button_A_col_idle);
-    ledsp[1] = CRGB((keyState&0x2)?led_config.button_B_col_press:led_config.button_B_col_idle);
-    ledsp[2] = CRGB((keyState&0x4)?led_config.button_C_col_press:led_config.button_C_col_idle);
-    ledsp[3] = CRGB((keyState&0x8)?led_config.button_D_col_press:led_config.button_D_col_idle);
+    ledsp[3] = CRGB((keyState&0x1)?led_config.button_A_col_press:led_config.button_A_col_idle);
+    ledsp[4] = CRGB((keyState&0x1)?led_config.button_A_col_press:led_config.button_A_col_idle);
+    ledsp[2] = CRGB((keyState&0x2)?led_config.button_B_col_press:led_config.button_B_col_idle);
+    ledsp[5] = CRGB((keyState&0x2)?led_config.button_B_col_press:led_config.button_B_col_idle);
+    ledsp[1] = CRGB((keyState&0x4)?led_config.button_C_col_press:led_config.button_C_col_idle);
+    ledsp[6] = CRGB((keyState&0x4)?led_config.button_C_col_press:led_config.button_C_col_idle);
+    ledsp[0] = CRGB((keyState&0x8)?led_config.button_D_col_press:led_config.button_D_col_idle);
+    ledsp[7] = CRGB((keyState&0x8)?led_config.button_D_col_press:led_config.button_D_col_idle);
 };
 
 
 
 void HmiThread::updateLeds() {
-    // TODO implement switching animations
-    uint8_t pointer = (foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
-    halvesPointer(pointer, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+    uint16_t state = foc_thread.pass_cur_pos();
+    uint16_t start = foc_thread.pass_start_pos();
+    uint16_t end = foc_thread.pass_end_pos();
+    bool at_limit = foc_thread.pass_at_limit();
+    uint8_t pointer = (-foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
+    uint16_t point = map(state, start, end, 0, NANO_LED_A_NUM - 1);
+    halvesPointer(point, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+    vTaskDelay(5);
 }
 
+    
 
 
 
 // Standard Pointer with two halves
 void HmiThread::halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
     for (int i = 0; i < NANO_LED_A_NUM; ++i) {
-        if(i > indicator) {
-            leds[i] = postCol;
-        }
-        if(i < indicator) {
-            leds[i] = preCol;
-        }
+         if(i < indicator) {
+             leds[i] = postCol;
+         }
+         if(i > indicator) {
+             leds[i] = preCol;
+         }
     }
-    if (indicator < NANO_LED_A_NUM)
-        leds[indicator] = pointerCol;
+    leds[indicator] = pointerCol;
 };
 
 

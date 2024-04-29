@@ -6,7 +6,7 @@
 #include "haptic_api.h"
 #include "led_api.h"
 #include "hmi_api.h"
-#include "audio_api.h"
+#include "audio/audio_api.h"
 #include <ArduinoJSON.h>
 
 

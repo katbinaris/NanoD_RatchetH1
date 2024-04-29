@@ -22,7 +22,7 @@
 #define PIN_LED_A 38
 #define PIN_LED_B 42
 #define NANO_LED_A_NUM 60
-#define NANO_LED_B_NUM 4
+#define NANO_LED_B_NUM 8
 #define LED_COL_ORDER GRB
 #define LED_CHIPSET WS2811
 

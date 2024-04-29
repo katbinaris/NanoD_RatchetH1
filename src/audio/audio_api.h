@@ -1,19 +1,13 @@
 
+#pragma once
 
 #include <inttypes.h>
+#include <Arduino.h>
 
 typedef struct {
 
 
-    uint8_t audio_feedback_lvl = 3;
-
-    /* 
-        Audio Feedback Level modifies I2S library Volume [0...255]
-        Values from [1...5]
-        Input values are then mapped map(audio_feedback, 1,5 0,255)
-    */
-
-    uint8_t audio_file = 2;
+    uint8_t audio_feedback_lvl;
 
     /*
         Audio File (UI: Audio Magnitude) set pre-uploaded audio file which can be stored as PROGMEM or in SPIFS
@@ -27,10 +21,6 @@ typedef struct {
 
     */
 
-    // Mapping Configuration
-
-    bool is_midi = false;
-
     /* 
         Toggles between USB (slave) or MIDI (standalone) operation, 
         In UI -> Profile Settings -> Connection Type
@@ -38,5 +28,18 @@ typedef struct {
         buttons or knob state update that contains CC message, else midi_thread is disabled
 
     */
+   uint8_t* audio_file; // valid values are 'loud', 'soft', 'none', 'hard', 'clack'
+
+   uint8_t* key_audio_file; // valid values are 'loud', 'soft', 'none', 'hard', 'clack'
 
 } audioConfig;
+
+
+extern uint8_t soft_wav[];
+extern uint8_t hard_wav[];
+extern uint8_t loud_wav[];
+extern uint8_t clack_wav[];
+extern uint8_t ping_wav[];
+
+uint8_t* get_audio_file(String fName);
+String get_audio_filename(uint8_t* audio_file);

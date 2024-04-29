@@ -5,10 +5,12 @@
 #include "haptic.h"
 #include "nanofoc_d.h"
 #include "DeviceSettings.h"
+#include "audio/audio_api.h"
 
 
 class FocThread : public Thread<FocThread> {
     friend class Thread<FocThread>; //Allow Base Thread to invoke protected run()
+    friend class HapticInterface;
 
     public:
         FocThread(const uint8_t task_core);
@@ -19,8 +21,15 @@ class FocThread : public Thread<FocThread> {
         void put_motor_command(String* msg);
         void put_haptic_config(DetentProfile& profile);
         bool get_angle_event(AngleEvt* evt);
+    
 
         float get_motor_angle();
+        
+        uint16_t pass_cur_pos();
+        uint16_t pass_start_pos();
+        uint16_t pass_end_pos();
+        uint16_t pass_last_pos();
+        bool pass_at_limit();
 
         void setCalibration(MotorCalibration& cal);
 
