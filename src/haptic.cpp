@@ -10,6 +10,7 @@ PIDController default_pid(5.0, 0.1, 0.004, 41, 0.4);
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
+
     .end_pos =120,
     .detent_count = 30,
     .vernier = 10
@@ -156,7 +157,7 @@ void HapticInterface::find_detent(void)
     else if(haptic_state.attract_angle < maxHysteresis){
         // Knob is turned more than detent (right half of texture graph)
         switch(haptic_state.detent_profile.mode){
-        case HapticMode::REGULAR:
+        case HapticMode::REGULAR:    
             // We only handle coarse decrements in this mode
             haptic_state.attract_angle = round(motor->shaft_angle / detent_width);
             haptic_state.attract_angle *= detent_width;
@@ -189,7 +190,9 @@ void HapticInterface::detent_handler(void){
 
     // Check if we are increasing or decreasing detent
     if(haptic_state.last_attract_angle > haptic_state.attract_angle){
+
         if(motor->sensor_direction == Direction::CCW){
+
             // Check that we are at limit
             if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
@@ -220,7 +223,9 @@ void HapticInterface::detent_handler(void){
     
     }
     else{
+
         if(motor->sensor_direction == Direction::CCW){
+
             // Check if we are at limit
             if(haptic_state.current_pos < effective_end_pos){
                 haptic_state.atLimit = 0;  
@@ -259,6 +264,7 @@ float HapticInterface::haptic_target(void)
 {
     // TODO: When out of bounds and return to position introduce easing so we avoid overshoot.
     float detent_width = haptic_state.detent_profile.detent_count / _2PI;
+
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
     float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
 
@@ -268,7 +274,9 @@ float HapticInterface::haptic_target(void)
     if(fabsf(error) < error_threshold)
         error *= 0.75;
 
+
     if(fabsf(motor->shaft_velocity) > 30) {
+
         // Prevent knob velocity from getting too high and overshooting.
         // Low values of this actually provide pretty interesting feeling where knob is smooth while 
         // rotating quickly by hand but snappy during fine adjust.

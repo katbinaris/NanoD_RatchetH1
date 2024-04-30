@@ -38,6 +38,7 @@ public:
 
     bool atLimit = 0;
     bool kxForce = 1;
+
     void load_profile(DetentProfile);
 };
 
