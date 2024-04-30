@@ -44,7 +44,7 @@ void LcdThread::run() {
     disp = lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
     
     ui_init();
-    ledcWrite(0, 0); // Set Max Brightness; TODO: make this software adjustable.
+    ledcWrite(0, UINT16_MAX); // Set Max Brightness; TODO: make this software adjustable.
     
     
     // Main Loop
@@ -59,7 +59,6 @@ void LcdThread::run() {
         lv_slider_set_range(ui_slider, 0, end_pos);
         lv_slider_set_value(ui_slider, pos, LV_ANIM_ON);
         lv_tick_inc(5);
-        ledcWrite(0, UINT16_MAX); // Set Max Brightness; TODO: make this software adjustable.
         vTaskDelay(1 / portTICK_PERIOD_MS);
     }
 };
