@@ -199,6 +199,36 @@ Values for haptic mode:
  - SPRING = 3     // Snap back to center point
 
 
+Changing profiles from keys:
+
+```
+{
+    "profile": {
+        "keys": [
+            {
+                "pressed": [
+                    {
+                        "type": "profile",
+                        "name": "Richies Profile"
+                    },
+                    {
+                        "type": "profile",
+                        "name": "Default Profile"
+                    },
+                    {
+                        "type": "next_profile"
+                    },
+                    {
+                        "type": "prev_profile"
+                    },
+                ]
+            },
+        ]
+    }
+}
+```
+
+
 <hr>
 
 Update one or more profile fields:

@@ -37,13 +37,19 @@ typedef struct {
 
 
 
+
+
+
+
 typedef enum {
     KA_NONE = 0,
     KA_KEY = 1,
     KA_MIDI = 2,
     KA_MOUSE = 3,
     KA_GAMEPAD = 4,
-    KA_PROFILE_CHANGE = 5
+    KA_PROFILE_CHANGE = 5,
+    KA_PROFILE_NEXT = 6,
+    KA_PROFILE_PREV = 7
 } keyActionType;
 
 
@@ -55,6 +61,7 @@ typedef struct {
         nanoMouseConfig mouse;
         nanoGamepadConfig pad;
     };
+    String profile="";
 } keyAction;
 
 
@@ -116,8 +123,8 @@ typedef struct {
         nanoMouseConfig mouse;
         nanoGamepadConfig pad;
         nanoMidiConfig midi;
-        knobActionsConfig actions;
     };
+    knobActionsConfig actions;
 } knobValue;
 
 

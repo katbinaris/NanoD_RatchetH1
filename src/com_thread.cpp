@@ -10,7 +10,7 @@
 
 
 
-ComThread::ComThread(const uint8_t task_core) : Thread("COM", 8192, 1, task_core) {
+ComThread::ComThread(const uint8_t task_core) : Thread("COM", 12000, 1, task_core) {
     _q_strings_in = xQueueCreate(5, sizeof( StringMessage ));
 };
 
@@ -195,28 +195,57 @@ void ComThread::handleSettingsCommand(JsonVariant s) {
 void ComThread::handleMessages() {
   StringMessage incoming;
   JsonDocument doc;
+  String pName = "";
   if (xQueueReceive(_q_strings_in, &incoming, (TickType_t)0)) {
-    if (incoming.message!=nullptr) {
-      bool sendDoc = true;
-      switch(incoming.type) {
-        case STRING_MESSAGE_DEBUG:
+    HapticProfileManager& pm = HapticProfileManager::getInstance();
+    bool sendDoc = false;
+    switch(incoming.type) {
+      case STRING_MESSAGE_DEBUG:
+        if (incoming.message!=nullptr) {
           doc["debug"] = *incoming.message;
-          break;
-        case STRING_MESSAGE_ERROR:
+          sendDoc = true;
+        }
+        break;
+      case STRING_MESSAGE_ERROR:
+        if (incoming.message!=nullptr) {
           doc["error"] = *incoming.message;
-          break;
-        case STRING_MESSAGE_MOTOR:
+          sendDoc = true;
+        }
+        break;
+      case STRING_MESSAGE_MOTOR:
+        if (incoming.message!=nullptr) {
           doc["r"] = *incoming.message;
-          break;
-        default:
+          sendDoc = true;
+        }
+        break;
+      case STRING_MESSAGE_PROFILE:
+        if (incoming.message!=nullptr) {
+          String s = *incoming.message;
+          setCurrentProfile(s);
+        }
+        break;
+      case STRING_MESSAGE_NEXT_PROFILE:
+        pName = pm.getNextProfileName();
+        if (pName!="") {
+          setCurrentProfile(pName);
+        }
+        break;
+      case STRING_MESSAGE_PREV_PROFILE:
+        pName = pm.getPrevProfileName();
+        if (pName!="") 
+          setCurrentProfile(pName);
+        break;
+      default:
+        if (incoming.message!=nullptr) {
           Serial.println(*incoming.message);
-          sendDoc = false;
-          break;
-      }
-      if (sendDoc) {
-        serializeJson(doc, Serial);
-        Serial.println(); // add a newline
-      }
+        }
+        break;
+    }
+    if (sendDoc) {
+      serializeJson(doc, Serial);
+      Serial.println(); // add a newline
+    }
+    if (incoming.message!=nullptr) {
       delete incoming.message;
     }
   }

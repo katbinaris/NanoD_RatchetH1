@@ -85,6 +85,9 @@ public:
     HapticProfile* setCurrentProfile(String name);
     HapticProfile* getCurrentProfile();
 
+    String getNextProfileName();
+    String getPrevProfileName();
+
     void fromSPIFFS();
     void toSPIFFS();
     void updateProfile(HapticProfile* profile, uint8_t from_version);
@@ -92,6 +95,9 @@ public:
 protected:
     HapticProfile profiles[MAX_PROFILES];
     HapticProfile* current_profile;
+    
+    int indexOf(HapticProfile* profile);
+
 private:
     HapticProfileManager();
     ~HapticProfileManager();

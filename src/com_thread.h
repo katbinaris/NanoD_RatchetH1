@@ -11,14 +11,17 @@
 enum StringMessageType {
     STRING_MESSAGE_DEBUG,
     STRING_MESSAGE_ERROR,
-    STRING_MESSAGE_MOTOR
+    STRING_MESSAGE_MOTOR,
+    STRING_MESSAGE_PROFILE,
+    STRING_MESSAGE_NEXT_PROFILE,
+    STRING_MESSAGE_PREV_PROFILE
 };
 
 class StringMessage {
     public:
-        StringMessage(String* message = nullptr, StringMessageType type = StringMessageType::STRING_MESSAGE_DEBUG) : message(message),  type(type) {}
+        StringMessage(String* message = nullptr, StringMessageType type = StringMessageType::STRING_MESSAGE_DEBUG) : message(message),  type(type) {};
         String* message;// = nullptr;
-        StringMessageType type = STRING_MESSAGE_DEBUG;
+        StringMessageType type;
 };
 
 

@@ -94,8 +94,10 @@ void BinarisAudioPlayer::audio_init(){
 
 // call from any thread
 void BinarisAudioPlayer::play_audio(uint8_t* audio_file, uint16_t volume){
-    AudioCommand command{ .type = AudioCommandType::PLAY_WAV, .audio_file = audio_file };
-    xQueueSend(_q_audio_in, &command, (TickType_t)0);
+    if (audio_file!=nullptr) {
+        AudioCommand command{ .type = AudioCommandType::PLAY_WAV, .audio_file = audio_file };
+        xQueueSend(_q_audio_in, &command, (TickType_t)0);
+    }
 };
 
 
@@ -175,7 +177,7 @@ void BinarisAudioPlayer::handle_audio_commands(){
                 }
                 break;
             case AudioCommandType::CONFIG:
-                Serial.println("Audio config");
+                //Serial.println("Audio config");
                 audio_config = command.config;
                 break;
             default:

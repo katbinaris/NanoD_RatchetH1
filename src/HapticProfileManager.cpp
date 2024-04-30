@@ -113,6 +113,55 @@ HapticProfile* HapticProfileManager::getCurrentProfile() {
 };
 
 
+int HapticProfileManager::indexOf(HapticProfile* profile){
+  for (int i=0; i<MAX_PROFILES; i++) {
+    if (&(profiles[i]) == profile) {
+      return i;
+    }
+  }
+  return -1;
+};
+
+String HapticProfileManager::getNextProfileName(){
+  int index = indexOf(current_profile);
+  if (index>=0) {
+    for (int i=index+1; i<MAX_PROFILES; i++) {
+      if (profiles[i].profile_name!="") {
+        return profiles[i].profile_name;
+      }
+    }
+    for (int i=0; i<index; i++) {
+      if (profiles[i].profile_name!="") {
+        return profiles[i].profile_name;
+      }
+    }
+  }
+  return "";
+};
+
+
+String HapticProfileManager::getPrevProfileName(){
+  int index = indexOf(current_profile);
+  if (index>=0) {
+    for (int i=index-1; i>=0; i--) {
+      if (profiles[i].profile_name!="") {
+        return profiles[i].profile_name;
+      }
+    }
+    for (int i=MAX_PROFILES-1; i>index; i--) {
+      if (profiles[i].profile_name!="") {
+        return profiles[i].profile_name;
+      }
+    }
+  }
+  return "";
+};
+
+
+
+
+
+
 
 
 
@@ -433,6 +482,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
 
 void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
   if (!obj["type"].isNull()) {
+    action.profile = "";
     String type = obj["type"].as<String>();
     if (type=="midi") {
       action.type = keyActionType::KA_MIDI;
@@ -468,9 +518,18 @@ void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
         action.pad.buttons = 0;
       }
     }
-    else if (type=="profiles") {
+    else if (type=="profile" && obj["name"].is<String>()) {
       action.type = keyActionType::KA_PROFILE_CHANGE;
-      // TODO fields
+      action.profile = obj["name"].as<String>();
+    }
+    else if (type=="next_profile") {
+      action.type = keyActionType::KA_PROFILE_NEXT;
+    }
+    else if (type=="prev_profile") {
+      action.type = keyActionType::KA_PROFILE_PREV;
+    }
+    else {
+      action.type = keyActionType::KA_NONE;
     }
   }
 };
@@ -577,8 +636,7 @@ void HapticProfile::toJSON(JsonObject& doc){
         }
         break;
       case knobValueType::KV_DEVICE_PROFILES:
-        value["type"] = "profiles";
-        // TODO fields
+        value["type"] = "profiles"; // TODO implement knob profile change
         break;
     }
   }
@@ -621,7 +679,13 @@ void HapticProfile::keyActionToJSON(JsonObject& obj, keyAction& action){
       break;
     case keyActionType::KA_PROFILE_CHANGE:
       obj["type"] = "profiles";
-      // TODO fields
+      obj["name"] = action.profile;
+      break;
+    case keyActionType::KA_PROFILE_NEXT:
+      obj["type"] = "next_profile";
+      break;
+    case keyActionType::KA_PROFILE_PREV:
+      obj["type"] = "prev_profile";
       break;
   }      
 };

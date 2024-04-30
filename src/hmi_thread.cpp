@@ -207,7 +207,8 @@ void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, u
             for (int i=0; i<hmi_thread.hmi_config.keys[index].num_pressed_actions; i++) {
                 hmi_thread.handleKeyAction(hmi_thread.hmi_config.keys[index].pressed[i], eventType);
             }
-            audioPlayer.play_audio(audioPlayer.audio_config.key_audio_file, audioPlayer.audio_config.audio_feedback_lvl);
+            if (audioPlayer.audio_config.key_audio_file!=nullptr)
+                audioPlayer.play_audio(audioPlayer.audio_config.key_audio_file, audioPlayer.audio_config.audio_feedback_lvl);
         break;
         case AceButton::kEventReleased:
             hmi_thread.keyState &= ~(1<<index);
@@ -228,6 +229,7 @@ void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, u
 
 
 void HmiThread::handleKeyAction(keyAction& action, uint8_t eventType) {
+    StringMessage msg;
     switch (action.type) {
         case keyActionType::KA_MIDI:
             if (eventType==AceButton::kEventPressed) {
@@ -264,7 +266,20 @@ void HmiThread::handleKeyAction(keyAction& action, uint8_t eventType) {
                 current_pad_buttons &= ~action.pad.buttons;
         break;
         case keyActionType::KA_PROFILE_CHANGE:
-            // TODO implement
+            if (action.profile!="" && eventType==AceButton::kEventPressed) {
+                StringMessage msg(new String(action.profile), STRING_MESSAGE_PROFILE);
+                com_thread.put_string_message(msg);
+            }
+        break;
+        case keyActionType::KA_PROFILE_NEXT:
+            msg = StringMessage(nullptr, STRING_MESSAGE_NEXT_PROFILE);
+            if (eventType==AceButton::kEventPressed)
+                com_thread.put_string_message(msg);
+        break;
+        case keyActionType::KA_PROFILE_PREV:
+            msg = StringMessage(nullptr, STRING_MESSAGE_PREV_PROFILE);
+            if (eventType==AceButton::kEventPressed)
+                com_thread.put_string_message(msg);
         break;
     }
 };
