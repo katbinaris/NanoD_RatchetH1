@@ -27,7 +27,7 @@ void setup() {
   TinyUSBDevice.setSerialDescriptor("Nano_D");
   //TinyUSBDevice.attach();
   Serial.begin(DEFAULT_SERIAL_SPEED);
-  //while( !TinyUSBDevice.mounted() ) delay(1);
+  // while( !TinyUSBDevice.mounted() ) delay(1);
 
   delay(100);
   Serial.println("Welcome to Nano_D++!");

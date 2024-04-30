@@ -41,7 +41,7 @@ class HmiThread : public Thread<HmiThread> {
         void put_settings(DeviceSettings& new_settings);
 
         // Light Effects
-        void halvesPointer(int indicator, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
+        void halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
         void strobe(int pps, const struct CRGB& strobeCol);
         void breathing(int fps, const struct CRGB& fadeCol);
 
