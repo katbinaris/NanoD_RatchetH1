@@ -24,6 +24,7 @@ struct AudioCommand {
 
 class BinarisAudioPlayer {
     friend class HmiThreadButtonHandler;
+    friend class HmiThread;
 public:
     BinarisAudioPlayer();
     ~BinarisAudioPlayer();

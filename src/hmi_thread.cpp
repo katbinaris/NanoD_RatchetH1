@@ -161,6 +161,7 @@ void HmiThread::run() {
     unsigned long updates = 0;
     unsigned long ts = micros();
 
+    audioPlayer.play_audio(chime_wav, audioPlayer.audio_config.audio_feedback_lvl);
     while (1) {
         handleSettings();
         handleConfig();

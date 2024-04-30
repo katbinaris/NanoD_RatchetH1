@@ -11,20 +11,32 @@ static const uint8_t LEDC_CH_LCD_BKL = 0;
 #define DRAW_BUF_SIZE (TFT_WIDTH * TFT_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];
 
-LcdThread::LcdThread(const uint8_t task_core) : Thread("LCD", 8192, 1, task_core) {}
+LcdThread::LcdThread(const uint8_t task_core) : Thread("LCD", 8192, 1, task_core) {
+    _q_lcd_in = xQueueCreate(2, sizeof( LcdCommand ));
+};
 
-LcdThread::~LcdThread() {}
+LcdThread::~LcdThread() {};
+
+
+void LcdThread::put_lcd_command(LcdCommand& cmd) {
+    xQueueSend(_q_lcd_in, &cmd, (TickType_t)0);
+};
+
+
+void LcdThread::handleLcdCommand() {
+    LcdCommand cmd;
+    if (xQueueReceive(_q_lcd_in, &cmd, (TickType_t)0)) {
+        // TODO Implement LCD Command Handling
+    }
+};
+
 
 
 void LcdThread::run() {
-   
     // Setup LedC
     ledcSetup(0, 5000, 12); // ESP32S3 Claims 13 bits for LEDC, 12bit works stable
     ledcAttachPin(5, 0);
     ledcWrite(0, 0); // Set Max Brightness; TODO: make this software adjustable.
-    
-    // 3 Sec waiting time in case of stack overflow - dev only
-    
 
     // Initalize LVGL
     lv_init();
@@ -37,7 +49,7 @@ void LcdThread::run() {
     ledcWrite(0, UINT16_MAX); // Set Max Brightness; TODO: make this software adjustable.
     // Main Loop
     while (1) {
-
+        handleLcdCommand();
         uint16_t pos = foc_thread.pass_cur_pos();
         uint16_t end_pos = foc_thread.pass_end_pos();
         lv_task_handler();
@@ -48,4 +60,4 @@ void LcdThread::run() {
         lv_tick_inc(5);
         vTaskDelay(1 / portTICK_PERIOD_MS);
     }
-}
+};
