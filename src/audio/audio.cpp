@@ -3,7 +3,8 @@
 #include "nanofoc_d.h"
 #include "../haptic.h"
 
-#define SAMPLES_PER_SEC 44100	// 2 bytes stereo = 4 bytes (2 x 16bits) per sample, 44100 x 4bytes per second
+
+#define SAMPLES_PER_SEC 22000	// 2 bytes stereo = 4 bytes (2 x 16bits) per sample, 44100 x 4bytes per second
 #define DEFAULT_VOLUME 100
 
 
@@ -18,8 +19,8 @@ uint8_t* get_audio_file(String fName) {
         return hard_wav;
     else if (fName=="clack")
         return clack_wav;
-    else if (fName=="ping")
-        return ping_wav;
+    else if (fName=="chime")
+        return chime_wav;
     return nullptr;  
 };
 
@@ -35,8 +36,8 @@ String get_audio_filename(uint8_t* audio_file){
         return "hard";
     else if (audio_file==clack_wav)
         return "clack";
-    else if (audio_file==ping_wav)
-        return "ping";
+    else if (audio_file==chime_wav)
+        return "chime";
     return "none";
 };
 
@@ -56,7 +57,7 @@ void BinarisAudioPlayer::audio_init(){
     check_file(String("soft.wav"), soft_wav);
     check_file(String("clack.wav"), clack_wav);
     check_file(String("loud.wav"), loud_wav);
-    check_file(String("ping.wav"), ping_wav);
+    check_file(String("chime.wav"), chime_wav);
 
     audio_config.audio_feedback_lvl = 100;
     audio_config.audio_file = hard_wav;
@@ -64,7 +65,13 @@ void BinarisAudioPlayer::audio_init(){
     i2s_config.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
     i2s_config.sample_rate = SAMPLES_PER_SEC;                       // Note, max sample rate
     i2s_config.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+    #if defined(AUDIO_FILES_STEREO)
+    i2s_config.chan_mask = I2S_CHANNEL_STEREO;
     i2s_config.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+    #else
+    i2s_config.chan_mask = I2S_CHANNEL_MONO;
+    i2s_config.channel_format = I2S_CHANNEL_FMT_ALL_LEFT;
+    #endif
     i2s_config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
     i2s_config.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;             // high interrupt priority
     i2s_config.dma_buf_count = 8;                                   // 8 buffers
@@ -121,12 +128,19 @@ bool BinarisAudioPlayer::check_file(String fName, uint8_t* audio_file){
             Serial.println(fName + ": audio file is not a valid WAV file.");
         return false;
     }
+    #if defined(AUDIO_FILES_STEREO)
     if (!(audio_file[20]==0x01 && audio_file[21]==0x00 && audio_file[22]==0x02 && audio_file[23]==0x00)) {
         Serial.println(fName + ": audio file is not 2 channel PCM.");
         return false;
     }
-    if (!(audio_file[24]==0x44 && audio_file[25]==0xAC && audio_file[26]==0x00 && audio_file[27]==0x00)) {
-        Serial.println(fName + ": audio file is not 44100 Hz.");
+    #else
+    if (!(audio_file[20]==0x01 && audio_file[21]==0x00 && audio_file[22]==0x01 && audio_file[23]==0x00)) {
+        Serial.println(fName + ": audio file is not 1 channel PCM.");
+        return false;
+    }
+    #endif
+    if (!(audio_file[24]==0xF0 && audio_file[25]==0x55 && audio_file[26]==0x00 && audio_file[27]==0x00)) {
+        Serial.println(fName + ": audio file is not 22kHz.");
         return false;
     }
     if (!(audio_file[32]==0x04 && audio_file[33]==0x00)) {

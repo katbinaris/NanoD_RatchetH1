@@ -39,7 +39,7 @@ extern uint8_t soft_wav[];
 extern uint8_t hard_wav[];
 extern uint8_t loud_wav[];
 extern uint8_t clack_wav[];
-extern uint8_t ping_wav[];
+extern uint8_t chime_wav[];
 
 uint8_t* get_audio_file(String fName);
 String get_audio_filename(uint8_t* audio_file);
