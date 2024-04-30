@@ -5,13 +5,14 @@
 
 
 
-PIDController default_pid(4.0, 0.1, 0.004, 10000, 0.4);
+PIDController default_pid(5.0, 0.1, 0.004, 41, 0.4);
 
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos = 50,
-    .detent_count = 50,
+
+    .end_pos =120,
+    .detent_count = 30,
     .vernier = 10
 };
 
@@ -60,7 +61,7 @@ void HapticInterface::haptic_loop(void){
     find_detent(); // Calculate attraction angle depending on configured distance position.
     haptic_target(); // PID Command
     
-    // delayMicroseconds(1500); //Small delay between 750-1500us default 1500us helps with click response between calculations
+
 }
 
 void HapticInterface::correct_pid(void)
@@ -86,8 +87,8 @@ void HapticInterface::correct_pid(void)
         break;
     }
 
-    // Derivative upper and lower strength are very small in estimated current mode, 10x in voltage mode.
-    float d_lower_strength = haptic_state.detent_strength_unit * 0.010;
+    // Derivative upper and lower strength are very small
+    float d_lower_strength = haptic_state.detent_strength_unit * 0.008;
     float d_upper_strength = haptic_state.detent_strength_unit * 0.004;
     float d_lower_pos_width = radians(3);
     float d_upper_pos_width = radians(8);
@@ -112,7 +113,7 @@ void HapticInterface::correct_pid(void)
         clipping = false;
     }
 
-    haptic_pid->limit = clipping ? haptic_state.endstop_strength_unit : haptic_state.detent_strength_unit;
+    haptic_pid->P = clipping ? haptic_state.endstop_strength_unit : haptic_state.detent_strength_unit;
 }
 
 void HapticInterface::offset_detent(void){
@@ -189,7 +190,9 @@ void HapticInterface::detent_handler(void){
 
     // Check if we are increasing or decreasing detent
     if(haptic_state.last_attract_angle > haptic_state.attract_angle){
-        if(motor->sensor_direction != Direction::CW){
+
+        if(motor->sensor_direction == Direction::CCW){
+
             // Check that we are at limit
             if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
@@ -208,7 +211,7 @@ void HapticInterface::detent_handler(void){
             if(haptic_state.current_pos < effective_end_pos){
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
                 haptic_state.atLimit = 0;
-                haptic_state.current_pos++;
+                // haptic_state.current_pos++;
                  
                 HapticEventCallback(HapticEvt::INCREASE);
             }
@@ -220,7 +223,9 @@ void HapticInterface::detent_handler(void){
     
     }
     else{
-        if(motor->sensor_direction != Direction::CW){
+
+        if(motor->sensor_direction == Direction::CCW){
+
             // Check if we are at limit
             if(haptic_state.current_pos < effective_end_pos){
                 haptic_state.atLimit = 0;  
@@ -238,7 +243,7 @@ void HapticInterface::detent_handler(void){
             // Check if we are at limit
             if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
                 haptic_state.atLimit = 0;  
-                haptic_state.current_pos--;  
+                // haptic_state.current_pos--;  
                            
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
                 HapticEventCallback(HapticEvt::DECREASE);
@@ -259,16 +264,19 @@ float HapticInterface::haptic_target(void)
 {
     // TODO: When out of bounds and return to position introduce easing so we avoid overshoot.
     float detent_width = haptic_state.detent_profile.detent_count / _2PI;
-    float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
+
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
+    float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
 
     motor->loopFOC();
-
+     // Prevent knob velocity from getting too high and overshooting.
     // If the position error is small, reduce strength to prevent oscillation
     if(fabsf(error) < error_threshold)
         error *= 0.75;
 
-    if(fabsf(motor->shaft_velocity) > 10) {
+
+    if(fabsf(motor->shaft_velocity) > 30) {
+
         // Prevent knob velocity from getting too high and overshooting.
         // Low values of this actually provide pretty interesting feeling where knob is smooth while 
         // rotating quickly by hand but snappy during fine adjust.

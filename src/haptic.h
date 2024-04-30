@@ -33,11 +33,11 @@ public:
     float last_attract_angle = 0;
     float attract_hysteresis = 0.05;
 
-    float detent_strength_unit = 0.5; // PID (estimated) Current Limit
-    float endstop_strength_unit = 0.5; // PID (estimated) Current Limit
+    float detent_strength_unit = 4; // PID (estimated) Current Limit
+    float endstop_strength_unit = 1; // PID (estimated) Current Limit
 
     bool atLimit = 0;
-    bool kxForce = 0;
+    bool kxForce = 1;
 
     void load_profile(DetentProfile);
 };
