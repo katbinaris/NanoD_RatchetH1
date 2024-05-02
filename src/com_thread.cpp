@@ -222,18 +222,25 @@ void ComThread::handleMessages() {
         if (incoming.message!=nullptr) {
           String s = *incoming.message;
           setCurrentProfile(s);
+          doc["current"] = s;
+          sendDoc = true;
         }
         break;
       case STRING_MESSAGE_NEXT_PROFILE:
         pName = pm.getNextProfileName();
         if (pName!="") {
           setCurrentProfile(pName);
+          doc["current"] = pName;
+          sendDoc = true;
         }
         break;
       case STRING_MESSAGE_PREV_PROFILE:
         pName = pm.getPrevProfileName();
-        if (pName!="") 
+        if (pName!="")  {
           setCurrentProfile(pName);
+          doc["current"] = pName;
+          sendDoc = true;
+        }
         break;
       default:
         if (incoming.message!=nullptr) {
