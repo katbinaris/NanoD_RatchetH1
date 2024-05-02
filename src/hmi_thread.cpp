@@ -37,7 +37,7 @@ Adafruit_USBD_HID usb_hid;
 HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_core) {
     _q_config_in = xQueueCreate(2, sizeof( ledConfig ));
     _q_hmi_config_in = xQueueCreate(2, sizeof( hmiConfig ));
-    _q_settings_in = xQueueCreate(2, sizeof( DeviceSettings ));
+    _q_settings_in = xQueueCreate(2, sizeof( HmiDeviceSettings ));
     _q_keyevt_out = xQueueCreate(5, sizeof( KeyEvt ));
 }
 
@@ -66,12 +66,13 @@ void HmiThread::init_usb() {
 void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_config) {
     led_config = initial_led_config;
     hmi_config = initial_hmi_config;
-    FastLED.setBrightness(led_config.led_brightness);
+    led_max_brightness =  DeviceSettings::getInstance().ledMaxBrightness;
+    uint8_t b = min(led_max_brightness, led_config.led_brightness);
+    FastLED.setBrightness(b);
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
     midi2.begin();
-
     audioPlayer.audio_init();
 };
 
@@ -86,7 +87,7 @@ void HmiThread::put_hmi_config(hmiConfig& new_config){
 };
 
 
-void HmiThread::put_settings(DeviceSettings& new_settings){
+void HmiThread::put_settings(HmiDeviceSettings& new_settings){
     xQueueSend(_q_settings_in, &new_settings, (TickType_t)0);
 };
 
@@ -95,8 +96,11 @@ void HmiThread::handleConfig() {
     ledConfig newConfig;
     if (xQueueReceive(_q_config_in, &newConfig, (TickType_t)0)) {
         led_config = newConfig;
-        FastLED.setBrightness(led_config.led_brightness);
-        updateKeyLeds();
+        uint8_t newBrightness = min(led_max_brightness, led_config.led_brightness);
+        if (FastLED.getBrightness() != newBrightness) {
+            FastLED.setBrightness(newBrightness);
+            updateKeyLeds();
+        }
     }
     hmiConfig newHmiConfig;
     if (xQueueReceive(_q_hmi_config_in, &newHmiConfig, (TickType_t)0)) {
@@ -106,7 +110,7 @@ void HmiThread::handleConfig() {
 
 
 void HmiThread::handleSettings() {
-    DeviceSettings newSettings;
+    HmiDeviceSettings newSettings;
     if (xQueueReceive(_q_settings_in, &newSettings, (TickType_t)0)) {
         midiUsbSettings = newSettings.midiUsb;
         midi2Settings = newSettings.midi2;
@@ -114,9 +118,10 @@ void HmiThread::handleSettings() {
         midiu.setInputChannel(midiUsbSettings.in? MIDI_CHANNEL_OMNI : MIDI_CHANNEL_OFF);
         midi2.setThruFilterMode(midi2Settings.thru? midi::Thru::Full : midi::Thru::Off);
         midi2.setInputChannel(midi2Settings.in? MIDI_CHANNEL_OMNI : MIDI_CHANNEL_OFF);
-        if (FastLED.getBrightness() > newSettings.ledMaxBrightness) {
-            FastLED.setBrightness(newSettings.ledMaxBrightness);
-            led_config.led_brightness = newSettings.ledMaxBrightness;
+        led_max_brightness = newSettings.ledMaxBrightness;
+        uint8_t newBrightness = min(newSettings.ledMaxBrightness, led_config.led_brightness);
+        if (FastLED.getBrightness() != newBrightness) {
+            FastLED.setBrightness(newBrightness);
             updateKeyLeds();
         }
         Serial.println("Hmi settings updated from global settings");

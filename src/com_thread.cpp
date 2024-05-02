@@ -426,7 +426,14 @@ void ComThread::dispatchHapticConfig() {
 };
 
 void ComThread::dispatchSettings() {
-    hmi_thread.put_settings(DeviceSettings::getInstance());
+    DeviceSettings& ds = DeviceSettings::getInstance();
+    HmiDeviceSettings hmiSettings{
+      .ledMaxBrightness = ds.ledMaxBrightness,
+      .deviceOrientation = ds.deviceOrientation,
+      .midiUsb = ds.midiUsb,
+      .midi2 = ds.midi2
+    };
+    hmi_thread.put_settings(hmiSettings);
 };
 
 

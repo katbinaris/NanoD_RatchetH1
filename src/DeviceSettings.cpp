@@ -26,7 +26,8 @@ DeviceSettings::DeviceSettings() {
     debug = false;
     ledMaxBrightness = DEFAULT_LED_MAX_BRIGHTNESS;
     maxVelocity = 10.0;
-    maxVoltage = 50.0;
+    maxVoltage = 5.0;
+    deviceOrientation = 0;
     serialNumber = String(ESP.getEfuseMac(), HEX);
     deviceName = "Nano_" + serialNumber;
     firmwareVersion = String(NANO_FIRMWARE_VERSION);
@@ -50,8 +51,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         maxVelocity = obj["maxVelocity"].as<float>();
     if (obj["maxVoltage"]!=nullptr)
         maxVoltage = obj["maxVoltage"].as<float>();
-    if (obj["deviceOrientation"]!=nullptr)
-        deviceOrientation = obj["deviceOrientation"].as<uint8_t>();
+    if (obj["deviceOrientation"].is<uint16_t>())
+        deviceOrientation = obj["deviceOrientation"].as<uint16_t>();
     if (obj["deviceName"]!=nullptr)
         deviceName = obj["deviceName"].as<String>();
     if (obj["midiUsb"]!=nullptr) {

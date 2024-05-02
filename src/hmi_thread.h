@@ -38,7 +38,7 @@ class HmiThread : public Thread<HmiThread> {
         void put_led_config(ledConfig& new_config);
         bool get_key_event(KeyEvt* keyEvt);
         void put_hmi_config(hmiConfig& new_config);
-        void put_settings(DeviceSettings& new_settings);
+        void put_settings(HmiDeviceSettings& new_settings);
 
         // Light Effects
         void halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
@@ -59,6 +59,7 @@ class HmiThread : public Thread<HmiThread> {
 
 
         // LEDs
+        uint8_t led_max_brightness = 100;
         ledConfig led_config;
         CRGB leds[NANO_LED_A_NUM];
         CRGB ledsp[NANO_LED_B_NUM];

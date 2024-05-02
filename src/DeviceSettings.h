@@ -22,6 +22,15 @@ typedef struct {
 
 
 
+typedef struct {
+    uint8_t ledMaxBrightness;
+    uint16_t deviceOrientation;
+    midiSettings midiUsb;
+    midiSettings midi2;
+} HmiDeviceSettings;
+
+
+
 /**
  * Device settings.
  * For use from setup() or comms thread only.
