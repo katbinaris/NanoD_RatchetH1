@@ -422,9 +422,11 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         }
         else if (type=="mouse") {
           hmi_config.knob.values[i].type = knobValueType::KV_MOUSE;
+          dirty = true;
         }
         else if (type=="gamepad") {
           hmi_config.knob.values[i].type = knobValueType::KV_GAMEPAD;
+          dirty = true;
         }
         else if (type=="actions") {
           hmi_config.knob.values[i].type = knobValueType::KV_ACTIONS;
@@ -449,6 +451,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         }
         else if (type="profiles") {
           hmi_config.knob.values[i].type = knobValueType::KV_DEVICE_PROFILES;
+          dirty = true;
           // TODO fields
         }
       }
@@ -463,9 +466,11 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
     JsonObject audio = obj["audio"].as<JsonObject>();
     if (audio["clickType"].is<String>()) {
       audio_config.audio_file = get_audio_file(audio["clickType"].as<String>());
+      dirty = true;
     }
     if (audio["keyClickType"].is<String>()) {
       audio_config.key_audio_file = get_audio_file(audio["keyClickType"].as<String>());
+      dirty = true;
     }
     if (audio["clickLevel"].is<int>()) {
       audio_config.audio_feedback_lvl = audio["clickLevel"].as<int>();
@@ -473,6 +478,7 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
         audio_config.audio_feedback_lvl = 125;
       if (audio_config.audio_feedback_lvl<0)
         audio_config.audio_feedback_lvl = 0;
+      dirty = true;
     }
   }
 
@@ -498,6 +504,7 @@ void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
         for (int k=0; k<action.hid.num; k++) {
           action.hid.key_codes[k] = keys[k].as<uint8_t>();
         }
+        dirty = true;
       }
     }
     else if (type=="mouse") {
@@ -508,6 +515,7 @@ void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
       else {
         action.mouse.buttons = 0;
       }
+      dirty = true;
     }
     else if (type=="gamepad") {
       action.type = keyActionType::KA_GAMEPAD;
@@ -517,19 +525,24 @@ void HapticProfile::keyActionFromJSON(JsonObject& obj, keyAction& action) {
       else {
         action.pad.buttons = 0;
       }
+      dirty = true;
     }
     else if (type=="profile" && obj["name"].is<String>()) {
       action.type = keyActionType::KA_PROFILE_CHANGE;
       action.profile = obj["name"].as<String>();
+      dirty = true;
     }
     else if (type=="next_profile") {
       action.type = keyActionType::KA_PROFILE_NEXT;
+      dirty = true;
     }
     else if (type=="prev_profile") {
       action.type = keyActionType::KA_PROFILE_PREV;
+      dirty = true;
     }
     else {
       action.type = keyActionType::KA_NONE;
+      dirty = true;
     }
   }
 };
