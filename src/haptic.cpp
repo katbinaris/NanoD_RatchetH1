@@ -2,18 +2,25 @@
 #include "haptic_api.h"
 #include "utils.h"
 
-PIDController default_pid(5.0, 0.0, 0.004, 41, 0.4);
+/*
+    Quick Swap between Legacy PCB and Production PCB
+*/
+#define PRODUCTION_PCB 1;
 
 /**
  * Handful of default profiles that you can quickly explore.
 */
+
+
+PIDController default_pid(5.0, 0.0, 0.004, 55, 0.4);
+
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos =120,
-    .detent_count = 30,
-    .vernier = 10,
-    .kxForce = false
+    .end_pos =60,
+    .detent_count = 20,
+    .vernier = 5,
+    .kxForce = true
 };
 
 DetentProfile DefaultProgressiveForceProfile{
@@ -22,7 +29,7 @@ DetentProfile DefaultProgressiveForceProfile{
     .end_pos = 120,
     .detent_count = 30,
     .vernier = 10,
-    .kxForce = true
+    .kxForce = false
 };
 
 DetentProfile DefaultVernierProfile{
@@ -31,7 +38,7 @@ DetentProfile DefaultVernierProfile{
     .end_pos = 120,
     .detent_count = 30,
     .vernier = 10,
-    .kxForce = false
+    .kxForce = true
 };
 
 // Custom profile to implement and change externally.
@@ -176,7 +183,7 @@ void HapticInterface::find_detent(void)
     float minHysteresis = haptic_state.attract_angle * (1.0 - hysteresisType);
     float maxHysteresis = haptic_state.attract_angle * (1.0 + hysteresisType);
 
-    if(motor->shaft_angle < minHysteresis){
+    if(motor->shaft_angle > minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
         switch(haptic_state.detent_profile.mode){
         case HapticMode::REGULAR:
@@ -195,7 +202,7 @@ void HapticInterface::find_detent(void)
             break;
         }
     }
-    else if(motor->shaft_angle > maxHysteresis){
+    else if(motor->shaft_angle < maxHysteresis){
         // Knob is turned more than detent (right half of texture graph)
         switch(haptic_state.detent_profile.mode){
         case HapticMode::REGULAR:    
@@ -236,8 +243,11 @@ void HapticInterface::detent_handler(void){
     // Check if we are increasing or decreasing detent
     if(haptic_state.last_attract_angle > haptic_state.attract_angle){
 
+        #if PRODUCTION_PCB
+        if(motor->sensor_direction == Direction::CCW){
+        #else 
         if(motor->sensor_direction != Direction::CCW){
-
+        #endif
             // Check that we are at limit
             if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
                 if(haptic_state.atLimit)
@@ -276,9 +286,11 @@ void HapticInterface::detent_handler(void){
     
     }
     else{
-
+        #if PRODUCTION_PCB
+        if(motor->sensor_direction == Direction::CCW){
+        #else
         if(motor->sensor_direction != Direction::CCW){
-
+        #endif
             // Check if we are at limit
             if(haptic_state.current_pos < effective_end_pos){
                 if(haptic_state.atLimit)
@@ -330,7 +342,13 @@ float HapticInterface::haptic_target(void)
     float detent_width = haptic_state.detent_profile.detent_count / _2PI;
 
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
-    float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
+    float error_threshold = detent_width * 0.075; // 0.75% gives good snap without ringing
+    
+    if(!haptic_state.atLimit){
+        if(haptic_state.wasAtLimit){
+            haptic_state.wasAtLimit = false;
+        }
+    }
 
     
     if(!haptic_state.atLimit){
@@ -361,6 +379,8 @@ float HapticInterface::haptic_target(void)
         );
 
         motor->move(default_pid(error));
+
+        Serial.print(error);        
     }
 
     return haptic_pid->operator()(error);

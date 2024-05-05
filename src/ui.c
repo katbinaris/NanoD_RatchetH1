@@ -58,6 +58,14 @@ lv_obj_t *ui_cDesc3;
 lv_obj_t *ui_cNav3;
 lv_obj_t *ui____initial_actions0;
 
+// SCREEN: ui_IdleAnim
+void ui_IdleAnim_screen_init(void);
+lv_obj_t *ui_IdleAnim;
+lv_obj_t *ui_IdleCat;
+lv_obj_t *ui_IdleCatShadow;
+lv_obj_t *ui_IdleQuote;
+lv_obj_t *ui____initial_actions0;
+
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 #if LV_COLOR_DEPTH != 16
     #error "LV_COLOR_DEPTH should be 16bit to match SquareLine Studio's settings"
@@ -80,6 +88,7 @@ lv_disp_set_theme(dispp, theme);
 ui_valueScreen_screen_init();
 ui_profSelectScreen_screen_init();
 ui_genericPopupScreen_screen_init();
+ui_IdleAnim_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
-lv_disp_load_scr( ui_valueScreen);
+lv_disp_load_scr( ui_valueScreen );
 }
