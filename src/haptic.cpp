@@ -5,7 +5,7 @@
 /*
     Quick Swap between Legacy PCB and Production PCB
 */
-#define PRODUCTION_PCB 1;
+#define PRODUCTION_PCB 1
 
 /**
  * Handful of default profiles that you can quickly explore.
