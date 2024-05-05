@@ -20,7 +20,7 @@ DetentProfile default_profile{
     .end_pos =60,
     .detent_count = 20,
     .vernier = 5,
-    .kxForce = true
+    .kxForce = false
 };
 
 DetentProfile DefaultProgressiveForceProfile{
@@ -173,7 +173,8 @@ void HapticInterface::find_detent(void)
      * Use this for when your fine and coarse detents are straddling the current detent.
      * */ 
     float detent_width = _2PI / haptic_state.detent_profile.detent_count;
-    float vernier_width  = detent_width / haptic_state.detent_profile.vernier;
+    if(haptic_state.detent_profile.mode == HapticMode::VERNIER)
+        detent_width /= haptic_state.detent_profile.vernier;
 
     /**
      * hysteresisType is used to handle whether the detents are linear in strength or progressively stronger.
@@ -183,43 +184,15 @@ void HapticInterface::find_detent(void)
     float minHysteresis = haptic_state.attract_angle - detentHysteresis;
     float maxHysteresis = haptic_state.attract_angle + detentHysteresis;
 
-    if(motor->shaft_angle > minHysteresis){
+    if(motor->shaft_angle < minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
-        switch(haptic_state.detent_profile.mode){
-        case HapticMode::REGULAR:
-            // We only handle coarse decrements in this mode
-            haptic_state.attract_angle = round(motor->shaft_angle / detent_width); 
-            haptic_state.attract_angle *= detent_width;
-            break;
-
-        case HapticMode::VERNIER:
-            // fine -> fine detent decrement
-            haptic_state.attract_angle = round(motor->shaft_angle / vernier_width);
-            haptic_state.attract_angle *= vernier_width;               
-            break;
-
-        default:
-            break;
-        }
+        haptic_state.attract_angle = round(motor->shaft_angle / detent_width); 
+        haptic_state.attract_angle *= detent_width;
     }
-    else if(motor->shaft_angle < maxHysteresis){
+    else if(motor->shaft_angle > maxHysteresis){
         // Knob is turned more than detent (right half of texture graph)
-        switch(haptic_state.detent_profile.mode){
-        case HapticMode::REGULAR:    
-            // We only handle coarse decrements in this mode
-            haptic_state.attract_angle = round(motor->shaft_angle / detent_width);
-            haptic_state.attract_angle *= detent_width;
-            break;
-
-        case HapticMode::VERNIER:
-            // fine -> fine detent increment
-            haptic_state.attract_angle = round(motor->shaft_angle / vernier_width);
-            haptic_state.attract_angle *= vernier_width;        
-            break;
-
-        default:
-            break;
-        }
+        haptic_state.attract_angle = round(motor->shaft_angle / detent_width);
+        haptic_state.attract_angle *= detent_width;
     }
 
     // If there has been a change in the haptic attractor
@@ -335,7 +308,7 @@ void HapticInterface::detent_handler(void){
 /**
  * Handling the position error and limit to within a detent, as well as clearing wasAtLimit flag.
 */
-float HapticInterface::haptic_target(void)
+void HapticInterface::haptic_target(void)
 {
     float detent_width = haptic_state.detent_profile.detent_count / _2PI;
 
@@ -369,8 +342,6 @@ float HapticInterface::haptic_target(void)
     else
         motor->loopFOC();
         motor->move(default_pid(error));
-
-    return haptic_pid->operator()(error);
 }
 
 /**
@@ -381,25 +352,27 @@ void HapticInterface::bounds_handler(float detent_width)
 {
     float error = 0.0;
 
-    while(fabsf(motor->shaft_velocity) > 2.5){
+    while(fabsf(motor->shaft_velocity) > 1.0){
         error = haptic_state.attract_angle - motor->shaft_angle;
         // If you are driving the motor by hand, skip out of here so that you don't feel dragging on the knob
-        if(fabsf(error) > (detent_width * 0.5))
+        if(fabsf(error) > (detent_width * 0.25))
             break;
 
         motor->loopFOC();
         motor->move(default_pid(error));
     }
 
-    for(uint8_t i=0; i < 60; i++){
-        error = haptic_state.attract_angle - motor->shaft_angle;
-        if(fabsf(error) > (detent_width * 0.25))
-            break;
+    uint16_t midpoint = (haptic_state.detent_profile.end_pos - haptic_state.detent_profile.start_pos) / 2;
 
-        motor->loopFOC();
-        motor->move(0);
-    }
+    if(haptic_state.current_pos <= midpoint)
+        haptic_state.current_pos = haptic_state.detent_profile.start_pos;
+    else
+        haptic_state.current_pos = haptic_state.detent_profile.end_pos;
 
+    if(haptic_state.detent_profile.mode == HapticMode::VERNIER)
+        haptic_state.current_pos *= haptic_state.detent_profile.vernier;
+
+    // Clear boundary exit flag
     haptic_state.wasAtLimit = false;
 }
 // Internal detent update handler.

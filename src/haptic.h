@@ -65,6 +65,6 @@ private:
     void detent_handler(void);
     void bounds_handler(float);
     void update_position(void);
-    float haptic_target(void);
+    void haptic_target(void);
     void correct_pid(void);
 };
