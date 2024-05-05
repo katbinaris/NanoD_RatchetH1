@@ -7,9 +7,6 @@
 #include <motor.h>
 #include "haptic_api.h"
 
-
-
-
 /**
  * Define start and end positions. These are the physical detent limits.
  * Coarse index and fine index track where in that range the dial is currently pointing.
@@ -25,6 +22,9 @@ public:
     ~HapticState();
 
     DetentProfile detent_profile;
+    DetentProfile DefaultProgressiveForceProfile;
+    DetentProfile DefaultVernierProfile;
+    DetentProfile TempProfile;
 
     uint16_t current_pos = 0;
     uint16_t last_pos = 0; 
@@ -36,8 +36,8 @@ public:
     float detent_strength_unit = 4; // PID (estimated) Current Limit
     float endstop_strength_unit = 1; // PID (estimated) Current Limit
 
-    bool atLimit = 0;
-    bool kxForce = 1;
+    bool atLimit = false;
+    bool wasAtLimit = false;
 
     void load_profile(DetentProfile);
 };
