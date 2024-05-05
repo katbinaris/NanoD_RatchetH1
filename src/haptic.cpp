@@ -2,7 +2,7 @@
 #include "haptic_api.h"
 #include "utils.h"
 
-PIDController default_pid(5.0, 0.0, 0.004, 41, 0.4);
+PIDController default_pid(5.0, 0.0, 0.002, 50, 0.4);
 
 /**
  * Handful of default profiles that you can quickly explore.
@@ -11,7 +11,7 @@ DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
     .end_pos =120,
-    .detent_count = 30,
+    .detent_count = 20,
     .vernier = 10,
     .kxForce = false
 };
@@ -20,7 +20,7 @@ DetentProfile DefaultProgressiveForceProfile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
     .end_pos = 120,
-    .detent_count = 30,
+    .detent_count = 20,
     .vernier = 10,
     .kxForce = true
 };
@@ -29,7 +29,7 @@ DetentProfile DefaultVernierProfile{
     .mode = HapticMode::VERNIER,
     .start_pos = 0,
     .end_pos = 120,
-    .detent_count = 30,
+    .detent_count = 20,
     .vernier = 10,
     .kxForce = false
 };
@@ -172,16 +172,16 @@ void HapticInterface::find_detent(void)
      * hysteresisType is used to handle whether the detents are linear in strength or progressively stronger.
      * We then generate new bounds for the detent based on the hysteresis (as a percentage)
     */
-    float hysteresisType = haptic_state.attract_hysteresis * (haptic_state.detent_profile.kxForce ? 1.0 : -1.0);
-    float minHysteresis = haptic_state.attract_angle * (1.0 - hysteresisType);
-    float maxHysteresis = haptic_state.attract_angle * (1.0 + hysteresisType);
+    float detentHysteresis = detent_width * haptic_state.attract_hysteresis * (haptic_state.detent_profile.kxForce ? 1.0 : -1.0);
+    float minHysteresis = haptic_state.attract_angle - detentHysteresis;
+    float maxHysteresis = haptic_state.attract_angle + detentHysteresis;
 
     if(motor->shaft_angle < minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
         switch(haptic_state.detent_profile.mode){
         case HapticMode::REGULAR:
             // We only handle coarse decrements in this mode
-            haptic_state.attract_angle = round(motor->shaft_angle / detent_width);
+            haptic_state.attract_angle = round(motor->shaft_angle / detent_width); 
             haptic_state.attract_angle *= detent_width;
             break;
 
@@ -325,33 +325,22 @@ void HapticInterface::detent_handler(void){
 */
 float HapticInterface::haptic_target(void)
 {
-    // TODO: When out of bounds and return to position introduce easing so we avoid overshoot.
-
     float detent_width = haptic_state.detent_profile.detent_count / _2PI;
 
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
     float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
 
-    
-    if(!haptic_state.atLimit){
-        if(haptic_state.wasAtLimit){
-            haptic_state.wasAtLimit = false;
-        }
-    }
-
-    motor->loopFOC();
      // Prevent knob velocity from getting too high and overshooting.
     // If the position error is small, reduce strength to prevent oscillation
     if(fabsf(error) < error_threshold)
         error *= 0.75;
 
-
-    if(fabsf(motor->shaft_velocity) > 30) {
+    else if(fabsf(motor->shaft_velocity) > 30){
 
         // Prevent knob velocity from getting too high and overshooting.
         // Low values of this actually provide pretty interesting feeling where knob is smooth while 
         // rotating quickly by hand but snappy during fine adjust.
-        motor->move(0);
+        error = 0.0;
     }
     else {
         error = CLAMP(
@@ -359,13 +348,48 @@ float HapticInterface::haptic_target(void)
             -detent_width,
             detent_width
         );
-
-        motor->move(default_pid(error));
     }
+
+    // When re-entering valid bounds, quickly try to get back to attract angle without involving haptics to prevent sliding into a further detent
+    if(!haptic_state.atLimit && haptic_state.wasAtLimit){
+        bounds_handler(detent_width);
+    }
+    else
+        motor->loopFOC();
+        motor->move(default_pid(error));
 
     return haptic_pid->operator()(error);
 }
 
+/**
+ * Handles the transition from out of bounds to in bounds movement to prevent overshooting by escaping from the haptic loop to settle the response.
+ * This also can lead to a "sticky" feeling if you manually drive back into bounds, this might need a bit of work to feel perfect.
+*/
+void HapticInterface::bounds_handler(float detent_width)
+{
+    float error = 0.0;
+
+    while(fabsf(motor->shaft_velocity) > 2.5){
+        error = haptic_state.attract_angle - motor->shaft_angle;
+        // If you are driving the motor by hand, skip out of here so that you don't feel dragging on the knob
+        if(fabsf(error) > (detent_width * 0.5))
+            break;
+
+        motor->loopFOC();
+        motor->move(default_pid(error));
+    }
+
+    for(uint8_t i=0; i < 60; i++){
+        error = haptic_state.attract_angle - motor->shaft_angle;
+        if(fabsf(error) > (detent_width * 0.25))
+            break;
+
+        motor->loopFOC();
+        motor->move(0);
+    }
+
+    haptic_state.wasAtLimit = false;
+}
 // Internal detent update handler.
 void HapticInterface::HapticEventCallback(HapticEvt event){
     UserHapticEventCallback(event, motor->shaft_angle, haptic_state.current_pos);
