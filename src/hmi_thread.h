@@ -47,8 +47,10 @@ class HmiThread : public Thread<HmiThread> {
 
         // Light Effects
         void halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
-        void strobe(int pps, const struct CRGB& strobeCol);
-        void breathing(int fps, const struct CRGB& fadeCol);
+        void breathing(int fps, const struct CRGB& startCol);
+
+        // Idle Mode 
+        bool pass_idle_mode();
 
     protected:
         void run();
@@ -67,9 +69,9 @@ class HmiThread : public Thread<HmiThread> {
         ledConfig led_config;
         CRGB leds[NANO_LED_A_NUM];
         CRGB ledsp[NANO_LED_B_NUM];
+        bool isIdle;
         void updateKeyLeds();
         void updateLeds();
-        void playHaptics();
 
         // buttons
         hmiConfig hmi_config;
@@ -101,7 +103,7 @@ class HmiThread : public Thread<HmiThread> {
         // animations
         bool gReverseDirection = false;
         int brightness = 0;
-        int fadeAmount = 5;
+        int fadeAmount = 10;
 
 };
 

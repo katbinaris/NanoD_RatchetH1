@@ -15,6 +15,7 @@ BLDCMotor motor = BLDCMotor(7, 5.3);
 BLDCDriver3PWM driver = BLDCDriver3PWM(PIN_IN_U, PIN_IN_V, PIN_IN_W, PIN_EN_U, PIN_EN_V, PIN_EN_W);
 
 MagneticSensorMT6701SSI encoder(PIN_MAG_CS);
+
 HapticInterface haptic = HapticInterface(&motor);
 HapticCommander commander = HapticCommander(&motor);
 
@@ -45,10 +46,11 @@ void FocThread::run() {
 
     driver.voltage_power_supply = 5.0f; // TODO global settings
     driver.voltage_limit = 5.0f;
+
     driver.init();
     motor.linkSensor(&encoder);
     motor.linkDriver(&driver);
-    motor.LPF_velocity.Tf = 0.01;
+    motor.LPF_velocity.Tf = 0.01f;
     motor.current_limit = 1.22;
     motor.init();
     Direction dir = motor.sensor_direction;
