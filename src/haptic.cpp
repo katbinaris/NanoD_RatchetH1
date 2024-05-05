@@ -20,7 +20,7 @@ DetentProfile default_profile{
     .end_pos =60,
     .detent_count = 20,
     .vernier = 5,
-    .kxForce = false
+    .kxForce = true
 };
 
 DetentProfile DefaultProgressiveForceProfile{
@@ -180,9 +180,22 @@ void HapticInterface::find_detent(void)
      * hysteresisType is used to handle whether the detents are linear in strength or progressively stronger.
      * We then generate new bounds for the detent based on the hysteresis (as a percentage)
     */
-    float detentHysteresis = detent_width * haptic_state.attract_hysteresis * (haptic_state.detent_profile.kxForce ? 1.0 : -1.0);
-    float minHysteresis = haptic_state.attract_angle - detentHysteresis;
-    float maxHysteresis = haptic_state.attract_angle + detentHysteresis;
+    float detentHysteresis;
+    float minHysteresis;
+    float maxHysteresis;
+
+    // Special handling for progressive force modes.
+    if(!haptic_state.detent_profile.kxForce){
+        detentHysteresis = detent_width * haptic_state.attract_hysteresis;
+        minHysteresis = haptic_state.attract_angle - detentHysteresis;
+        maxHysteresis = haptic_state.attract_angle + detentHysteresis;
+    }
+    else{
+        // 0.1 is a correction factor to compensate for the large hysteresis in normal modes, to make the force per detent reasonable.
+        detentHysteresis = 0.15 * haptic_state.attract_hysteresis * -1.0;
+        minHysteresis = haptic_state.attract_angle * (1.0 - detentHysteresis);
+        maxHysteresis = haptic_state.attract_angle * (1.0 + detentHysteresis);
+    }
 
     if(motor->shaft_angle < minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
@@ -228,14 +241,13 @@ void HapticInterface::detent_handler(void){
 
                 haptic_state.atLimit = false;
                 haptic_state.current_pos--;
-                 
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
+
                 HapticEventCallback(HapticEvt::DECREASE);
             }
             else{
                 HapticEventCallback(HapticEvt::LIMIT_NEG);  
                 haptic_state.atLimit = true;
-                haptic_state.wasAtLimit = false;
             }
         }
         else{
@@ -246,14 +258,13 @@ void HapticInterface::detent_handler(void){
                                    
                 haptic_state.atLimit = false;
                 haptic_state.current_pos++;
-
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
+
                 HapticEventCallback(HapticEvt::INCREASE);
             }
             else{
                 HapticEventCallback(HapticEvt::LIMIT_POS);  
                 haptic_state.atLimit = true;
-                haptic_state.wasAtLimit = false;
             }
         }
     
@@ -271,8 +282,8 @@ void HapticInterface::detent_handler(void){
                     
                 haptic_state.atLimit = false; 
                 haptic_state.current_pos++;   
-                      
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
+
                 HapticEventCallback(HapticEvt::INCREASE);
             }
             else{
@@ -286,11 +297,11 @@ void HapticInterface::detent_handler(void){
             if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
                 if(haptic_state.atLimit)
                     haptic_state.wasAtLimit = true;
-                    
+
                 haptic_state.atLimit = false;  
                 haptic_state.current_pos--;  
-                           
                 haptic_state.last_attract_angle = haptic_state.attract_angle;
+
                 HapticEventCallback(HapticEvt::DECREASE);
             }
             else{
@@ -345,8 +356,8 @@ void HapticInterface::haptic_target(void)
 }
 
 /**
- * Handles the transition from out of bounds to in bounds movement to prevent overshooting by escaping from the haptic loop to settle the response.
- * This also can lead to a "sticky" feeling if you manually drive back into bounds, this might need a bit of work to feel perfect.
+ * Handles the transition from out of bounds to in bounds movement 
+ * to prevent overshooting by escaping from the haptic loop to settle the response.
 */
 void HapticInterface::bounds_handler(float detent_width)
 {
