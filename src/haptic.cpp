@@ -20,7 +20,7 @@ DetentProfile default_profile{
     .end_pos =60,
     .detent_count = 20,
     .vernier = 5,
-    .kxForce = true
+    .kxForce = false
 };
 
 DetentProfile DefaultProgressiveForceProfile{
