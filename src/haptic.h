@@ -19,6 +19,7 @@ class HapticState
 public:
     HapticState(void);
     HapticState(DetentProfile profile);
+    HapticState(DetentProfile profile, uint16_t positon);
     ~HapticState();
 
     DetentProfile detent_profile;
@@ -39,7 +40,11 @@ public:
     bool atLimit = false;
     bool wasAtLimit = false;
 
-    void load_profile(DetentProfile);
+    //General parameters loaded from profile
+    uint16_t num_detents;
+    float detent_width;
+
+    void load_profile(DetentProfile, uint16_t);
 };
 
 class HapticInterface

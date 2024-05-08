@@ -44,29 +44,45 @@ DetentProfile DefaultVernierProfile{
 // Custom profile to implement and change externally.
 extern DetentProfile tempProfile;
 
-HapticState::HapticState(void){
-    detent_profile = default_profile;
-    current_pos = detent_profile.start_pos;
-};
-
-HapticState::HapticState(DetentProfile profile){
-    detent_profile = profile;
-    current_pos = detent_profile.start_pos;
-};
-
-void HapticState::load_profile(DetentProfile profile){
-    detent_profile = profile;
-
-    current_pos = detent_profile.start_pos;
-    last_pos = detent_profile.start_pos;
-
-    attract_angle = 0.0;
-    last_attract_angle = 0.0;
-}
-
 /**
  * Constructors and deconstructors.
 */
+HapticState::HapticState(void){
+    load_profile(default_profile, default_profile.start_pos);
+};
+
+HapticState::HapticState(DetentProfile profile){
+    load_profile(profile, profile.start_pos);
+};
+
+HapticState::HapticState(DetentProfile profile, uint16_t position){
+    load_profile(profile, position);
+};
+
+void HapticState::load_profile(DetentProfile profile, uint16_t new_position = 0xFFFF){
+    
+    uint16_t isVernier = profile.mode == HapticMode::VERNIER ? profile.vernier : 1;
+    num_detents = profile.end_pos - profile.start_pos;
+    detent_width = _2PI / profile.detent_count;
+
+    if(profile.mode == HapticMode::VERNIER)
+        detent_width /= profile.vernier;
+
+    if(new_position != 0xFFFF)
+        current_pos = new_position;
+    else
+    {
+        // If no special handling of new position, check that we are in a valid region.
+        if(current_pos < profile.start_pos * isVernier)
+            current_pos = profile.start_pos;
+        else if(current_pos > profile.end_pos * isVernier)
+            current_pos = profile.end_pos;
+    }
+
+    last_pos = current_pos;
+    detent_profile = profile;
+}
+
 HapticState::~HapticState() {};
 
 HapticInterface::HapticInterface(BLDCMotor* _motor){
@@ -95,37 +111,21 @@ void HapticInterface::haptic_loop(void){
 
 /**
  * Handles scaling the P term error and clamping error to prevent overshoot.
- * The scaled P error helps to prevent steady state error due to lack of I term (for "rolling" reasons)
+ * The scaled P error helps to prevent steady state error due to lack of I term (for "rolling" reasons).
+ * When roll mode is triggered, I term is added back in.
 */
 void HapticInterface::correct_pid(void)
 {
     bool clipping;
-    float detent_width = _2PI / haptic_state.detent_profile.detent_count;
-
-    switch (haptic_state.detent_profile.mode)
-    {
-    case HapticMode::REGULAR:
-        break;
-
-    case HapticMode::VERNIER:
-        detent_width /= haptic_state.detent_profile.vernier;
-
-    case HapticMode::VISCOSE:
-        break;
-
-    case HapticMode::SPRING:
-        break;
-
-    default:
-        break;
-    }
 
     // Derivative upper and lower strength are very small
     float d_lower_strength = haptic_state.detent_strength_unit * 0.008;
     float d_upper_strength = haptic_state.detent_strength_unit * 0.004;
     float d_lower_pos_width = radians(3);
     float d_upper_pos_width = radians(8);
-    float raw = d_lower_strength + (d_upper_strength - d_lower_strength)/(d_upper_pos_width - d_lower_pos_width)*(detent_width - d_lower_pos_width);
+    float raw = d_lower_strength;
+    raw += (d_upper_strength - d_lower_strength)/(d_upper_pos_width - d_lower_pos_width);
+    raw *= haptic_state.detent_width - d_lower_pos_width;
 
     uint16_t total_positions = haptic_state.detent_profile.end_pos - haptic_state.detent_profile.start_pos + 1;
     // If the error is large, clamp the D term so we don't overdrive the response.
@@ -136,10 +136,10 @@ void HapticInterface::correct_pid(void)
     );
 
     // Check if within range and apply voltage/current limit.
-    if (haptic_state.attract_angle <= haptic_state.last_attract_angle - detent_width)
+    if (haptic_state.attract_angle <= haptic_state.last_attract_angle - haptic_state.detent_width)
         clipping = true;
 
-    else if (haptic_state.attract_angle >= haptic_state.last_attract_angle + detent_width)
+    else if (haptic_state.attract_angle >= haptic_state.last_attract_angle + haptic_state.detent_width)
         clipping = true;
 
     else
@@ -165,17 +165,12 @@ void HapticInterface::offset_detent(void){
  * updates into the haptic abstraction for detent index and bounding information.
  * This function could be greatly simplified if you don't need to entertain the idea of 
  * an asymmetric texture map, but I didn't want to lock out any functionality yet. 
+ * 
+ * Separate positive and negative error so that we can have asymmetric haptic textures.
+ * Use this for when your fine and coarse detents are straddling the current detent.
 */
 void HapticInterface::find_detent(void)
 {
-    /**
-     * Separate positive and negative error so that we can have asymmetric haptic textures.
-     * Use this for when your fine and coarse detents are straddling the current detent.
-     * */ 
-    float detent_width = _2PI / haptic_state.detent_profile.detent_count;
-    if(haptic_state.detent_profile.mode == HapticMode::VERNIER)
-        detent_width /= haptic_state.detent_profile.vernier;
-
     /**
      * hysteresisType is used to handle whether the detents are linear in strength or progressively stronger.
      * We then generate new bounds for the detent based on the hysteresis (as a percentage)
@@ -186,7 +181,7 @@ void HapticInterface::find_detent(void)
 
     // Special handling for progressive force modes.
     if(!haptic_state.detent_profile.kxForce){
-        detentHysteresis = detent_width * haptic_state.attract_hysteresis;
+        detentHysteresis = haptic_state.detent_width * haptic_state.attract_hysteresis;
         minHysteresis = haptic_state.attract_angle - detentHysteresis;
         maxHysteresis = haptic_state.attract_angle + detentHysteresis;
     }
@@ -199,13 +194,13 @@ void HapticInterface::find_detent(void)
 
     if(motor->shaft_angle < minHysteresis){
         // Knob is turned less than detent (left half of texture graph)
-        haptic_state.attract_angle = round(motor->shaft_angle / detent_width); 
-        haptic_state.attract_angle *= detent_width;
+        haptic_state.attract_angle = round(motor->shaft_angle / haptic_state.detent_width); 
+        haptic_state.attract_angle *= haptic_state.detent_width;
     }
     else if(motor->shaft_angle > maxHysteresis){
         // Knob is turned more than detent (right half of texture graph)
-        haptic_state.attract_angle = round(motor->shaft_angle / detent_width);
-        haptic_state.attract_angle *= detent_width;
+        haptic_state.attract_angle = round(motor->shaft_angle / haptic_state.detent_width);
+        haptic_state.attract_angle *= haptic_state.detent_width;
     }
 
     // If there has been a change in the haptic attractor
@@ -220,9 +215,11 @@ void HapticInterface::find_detent(void)
 */
 void HapticInterface::detent_handler(void){
     // Logic for handling detent update events.
+    uint16_t effective_start_pos = haptic_state.detent_profile.start_pos;
     uint16_t effective_end_pos = haptic_state.detent_profile.end_pos;
 
     if(haptic_state.detent_profile.mode == HapticMode::VERNIER){
+        effective_start_pos *= haptic_state.detent_profile.vernier;
         effective_end_pos *= haptic_state.detent_profile.vernier;
     }
 
@@ -235,7 +232,7 @@ void HapticInterface::detent_handler(void){
         if(motor->sensor_direction != Direction::CCW){
         #endif
             // Check that we are at limit
-            if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
+            if(haptic_state.current_pos > effective_start_pos){
                 if(haptic_state.atLimit)
                     haptic_state.wasAtLimit = true;
 
@@ -294,7 +291,7 @@ void HapticInterface::detent_handler(void){
         }
         else{
             // Check if we are at limit
-            if(haptic_state.current_pos > haptic_state.detent_profile.start_pos){
+            if(haptic_state.current_pos > effective_start_pos){
                 if(haptic_state.atLimit)
                     haptic_state.wasAtLimit = true;
 
@@ -321,10 +318,8 @@ void HapticInterface::detent_handler(void){
 */
 void HapticInterface::haptic_target(void)
 {
-    float detent_width = haptic_state.detent_profile.detent_count / _2PI;
-
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
-    float error_threshold = detent_width * 0.0075; // 0.75% gives good snap without ringing
+    float error_threshold = haptic_state.detent_width * 0.0075; // 0.75% gives good snap without ringing
 
      // Prevent knob velocity from getting too high and overshooting.
     // If the position error is small, reduce strength to prevent oscillation
@@ -341,14 +336,14 @@ void HapticInterface::haptic_target(void)
     else {
         error = CLAMP(
             error,
-            -detent_width,
-            detent_width
+            -haptic_state.detent_width,
+            haptic_state.detent_width
         );
     }
 
     // When re-entering valid bounds, quickly try to get back to attract angle without involving haptics to prevent sliding into a further detent
     if(!haptic_state.atLimit && haptic_state.wasAtLimit){
-        bounds_handler(detent_width);
+        bounds_handler(haptic_state.detent_width);
     }
     else
         motor->loopFOC();
@@ -366,16 +361,14 @@ void HapticInterface::bounds_handler(float detent_width)
     while(fabsf(motor->shaft_velocity) > 1.0){
         error = haptic_state.attract_angle - motor->shaft_angle;
         // If you are driving the motor by hand, skip out of here so that you don't feel dragging on the knob
-        if(fabsf(error) > (detent_width * 0.25))
+        if(fabsf(error) > (detent_width * 2))
             break;
 
         motor->loopFOC();
         motor->move(default_pid(error));
     }
 
-    uint16_t midpoint = (haptic_state.detent_profile.end_pos - haptic_state.detent_profile.start_pos) / 2;
-
-    if(haptic_state.current_pos <= midpoint)
+    if(haptic_state.current_pos <= haptic_state.num_detents / 2)
         haptic_state.current_pos = haptic_state.detent_profile.start_pos;
     else
         haptic_state.current_pos = haptic_state.detent_profile.end_pos;
