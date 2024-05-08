@@ -368,13 +368,21 @@ void HapticInterface::bounds_handler(float detent_width)
         motor->move(default_pid(error));
     }
 
+    // Determine current boundary
     if(haptic_state.current_pos <= haptic_state.num_detents / 2)
         haptic_state.current_pos = haptic_state.detent_profile.start_pos;
     else
         haptic_state.current_pos = haptic_state.detent_profile.end_pos;
 
+    // Correct position scaling if in vernier mode.
     if(haptic_state.detent_profile.mode == HapticMode::VERNIER)
         haptic_state.current_pos *= haptic_state.detent_profile.vernier;
+
+    // Fix physical drifting due to missing a detent when re-entering bounds.
+    if(haptic_state.current_pos <= haptic_state.num_detents / 2)
+        haptic_state.current_pos += 1;
+    else
+        haptic_state.current_pos -= 1;
 
     // Clear boundary exit flag
     haptic_state.wasAtLimit = false;
