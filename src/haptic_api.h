@@ -17,6 +17,10 @@
  * as they have no relevance to the haptic module.
  */
 
+/**
+ * Hooked up to HapticEventCallback, these are generated whenever there is a change
+ * in the abstracted haptic state. 
+*/
 typedef enum : uint8_t {
     INCREASE = 0,   // When fine detents increment
     DECREASE = 1,   //..
@@ -25,6 +29,13 @@ typedef enum : uint8_t {
     LIMIT_NEG = 4   // At detent.start_pos
 } HapticEvt;
 
+/**
+ * Supported haptic texture modes.
+ * In regular, the number of detents is determined by end - start position, and the angle is set by detent_count (per 2PI)
+ * In vernier mode, the number of detents is multiplied by the vernier multiplier, with "major" clicks where the regular detents would overlay.
+ * In viscose mode, the knob is smooth but heavy and resists motion.
+ * In spring mode, the knob returns to a defined point.
+*/
 typedef enum : uint8_t {
     REGULAR = 0,    //Only coarse detents used
     VERNIER = 1,    // Coarse with fine between
@@ -32,14 +43,23 @@ typedef enum : uint8_t {
     SPRING = 3     // Snap back to center point
 } HapticMode;
 
+/**
+ * Defines the actual behavior of the detent profile.
+ * Setting kxForce changes the feel of the detents so that larger values require larger force.
+*/
 typedef struct {
     HapticMode mode;
     uint16_t start_pos;
     uint16_t end_pos;
     uint16_t detent_count;
     uint8_t vernier;
+    bool kxForce;
 } DetentProfile;
 
+/**
+ * This is used for regular reporting of the knob mechanical state
+ * if you are using the library as part of a larger system.
+*/
 typedef struct {
     float angle;
     int32_t turns;

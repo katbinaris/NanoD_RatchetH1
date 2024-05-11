@@ -68,7 +68,13 @@ extern lv_obj_t *ui_cTitlle3;
 extern lv_obj_t *ui_cDesc3;
 extern lv_obj_t *ui_cNav3;
 extern lv_obj_t *ui____initial_actions0;
-
+// SCREEN: ui_IdleAnim
+void ui_IdleAnim_screen_init(void);
+extern lv_obj_t *ui_IdleAnim;
+extern lv_obj_t *ui_IdleCat;
+extern lv_obj_t *ui_IdleCatShadow;
+extern lv_obj_t *ui_IdleQuote;
+extern lv_obj_t *ui____initial_actions0;
 
 
 LV_FONT_DECLARE( ui_font_SG12H16);
@@ -76,6 +82,7 @@ LV_FONT_DECLARE( ui_font_SG12h60);
 LV_FONT_DECLARE( ui_font_SGK100h16);
 LV_FONT_DECLARE( ui_font_SGK100h32);
 LV_FONT_DECLARE( ui_font_SGdig60);
+LV_FONT_DECLARE( ui_font_IdleCat);
 
 void ui_init(void);
 

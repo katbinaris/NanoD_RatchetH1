@@ -134,6 +134,10 @@ bool HmiThread::get_key_event(KeyEvt* keyEvt){
     return xQueueReceive(_q_keyevt_out, keyEvt, (TickType_t)0);
 };
 
+bool HmiThread::pass_idle_mode(){
+    return hmi_thread.isIdle;
+    // TODO: Make it passable to LCD thread
+}
 
 
 void HmiThread::run() {
@@ -421,16 +425,36 @@ void HmiThread::updateKeyLeds() {
         ledsp[leds[i][0]] = color;
         ledsp[leds[i][1]] = color;
     }
+    
 };
 
-
-
+// Define a variable to store the last time cur_pos was updated
+unsigned long lastCheck = 0;
 void HmiThread::updateLeds() {
+    static uint16_t last_pos = -1;
+
+    // TODO: optimise this
     uint16_t cur_pos = foc_thread.pass_cur_pos();
     uint16_t start_pos = foc_thread.pass_start_pos();
     uint16_t end_pos = foc_thread.pass_end_pos();
     bool at_limit = foc_thread.pass_at_limit();
-    // uint8_t pointer = (-foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
+
+    uint16_t idle_timeout_ms = 20000;
+    uint8_t led_orientation = 45;
+    
+    /*
+    TODO: Add/link numerical orientation setup. 
+    Orientation rotates CCW bt 15 
+    0 - 0
+    1 - 15
+    2 - 30
+    3 - 45
+    */
+
+    /* uint8_t pointer = (-foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
+       This could be used when going out of bounds but would need to be averaged/filtered
+    */
+
     uint16_t point = map(cur_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t start = map(start_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t end = map(end_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
@@ -449,8 +473,6 @@ void HmiThread::updateLeds() {
 void HmiThread::halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
     
     for (int i = NANO_LED_A_NUM - 1; i >= 0; i--) {
-
-
          if(i > indicator) {
             int index = ( i + 45) % NANO_LED_A_NUM ;
              leds[index] = postCol;
@@ -469,18 +491,6 @@ void HmiThread::halvesPointer(int indicator, int startpos, int endpos, const str
         // leds[end] = CRGB::Red;
 };
 
-
-
-// Quick Strobe Single Color
-void HmiThread::strobe(int pps, const struct CRGB& strobeCol){
-    fill_solid(leds, 60, strobeCol);
-    FastLED.show();
-    vTaskDelay(1000/pps / portTICK_PERIOD_MS);
-    
-    fill_solid(leds, 60, CRGB::Black);
-    FastLED.show();
-    vTaskDelay(1000/pps / portTICK_PERIOD_MS);
-};
 
 
 
