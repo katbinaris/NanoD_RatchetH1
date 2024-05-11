@@ -28,7 +28,6 @@ void ComThread::put_string_message(const StringMessage& msg){
 void ComThread::run() {
     // serial is initialized in main.cpp, but subsequently used only here
     Serial.println("COM thread started");
-    // TODO set the active profile to the other threads
     unsigned long ts = millis();
     ts_last_activity = ts;
     JsonDocument idleDoc;
@@ -42,7 +41,7 @@ void ComThread::run() {
                 sendError("JSON parse error", error.c_str());
                 continue;
             }
-            Serial.println("JSON received"); // TODO remove this
+            //Serial.println("JSON received");
             JsonVariant profile = doc["profile"];
             JsonVariant v = doc["updates"];
             if (profile.is<String>() || v!=nullptr) { // haptic command

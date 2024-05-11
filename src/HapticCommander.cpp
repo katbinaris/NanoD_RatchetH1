@@ -71,7 +71,7 @@ RegisterIO& HapticCommander::operator>>(float& value) {
 RegisterIO& HapticCommander::operator>>(uint32_t& value) {
     if (msg_in != NULL) {
         msg_in++; // skip the separator
-        value = atoi(msg_in); // TODO fix me!
+        value = atoi(msg_in);
         msg_in = strchr(msg_in, ','); // next position, if any
     }
     return *this;
@@ -81,7 +81,7 @@ RegisterIO& HapticCommander::operator>>(uint32_t& value) {
 RegisterIO& HapticCommander::operator>>(uint8_t& value) {
     if (msg_in != NULL) {
         msg_in++; // skip the separator
-        value = atoi(msg_in); // TODO fix me!
+        value = atoi(msg_in);
         msg_in = strchr(msg_in, ','); // next position, if any
     }
     return *this;
