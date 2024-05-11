@@ -18,6 +18,10 @@
 #define PIN_MAG_CLK 18
 #define PIN_MAG_CS 17
 
+// I2C
+#define PIN_NANO_I2C_SDA 12
+#define PIN_NANO_I2C_SCL 13
+
 // Smart LED (WS2811)
 #define PIN_LED_A 38
 #define PIN_LED_B 42

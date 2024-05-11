@@ -4,6 +4,7 @@
 #include <Adafruit_TinyUSB.h>
 #include "MIDI.h"
 #include "audio/audio.h"
+#include <SparkFun_STUSB4500.h>
 
 using namespace ace_button;
 
@@ -499,3 +500,35 @@ void HmiThread::breathing(int fps, const struct CRGB& fadeCol){
     vTaskDelay(1000/fps / portTICK_PERIOD_MS); 
 };
 
+STUSB4500 usb_pd;
+
+PowerType HmiThread::init_pd() {
+  Wire.begin();
+  if (!usb_pd.begin()) {
+    Serial.println("STUSB4500 not found");
+  } else {
+    Serial.println("STUSB4500 found");
+  }
+  if (usb_pd.getPdoNumber()!=2) {
+    Serial.println("Setting USB profiles to NVM");
+    usb_pd.setUsbCommCapable(true);
+    usb_pd.setVoltage(1,5.0);
+    usb_pd.setCurrent(1,3.0);
+    usb_pd.setLowerVoltageLimit(1,20);
+    usb_pd.setUpperVoltageLimit(1,20);
+    usb_pd.setVoltage(2,9.0);
+    usb_pd.setCurrent(2,3.0);
+    usb_pd.setLowerVoltageLimit(2,20);
+    usb_pd.setUpperVoltageLimit(2,10);
+    usb_pd.setVoltage(3,9.0);
+    usb_pd.setCurrent(3,3.0);
+    usb_pd.setLowerVoltageLimit(3,20);
+    usb_pd.setUpperVoltageLimit(3,10);
+    usb_pd.setPdoNumber(2);
+    usb_pd.write();  
+  }
+
+    // TODO: read status register to determine selected PDO
+
+  return POWER_5V_USB;
+}

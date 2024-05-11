@@ -16,6 +16,7 @@ LcdThread lcd_thread(0);
 ComThread com_thread(0);
 
 
+
 void setup() {
 
   // initialize USB
@@ -38,6 +39,10 @@ void setup() {
   DeviceSettings& settings = DeviceSettings::getInstance();
   settings.init();
   settings.fromSPIFFS(); // attempt to load settings from SPIFFS
+
+  // initialize PD power
+  hmi_thread.init_pd();
+
   // then load the profiles
   HapticProfileManager& profileManager = HapticProfileManager::getInstance();
   profileManager.fromSPIFFS(); // attempt to load profiles from SPIFFS

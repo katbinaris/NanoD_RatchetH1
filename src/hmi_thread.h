@@ -12,6 +12,13 @@
 using namespace ace_button;
 
 
+typedef enum {
+    POWER_5V_USB = 0,
+    POWER_5V_PD = 1,
+    POWER_9V_PD = 2
+} PowerType;
+
+
 class HmiThreadButtonHandler : public IEventHandler  {
 public:
     HmiThreadButtonHandler(uint8_t _index = 0);
@@ -32,6 +39,7 @@ class HmiThread : public Thread<HmiThread> {
         ~HmiThread();
        
         void init_usb();
+        PowerType init_pd();
         void init(ledConfig& initial_led_config, hmiConfig& initial_hmi_config);
     
         // queues
