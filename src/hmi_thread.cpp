@@ -134,10 +134,6 @@ bool HmiThread::get_key_event(KeyEvt* keyEvt){
     return xQueueReceive(_q_keyevt_out, keyEvt, (TickType_t)0);
 };
 
-bool HmiThread::pass_idle_mode(){
-    return hmi_thread.isIdle;
-    // TODO: Make it passable to LCD thread
-}
 
 
 void HmiThread::run() {

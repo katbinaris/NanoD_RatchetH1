@@ -52,9 +52,6 @@ class HmiThread : public Thread<HmiThread> {
         void halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
         void breathing(int fps, const struct CRGB& startCol);
 
-        // Idle Mode 
-        bool pass_idle_mode();
-
     protected:
         void run();
         
