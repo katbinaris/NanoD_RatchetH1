@@ -160,7 +160,8 @@ void ComThread::handleEvents() {
         eventDoc.clear();
         eventDoc["a"] = angleEvt.angle;
         eventDoc["t"] = angleEvt.turns;
-        eventDoc["p"] = angleEvt.velocity;
+        eventDoc["p"] = angleEvt.velocity;  
+        eventDoc["v"] = hmi_thread.currentValue;
         serializeJson(eventDoc, Serial);
         Serial.println(); // add a newline
         ts_last_activity = millis();

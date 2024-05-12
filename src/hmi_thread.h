@@ -31,7 +31,7 @@ public:
 class HmiThread : public Thread<HmiThread> {
     friend class Thread<HmiThread>; //Allow Base Thread to invoke protected run()
     friend class HmiThreadButtonHandler;
-
+    friend class ComThread;
 
 
     public:

@@ -131,7 +131,7 @@ bool FocThread::pass_at_limit(){
 
 
 float FocThread::get_motor_angle() {
-    return encoder.getMechanicalAngle() * motor.sensor_direction;
+    return motor.shaft_angle;
 };
 
 void FocThread::handleMessage() {
