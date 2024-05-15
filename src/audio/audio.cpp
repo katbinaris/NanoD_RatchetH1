@@ -4,7 +4,7 @@
 #include "../haptic.h"
 
 
-#define SAMPLES_PER_SEC 22000	// 2 bytes stereo = 4 bytes (2 x 16bits) per sample, 44100 x 4bytes per second
+#define SAMPLES_PER_SEC 22050
 #define DEFAULT_VOLUME 100
 
 
@@ -88,6 +88,7 @@ void BinarisAudioPlayer::audio_init(){
 
     i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_NUM_0, &pin_config);
+    i2s_set_sample_rates(I2S_NUM_0, SAMPLES_PER_SEC);
 };
 
 
@@ -117,8 +118,8 @@ void BinarisAudioPlayer::play_haptic_audio(){
 
 
 void BinarisAudioPlayer::start_play(uint8_t* audio_file){
-    data_ptr = &audio_file[44];
-    num_bytes_remaining = audio_file[40] + (audio_file[41] << 8) + (audio_file[42] << 16) + (audio_file[43] << 24);
+        data_ptr = &audio_file[44];
+        num_bytes_remaining = audio_file[40] + (audio_file[41] << 8) + (audio_file[42] << 16) + (audio_file[43] << 24);
 };
 
 
@@ -141,7 +142,7 @@ bool BinarisAudioPlayer::check_file(String fName, uint8_t* audio_file){
         return false;
     }
     #endif
-    if (!(audio_file[24]==0xF0 && audio_file[25]==0x55 && audio_file[26]==0x00 && audio_file[27]==0x00)) {
+    if (!(audio_file[24]==0x22 && audio_file[25]==0x56 && audio_file[26]==0x00 && audio_file[27]==0x00)) {
         Serial.println(fName + ": audio file is not 22kHz.");
         return false;
     }
