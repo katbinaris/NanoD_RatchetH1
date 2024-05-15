@@ -261,6 +261,7 @@ void HmiThread::handleKeyAction(keyAction& action, uint8_t eventType) {
                         for (int j=i; j<num_key_codes-1; j++)
                             current_key_codes[j] = current_key_codes[j+1];
                         num_key_codes--;
+                        current_key_codes[num_key_codes] = 0;
                         break;
                     }
                 }
