@@ -458,54 +458,86 @@ void HmiThread::updateLeds() {
 
     
     
-    halvesPointer(point, start, end, CRGB(led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
-  
-}
+     if (cur_pos == last_pos) {
+        unsigned long elapsedTime = millis() - lastCheck;
+        if (elapsedTime >= idle_timeout_ms) {
+            hmi_thread.breathing(60, CRGB::OrangeRed);
+            isIdle = 1;
+        }
+    } else {
+        hmi_thread.halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+        last_pos = cur_pos;
+        isIdle = 0;
+        hmi_thread.updateKeyLeds();
+        lastCheck = millis();
+    }
+    /*
+        Interrupt delay helps stabilize leds in some cases
+    */
+    // vTaskDelay(1); 
+};
 
     
 
 
 
 // Standard Pointer with two halves
-void HmiThread::halvesPointer(int indicator, int startpos, int endpos, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
+void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
     
     for (int i = NANO_LED_A_NUM - 1; i >= 0; i--) {
          if(i > indicator) {
-            int index = ( i + 45) % NANO_LED_A_NUM ;
+            int index = ( i + orientation) % NANO_LED_A_NUM ;
              leds[index] = postCol;
          }
          if(i < indicator) {
-            int index = ( i + 45) % NANO_LED_A_NUM;
+            int index = ( i + orientation) % NANO_LED_A_NUM;
              leds[index] = preCol;
          }
     }
      
-        int index = ( indicator + 45) % NANO_LED_A_NUM;
-        int start = ( startpos) % NANO_LED_A_NUM;
-        int end = ( endpos) % NANO_LED_A_NUM;
-        leds[index] = pointerCol;
-        // leds[start] = CRGB::Red;
-        // leds[end] = CRGB::Red;
+        int index = ( indicator + orientation) % NANO_LED_A_NUM;
+     leds[index] = pointerCol;
 };
 
 
 
 
 
-void HmiThread::breathing(int fps, const struct CRGB& fadeCol){
-    for(int i = 0; i < NANO_LED_A_NUM; i++ ) {
-        leds[i] = fadeCol;  // Set Color HERE!!!
-        leds[i].fadeToBlackBy(brightness);
+/*
+    Breathing mode used for idle, changing fps increases pulses pace
+*/
+
+void HmiThread::breathing(int fps, const struct CRGB& startCol){
+    static unsigned long lastUpdateTime = 0;
+    static bool increasing = false;
+    static uint8_t darkness = 255;
+
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastUpdateTime < 1000/fps) {
+        return;
     }
-    FastLED.show();
-    brightness = brightness + fadeAmount;
-    brightness = constrain(brightness, 0, led_config.led_brightness);
-    // reverse the direction of the fading at the ends of the fade: 
-    if(brightness <= 0 || brightness >= led_config.led_brightness) {
-        fadeAmount = -fadeAmount ;
+    lastUpdateTime = currentMillis;
+
+    CRGB currentCol;
+    currentCol = startCol;
+    currentCol.fadeToBlackBy(darkness);
+
+    for(int i = 0; i < (NANO_LED_A_NUM + 8); i++ ) {
+        leds[i] = currentCol;
     }
-    vTaskDelay(1000/fps / portTICK_PERIOD_MS); 
-};
+
+    if (increasing) {
+        darkness++;
+        if (darkness >= 250) {
+            increasing = false;
+        }
+    } else {
+        darkness--;
+        if (darkness == 220) {
+            increasing = true;
+        }
+    }
+}
 
 STUSB4500 usb_pd;
 
