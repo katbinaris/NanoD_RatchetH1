@@ -15,6 +15,7 @@ typedef enum {
 
 
 class LcdCommand {
+public:
     LcdLayoutType type = LCD_LAYOUT_DEFAULT;
     String* title = nullptr;
     String* data1 = nullptr;
@@ -38,6 +39,10 @@ class LcdThread : public Thread<LcdThread> {
         void run();
         void handleLcdCommand();
 
+        LcdCommand last_command;
+
     private:
         QueueHandle_t _q_lcd_in;
 };
+
+extern LcdThread lcd_thread;

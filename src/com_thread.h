@@ -49,6 +49,7 @@ class ComThread : public Thread<ComThread> {
         void dispatchHmiConfig();
         void dispatchSettings();
         void dispatchAudioConfig();
+        void dispatchLcdConfig();
 
         void sendError(String& error, String* msg = nullptr);
         void sendError(String& error, String& msg);

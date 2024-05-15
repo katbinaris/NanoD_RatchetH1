@@ -440,3 +440,16 @@ void ComThread::dispatchSettings() {
 void ComThread::dispatchAudioConfig() {
     audioPlayer.put_audio_config(HapticProfileManager::getInstance().getCurrentProfile()->audio_config);
 };
+
+
+void ComThread::dispatchLcdConfig() {
+    HapticProfile* curr = HapticProfileManager::getInstance().getCurrentProfile();
+    LcdCommand cmd;
+    cmd.type = LCD_LAYOUT_DEFAULT;
+    cmd.title = &curr->profile_name;
+    cmd.data1 = nullptr;
+    cmd.data2 = nullptr;
+    cmd.data3 = nullptr; // TODO set fields
+    cmd.data4 = nullptr;
+    lcd_thread.put_lcd_command(cmd);
+};

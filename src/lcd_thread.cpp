@@ -12,8 +12,20 @@ static const uint8_t LEDC_CH_LCD_BKL = 0;
 #define DRAW_BUF_SIZE (TFT_WIDTH * TFT_HEIGHT / 10 * (LV_COLOR_DEPTH / 8))
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];
 
+String default_title = "NanoD++";
+String default_data1 = "Starting up...";
+String default_data2 = "Please wait";
+String default_data3 = "";
+String default_data4 = "";
+
 LcdThread::LcdThread(const uint8_t task_core) : Thread("LCD", 8192, 1, task_core) {
     _q_lcd_in = xQueueCreate(2, sizeof( LcdCommand ));
+    last_command.type = LCD_LAYOUT_DEFAULT;
+    last_command.title = &default_title;
+    last_command.data1 = &default_data1;
+    last_command.data2 = &default_data2;
+    last_command.data3 = &default_data3;
+    last_command.data4 = &default_data4;
 };
 
 LcdThread::~LcdThread() {}
@@ -28,6 +40,7 @@ void LcdThread::handleLcdCommand() {
     LcdCommand cmd;
     if (xQueueReceive(_q_lcd_in, &cmd, (TickType_t)0)) {
         // TODO Implement LCD Command Handling
+        last_command = cmd;
     }
 };
 
