@@ -542,7 +542,7 @@ void HmiThread::breathing(int fps, const struct CRGB& startCol){
 STUSB4500 usb_pd;
 
 PowerType HmiThread::init_pd() {
-  Wire.begin();
+  Wire.begin(PIN_NANO_I2C_SDA, PIN_NANO_I2C_SCL);
   if (!usb_pd.begin()) {
     Serial.println("STUSB4500 not found");
   } else {
