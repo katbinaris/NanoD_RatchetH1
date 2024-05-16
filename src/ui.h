@@ -38,6 +38,10 @@ extern lv_obj_t *ui_posIndicator;
 extern lv_obj_t *ui_posind;
 extern lv_obj_t *ui_posindSha;
 extern lv_obj_t *ui_Arc1;
+// extern lv_obj_t *ui_actpos;
+// extern lv_obj_t *ui_IdleAnim;
+extern lv_obj_t *ui_IdleCat;
+extern lv_obj_t *ui_IdleCatShadow; 
 
 // SCREEN: ui_profSelectScreen
 void ui_profSelectScreen_screen_init(void);
@@ -71,12 +75,10 @@ extern lv_obj_t *ui_cDesc3;
 extern lv_obj_t *ui_cNav3;
 extern lv_obj_t *ui____initial_actions0;
 // SCREEN: ui_IdleAnim
-void ui_IdleAnim_screen_init(void);
-extern lv_obj_t *ui_IdleAnim;
-extern lv_obj_t *ui_IdleCat;
-extern lv_obj_t *ui_IdleCatShadow;
-extern lv_obj_t *ui_IdleQuote;
-extern lv_obj_t *ui____initial_actions0;
+// void ui_IdleAnim_screen_init(void);
+
+// extern lv_obj_t *ui_IdleQuote;
+// extern lv_obj_t *ui____initial_actions0;
 
 
 LV_FONT_DECLARE( ui_font_SG12H16);
