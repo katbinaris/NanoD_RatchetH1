@@ -101,8 +101,8 @@ void HmiThread::handleConfig() {
         uint8_t newBrightness = min(led_max_brightness, led_config.led_brightness);
         if (FastLED.getBrightness() != newBrightness) {
             FastLED.setBrightness(newBrightness);
-            updateKeyLeds();
         }
+        updateKeyLeds();
     }
     hmiConfig newHmiConfig;
     if (xQueueReceive(_q_hmi_config_in, &newHmiConfig, (TickType_t)0)) {
@@ -451,10 +451,10 @@ void HmiThread::updateLeds() {
             isIdle = true;
         }
     } else {
-        hmi_thread.halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+        halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
         last_pos = cur_pos;
         isIdle = false;
-        hmi_thread.updateKeyLeds();
+        updateKeyLeds();
         lastCheck = millis();
     }
     /*
