@@ -6,14 +6,15 @@
 #ifdef USE_AUDIO_LIB
 #include "XT_I2S_Audio.h"
 XT_I2S_Class* xt_player = nullptr;
-XT_PlayListItem_Class* clack_wav_sample;
-XT_PlayListItem_Class* loud_wav_sample;
-XT_PlayListItem_Class* soft_wav_sample;
-XT_PlayListItem_Class* hard_wav_sample;
-XT_PlayListItem_Class* chime_wav_sample;
+XT_PlayListItem_Class* clack_wav_sample = nullptr;
+XT_PlayListItem_Class* loud_wav_sample = nullptr;
+XT_PlayListItem_Class* soft_wav_sample = nullptr;
+XT_PlayListItem_Class* hard_wav_sample = nullptr;
+XT_PlayListItem_Class* chime_wav_sample = nullptr;
 #endif
-
+#ifndef USE_AUDIO_LIB
 #define SAMPLES_PER_SEC 22050
+#endif
 #define DEFAULT_VOLUME 100
 
 
@@ -80,6 +81,7 @@ void BinarisAudioPlayer::audio_init(){
     hard_wav_sample = new XT_Wav_Class((const unsigned char *)hard_wav);
     chime_wav_sample = new XT_Wav_Class((const unsigned char *)chime_wav);
     data_ptr=nullptr; // not used with xt_player
+    Serial.println("XT Audio library initialized");
 #else
     i2s_config.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
     i2s_config.sample_rate = SAMPLES_PER_SEC;                       // Note, max sample rate
@@ -150,10 +152,16 @@ void BinarisAudioPlayer::start_play(uint8_t* audio_file){
             sample = hard_wav_sample;
         else if (audio_file==chime_wav)
             sample = chime_wav_sample;
-        else
+        else 
             sample = nullptr;
-        if (sample!=nullptr && xt_player!=nullptr)
+        if (sample==nullptr)
+            Serial.println("? audio file");
+        if (xt_player!=nullptr)
+            Serial.println("? audio plr");
+        if (sample!=nullptr && xt_player!=nullptr) {
             xt_player->Play(sample);
+            Serial.println("Playing "+get_audio_filename(audio_file));
+        }
     #else
         data_ptr = &audio_file[44];
         num_bytes_remaining = audio_file[40] + (audio_file[41] << 8) + (audio_file[42] << 16) + (audio_file[43] << 24);
@@ -209,11 +217,15 @@ void BinarisAudioPlayer::handle_audio_commands(){
                 if (data_ptr==nullptr) { // only play if no audio is currently playing
                     start_play(command.audio_file);
                 }
+                else
+                    Serial.println("x");
                 break;
             case AudioCommandType::PLAY_HAPTIC:
                 if (data_ptr==nullptr) { // only play if no audio is currently playing
                     start_play(audio_config.audio_file);
                 }
+                else
+                    Serial.println("x");
                 break;
             case AudioCommandType::CONFIG:
                 //Serial.println("Audio config");
@@ -238,8 +250,10 @@ void BinarisAudioPlayer::audio_loop(){
     // fill the audio buffer with the next audio sample
     handle_audio_commands();
 #ifdef USE_AUDIO_LIB
-    if (xt_player!=nullptr)
+    if (xt_player!=nullptr) {
+        xt_player->Volume = 125;
         xt_player->FillBuffer();
+    }
 #else
     if (data_ptr==nullptr) {
         return;

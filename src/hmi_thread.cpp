@@ -237,6 +237,8 @@ void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, u
     }
     KeyEvt keyEvt = { .type=eventType, .keyNum=(uint8_t)index, .keyState=hmi_thread.keyState };
     xQueueSend(hmi_thread._q_keyevt_out, &keyEvt, (TickType_t)0);
+    hmi_thread.lastCheck = millis();
+    hmi_thread.isIdle = false;
     hmi_thread.updateKeyLeds();
 };
 
@@ -429,10 +431,9 @@ void HmiThread::updateKeyLeds() {
 
 
 // Define a variable to store the last time cur_pos was updated
-unsigned long lastCheck = 0;
+
 void HmiThread::updateLeds() {
     static uint16_t last_pos = -1;
-    static bool isIdle = false;
     // TODO: optimise this
     uint16_t cur_pos = foc_thread.pass_cur_pos();
     uint16_t start_pos = foc_thread.pass_start_pos();
