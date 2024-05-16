@@ -202,7 +202,7 @@ void HmiThread::run() {
             updates = 0;
         }
 
-        // audioPlayer.audio_loop();
+        audioPlayer.audio_loop();
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
@@ -239,6 +239,7 @@ void HmiThreadButtonHandler::handleEvent(AceButton* button, uint8_t eventType, u
     xQueueSend(hmi_thread._q_keyevt_out, &keyEvt, (TickType_t)0);
     hmi_thread.lastCheck = millis();
     hmi_thread.isIdle = false;
+    hmi_thread.last_pos = -1;
     hmi_thread.updateKeyLeds();
 };
 
@@ -433,7 +434,6 @@ void HmiThread::updateKeyLeds() {
 // Define a variable to store the last time cur_pos was updated
 
 void HmiThread::updateLeds() {
-    static uint16_t last_pos = -1;
     // TODO: optimise this
     uint16_t cur_pos = foc_thread.pass_cur_pos();
     uint16_t start_pos = foc_thread.pass_start_pos();

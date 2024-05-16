@@ -73,6 +73,7 @@ class HmiThread : public Thread<HmiThread> {
         CRGB leds[NANO_LED_A_NUM];
         CRGB ledsp[NANO_LED_B_NUM];
         unsigned long lastCheck = 0;
+        uint16_t last_pos = -1;
         bool isIdle = false;
         void updateKeyLeds();
         void updateLeds();

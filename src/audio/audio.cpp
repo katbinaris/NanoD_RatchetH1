@@ -156,7 +156,7 @@ void BinarisAudioPlayer::start_play(uint8_t* audio_file){
             sample = nullptr;
         if (sample==nullptr)
             Serial.println("? audio file");
-        if (xt_player!=nullptr)
+        if (xt_player==nullptr)
             Serial.println("? audio plr");
         if (sample!=nullptr && xt_player!=nullptr) {
             xt_player->Play(sample);
@@ -251,7 +251,7 @@ void BinarisAudioPlayer::audio_loop(){
     handle_audio_commands();
 #ifdef USE_AUDIO_LIB
     if (xt_player!=nullptr) {
-        xt_player->Volume = 125;
+        //xt_player->Volume = 125;
         xt_player->FillBuffer();
     }
 #else
