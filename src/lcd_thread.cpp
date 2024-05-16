@@ -71,23 +71,26 @@ static void idle_anim_handler(lv_timer_t * animtimer) {
 }
 
 // TODO: move to screen event
-static void quote_handler(lv_timer_t * quotetimer) {
-    static uint8_t quote = 0;
-    switch(quote) {
-        case 0:
-            lv_label_set_text(ui_IdleQuote, "I MISS YOU!");
-            break;
-        case 1:
-            lv_label_set_text(ui_IdleQuote, "ARE YOU STILL THERE?");
-            break;
-        case 2:
-            lv_label_set_text(ui_IdleQuote, "CAPITAN MEAOW ON STANDBY");
-            
-            break;
+static void counter_handler(lv_timer_t * quotetimer) {
+    static uint16_t last_pos = -1;
+        uint16_t pos = foc_thread.pass_cur_pos();
+        uint16_t end_pos = foc_thread.pass_end_pos();
+        
+        if (pos != last_pos){
+        lv_label_set_text_fmt(ui_posind, "%d", pos);
+        lv_label_set_text_fmt(ui_posind, "%d", pos);
+        lv_label_set_text_fmt(ui_posindSha, "%d", pos);
+        lv_arc_set_range(ui_Arc1, 0, end_pos);
+        lv_arc_set_value(ui_Arc1, pos);
+        last_pos = pos;
+        }
 
-    }
-    quote = (quote + 1) % 3;
+      
+
+        
 }
+
+
 
 void LcdThread::run() {
     // Setup LedC
@@ -101,33 +104,22 @@ void LcdThread::run() {
     
     
     // lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1000, NULL);
-    // lv_timer_t * quotetimer = lv_timer_create(quote_handler, 20000, NULL);
+    lv_timer_t * postimer = lv_timer_create(counter_handler, 32, NULL);
     // lv_timer_ready(animtimer);
-    // lv_timer_ready(quotetimer);
+    lv_timer_ready(postimer);
 
 
     ui_init();
     ledcWrite(0, 3000); // Set Max Brightness; TODO: make this software adjustable. MAX VAL 4096
     
-    // Main Loop
-    while (1) {
 
-        // TODO: Move to screen event as quick rotating and value changes the lvgl slows down
-        static uint16_t last_pos = -1;
-        uint16_t pos = foc_thread.pass_cur_pos();
-        uint16_t end_pos = foc_thread.pass_end_pos();
-        
-        if (pos != last_pos){
-        lv_label_set_text_fmt(ui_posind, "%d", pos);
-        lv_label_set_text_fmt(ui_posindSha, "%d", pos);
-        lv_arc_set_range(ui_Arc1, 0, end_pos);
-        lv_arc_set_value(ui_Arc1, pos);
-        last_pos = pos;
-        }
-        
-        lv_task_handler();
+
+    // Main Loop
+    while (1) {        
+        // lv_task_handler();
         lv_timer_handler();
         lv_tick_inc(5);
         vTaskDelay(1 / portTICK_PERIOD_MS); // LCD Task crashes without it
     }
 };
+

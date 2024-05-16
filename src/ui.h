@@ -39,6 +39,7 @@ extern lv_obj_t *ui_posind;
 extern lv_obj_t *ui_posindSha;
 extern lv_obj_t *ui_Arc1;
 
+
 // SCREEN: ui_profSelectScreen
 void ui_profSelectScreen_screen_init(void);
 extern lv_obj_t *ui_profSelectScreen;

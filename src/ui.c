@@ -19,6 +19,7 @@ lv_obj_t *ui_posIndicator;
 lv_obj_t *ui_posind;
 lv_obj_t *ui_posindSha;
 lv_obj_t *ui_Arc1;
+lv_obj_t *ui_actpos;
 
 
 

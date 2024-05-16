@@ -106,6 +106,13 @@ bool FocThread::get_angle_event(AngleEvt* evt) {
 
 
 
+uint16_t FocThread::pass_actual_pos(){
+
+    uint16_t pointer = (foc_thread.get_motor_angle() / 6.283185307179586f) * 360;
+    pointer %= 360; // Ensure pointer value is within the range [0, 360)
+    return pointer;
+}
+
 uint16_t FocThread::pass_cur_pos(){
     return haptic.haptic_state.current_pos;
 }

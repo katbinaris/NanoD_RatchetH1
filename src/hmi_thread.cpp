@@ -78,6 +78,7 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
 };
 
 
+
 void HmiThread::put_led_config(ledConfig& new_config) {
     xQueueSend(_q_config_in, &new_config, (TickType_t)0);
 };
@@ -173,7 +174,7 @@ void HmiThread::run() {
     unsigned long updates = 0;
     unsigned long ts = micros();
 
-    audioPlayer.play_audio(chime_wav, audioPlayer.audio_config.audio_feedback_lvl);
+    audioPlayer.play_audio(chime_wav, 80);
     while (1) {
         handleSettings();
         handleConfig();
@@ -200,7 +201,7 @@ void HmiThread::run() {
             updates = 0;
         }
 
-        audioPlayer.audio_loop();
+        // audioPlayer.audio_loop();
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
@@ -448,9 +449,6 @@ void HmiThread::updateLeds() {
     3 - 45
     */
 
-    /* uint8_t pointer = (-foc_thread.get_motor_angle() / 6.283185307179586f) * 60; // TODO take device orientation into account
-       This could be used when going out of bounds but would need to be averaged/filtered
-    */
 
     uint16_t point = map(cur_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t start = map(start_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
