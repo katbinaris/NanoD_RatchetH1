@@ -107,7 +107,7 @@ static void counter_handler(lv_timer_t * quotetimer) {
             lv_obj_add_flag( ui_posIndicator, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_profileName, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_profileDesc, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x272727), LV_PART_INDICATOR | LV_STATE_DEFAULT );
+            lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x565656), LV_PART_INDICATOR | LV_STATE_DEFAULT );
             ledcWrite(0, 320); // Set Max Brightness; TODO: make this software adjustable. MAX VAL 4096
             isIdle = true;
             }
@@ -140,8 +140,8 @@ void LcdThread::run() {
     disp = lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
     
     
-    lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1000, NULL);
-    lv_timer_t * postimer = lv_timer_create(counter_handler, 32, NULL);
+    lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 2000, NULL);
+    lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
     lv_timer_ready(animtimer);
     lv_timer_ready(postimer);
 
@@ -155,7 +155,7 @@ void LcdThread::run() {
     while (1) {        
         // lv_task_handler();
         lv_timer_handler();
-        lv_tick_inc(5);
+        lv_tick_inc(10);
         vTaskDelay(1 / portTICK_PERIOD_MS); // LCD Task crashes without it
     }
 };
