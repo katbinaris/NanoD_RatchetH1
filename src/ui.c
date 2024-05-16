@@ -3,25 +3,24 @@
 
 ///////////////////// VARIABLES ////////////////////
 
+// SCREEN: ui_bootimg
+void ui_bootimg_screen_init(void);
+void ui_event_bootimg( lv_event_t * e);
+lv_obj_t *ui_bootimg;
+lv_obj_t *ui_bootMsg;
 
 // SCREEN: ui_valueScreen
 void ui_valueScreen_screen_init(void);
 lv_obj_t *ui_valueScreen;
+lv_obj_t *ui_Container2;
 lv_obj_t *ui_profileName;
 lv_obj_t *ui_profileDesc;
 lv_obj_t *ui_posIndicator;
 lv_obj_t *ui_posind;
 lv_obj_t *ui_posindSha;
-lv_obj_t *ui_slider;
-lv_obj_t *ui_fauxDivisions;
-lv_obj_t *ui_actionAreaSm;
-lv_obj_t *ui_pressLab3;
-lv_obj_t *ui_keyShift2;
-lv_obj_t *ui_contextArea2;
-lv_obj_t *ui_contextWindow1;
-lv_obj_t *ui_cTitlle2;
-lv_obj_t *ui_cDesc2;
-lv_obj_t *ui_cNav2;
+lv_obj_t *ui_Arc1;
+
+
 
 
 // SCREEN: ui_profSelectScreen
@@ -77,6 +76,18 @@ lv_obj_t *ui____initial_actions0;
 ///////////////////// ANIMATIONS ////////////////////
 
 ///////////////////// FUNCTIONS ////////////////////
+void ui_event_bootimg( lv_event_t * e) {
+    lv_event_code_t event_code = lv_event_get_code(e);lv_obj_t * target = lv_event_get_target(e);
+if ( event_code == LV_EVENT_SCREEN_LOADED) {
+      _ui_screen_change( &ui_valueScreen, LV_SCR_LOAD_ANIM_FADE_OUT, 330, 3300, &ui_valueScreen_screen_init);
+}
+}
+// void ui_event_profSelectScreen( lv_event_t * e) {
+//     lv_event_code_t event_code = lv_event_get_code(e);lv_obj_t * target = lv_event_get_target(e);
+// if ( event_code == LV_EVENT_SCREEN_LOAD_START) {
+//       profList( e );
+// }
+// }
 
 ///////////////////// SCREENS ////////////////////
 
@@ -85,10 +96,11 @@ void ui_init( void )
 lv_disp_t *dispp = lv_disp_get_default();
 lv_theme_t *theme = lv_theme_default_init(dispp, lv_palette_main(LV_PALETTE_BLUE), lv_palette_main(LV_PALETTE_RED), false, LV_FONT_DEFAULT);
 lv_disp_set_theme(dispp, theme);
+ui_bootimg_screen_init();
 ui_valueScreen_screen_init();
 ui_profSelectScreen_screen_init();
 ui_genericPopupScreen_screen_init();
 ui_IdleAnim_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
-lv_disp_load_scr( ui_valueScreen );
+lv_disp_load_scr( ui_bootimg);
 }

@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef _SQUARELINE_PROJECT_UI_H
 #define _SQUARELINE_PROJECT_UI_H
 
@@ -19,24 +21,24 @@ extern "C" {
 
 #include "ui_helpers.h"
 #include "ui_events.h"
+
+// SCREEN: ui_bootimg
+void ui_bootimg_screen_init(void);
+void ui_event_bootimg( lv_event_t * e);
+extern lv_obj_t *ui_bootimg;
+extern lv_obj_t *ui_bootMsg;
+
 // SCREEN: ui_valueScreen
 void ui_valueScreen_screen_init(void);
 extern lv_obj_t *ui_valueScreen;
+extern lv_obj_t *ui_Container2;
 extern lv_obj_t *ui_profileName;
 extern lv_obj_t *ui_profileDesc;
 extern lv_obj_t *ui_posIndicator;
 extern lv_obj_t *ui_posind;
 extern lv_obj_t *ui_posindSha;
-extern lv_obj_t *ui_slider;
-extern lv_obj_t *ui_fauxDivisions;
-extern lv_obj_t *ui_actionAreaSm;
-extern lv_obj_t *ui_pressLab3;
-extern lv_obj_t *ui_keyShift2;
-extern lv_obj_t *ui_contextArea2;
-extern lv_obj_t *ui_contextWindow1;
-extern lv_obj_t *ui_cTitlle2;
-extern lv_obj_t *ui_cDesc2;
-extern lv_obj_t *ui_cNav2;
+extern lv_obj_t *ui_Arc1;
+
 // SCREEN: ui_profSelectScreen
 void ui_profSelectScreen_screen_init(void);
 extern lv_obj_t *ui_profSelectScreen;

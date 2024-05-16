@@ -12,13 +12,13 @@
 */
 
 
-PIDController default_pid(5.0, 0.0, 0.004, 55, 0.4);
+PIDController default_pid(5.0, 0.0, 0.004, 10000, 0.4);
 
 DetentProfile default_profile{
     .mode = HapticMode::REGULAR,
     .start_pos = 0,
-    .end_pos =60,
-    .detent_count = 20,
+    .end_pos =120,
+    .detent_count = 60,
     .vernier = 5,
     .kxForce = false
 };

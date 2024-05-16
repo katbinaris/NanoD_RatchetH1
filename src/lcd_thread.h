@@ -1,6 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
+#include "foc_thread.h"
+#include "hmi_thread.h"
 #include <lvgl.h>
 #include "thread_crtp.h"
 #include "ui.h"

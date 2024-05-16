@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include "lcd_thread.h"
-#include "foc_thread.h"
-#include "hmi_thread.h"
+
 
 // Define LEDC Channel for LCD backlight control
 static const uint8_t LEDC_CH_LCD_BKL = 0;
@@ -101,10 +100,12 @@ void LcdThread::run() {
     disp = lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
     
     
-    lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1000, NULL);
-    lv_timer_t * quotetimer = lv_timer_create(quote_handler, 20000, NULL);
-    lv_timer_ready(animtimer);
-    lv_timer_ready(quotetimer);
+    // lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1000, NULL);
+    // lv_timer_t * quotetimer = lv_timer_create(quote_handler, 20000, NULL);
+    // lv_timer_ready(animtimer);
+    // lv_timer_ready(quotetimer);
+
+
     ui_init();
     ledcWrite(0, 3000); // Set Max Brightness; TODO: make this software adjustable. MAX VAL 4096
     
@@ -119,8 +120,8 @@ void LcdThread::run() {
         if (pos != last_pos){
         lv_label_set_text_fmt(ui_posind, "%d", pos);
         lv_label_set_text_fmt(ui_posindSha, "%d", pos);
-        lv_slider_set_range(ui_slider, 0, end_pos);
-        lv_slider_set_value(ui_slider, pos, LV_ANIM_ON);
+        lv_arc_set_range(ui_Arc1, 0, end_pos);
+        lv_arc_set_value(ui_Arc1, pos);
         last_pos = pos;
         }
         

@@ -45,7 +45,8 @@ void _ui_screen_change( lv_obj_t ** target, lv_screen_load_anim_t fademode, int 
 {
    if(*target == NULL)
       target_init();
-   lv_scr_load_anim(*target, fademode, spd, delay, false);
+   lv_screen_load_anim(*target, fademode, spd, delay, false);
+
 }
 
 void _ui_screen_delete( lv_obj_t ** target ) 
