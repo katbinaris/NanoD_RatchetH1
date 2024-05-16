@@ -8,7 +8,9 @@ lv_obj_clear_flag( ui_valueScreen, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
 lv_obj_set_style_bg_color(ui_valueScreen, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT );
 lv_obj_set_style_bg_opa(ui_valueScreen, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
 
-
+/*
+    Value Overlay
+*/
 
 ui_profileName = lv_label_create(ui_valueScreen);
 lv_obj_set_width( ui_profileName, 188);
@@ -69,8 +71,8 @@ lv_obj_set_style_text_opa(ui_posindSha, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
 lv_obj_set_style_text_font(ui_posindSha, &ui_font_SGdig60, LV_PART_MAIN| LV_STATE_DEFAULT);
 
 ui_Arc1 = lv_arc_create(ui_valueScreen);
-lv_obj_set_width( ui_Arc1, lv_pct(96));
-lv_obj_set_height( ui_Arc1, lv_pct(96));
+lv_obj_set_width( ui_Arc1, lv_pct(98));
+lv_obj_set_height( ui_Arc1, lv_pct(98));
 lv_obj_set_align( ui_Arc1, LV_ALIGN_CENTER );
 lv_obj_clear_flag( ui_Arc1, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_GESTURE_BUBBLE | LV_OBJ_FLAG_SNAPPABLE );    /// Flags
 lv_arc_set_bg_angles(ui_Arc1,89,88);
@@ -113,4 +115,31 @@ lv_obj_set_style_border_width(ui_Arc1, 5, LV_PART_KNOB| LV_STATE_DEFAULT);
 // lv_obj_set_style_border_color(ui_actpos, lv_color_hex(0x000000), LV_PART_KNOB | LV_STATE_DEFAULT );
 // lv_obj_set_style_border_opa(ui_actpos, 255, LV_PART_KNOB| LV_STATE_DEFAULT);
 // lv_obj_set_style_border_width(ui_actpos, 4, LV_PART_KNOB| LV_STATE_DEFAULT);
+
+/* 
+    Idle Overlay
+*/
+
+
+
+ui_IdleCat = lv_label_create(ui_valueScreen);
+lv_obj_set_width( ui_IdleCat, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_IdleCat, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_align( ui_IdleCat, LV_ALIGN_CENTER );
+lv_label_set_text(ui_IdleCat,"A");
+lv_obj_set_style_text_color(ui_IdleCat, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_IdleCat, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_IdleCat, &ui_font_IdleCat, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_add_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN );   // Hide Default
+
+ui_IdleCatShadow = lv_label_create(ui_valueScreen);
+lv_obj_set_width( ui_IdleCatShadow, LV_SIZE_CONTENT);  /// 1
+lv_obj_set_height( ui_IdleCatShadow, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_align( ui_IdleCatShadow, LV_ALIGN_CENTER );
+lv_label_set_text(ui_IdleCatShadow,"E");
+lv_obj_set_style_text_color(ui_IdleCatShadow, lv_color_hex(0x9C9C9C), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_text_opa(ui_IdleCatShadow, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_IdleCatShadow, &ui_font_IdleCat, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_add_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN );   // Hide Default
+
 }

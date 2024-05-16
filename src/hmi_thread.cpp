@@ -183,6 +183,7 @@ void HmiThread::run() {
             buttons[i]->check();
         updateValue();
         handleHid();
+        
         updateLeds();
         
         unsigned long us = micros();
@@ -426,46 +427,32 @@ void HmiThread::updateKeyLeds() {
     
 };
 
+
 // Define a variable to store the last time cur_pos was updated
 unsigned long lastCheck = 0;
 void HmiThread::updateLeds() {
     static uint16_t last_pos = -1;
-
+    static bool isIdle = false;
     // TODO: optimise this
     uint16_t cur_pos = foc_thread.pass_cur_pos();
     uint16_t start_pos = foc_thread.pass_start_pos();
     uint16_t end_pos = foc_thread.pass_end_pos();
-    bool at_limit = foc_thread.pass_at_limit();
-
     uint16_t idle_timeout_ms = 20000;
     uint8_t led_orientation = 45;
-    
-    /*
-    TODO: Add/link numerical orientation setup. 
-    Orientation rotates CCW bt 15 
-    0 - 0
-    1 - 15
-    2 - 30
-    3 - 45
-    */
-
-
     uint16_t point = map(cur_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t start = map(start_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t end = map(end_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
 
-    
-    
      if (cur_pos == last_pos) {
         unsigned long elapsedTime = millis() - lastCheck;
         if (elapsedTime >= idle_timeout_ms) {
             hmi_thread.breathing(60, CRGB::OrangeRed);
-            isIdle = 1;
+            isIdle = true;
         }
     } else {
         hmi_thread.halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
         last_pos = cur_pos;
-        isIdle = 0;
+        isIdle = false;
         hmi_thread.updateKeyLeds();
         lastCheck = millis();
     }

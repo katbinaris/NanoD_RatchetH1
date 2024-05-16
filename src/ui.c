@@ -19,7 +19,10 @@ lv_obj_t *ui_posIndicator;
 lv_obj_t *ui_posind;
 lv_obj_t *ui_posindSha;
 lv_obj_t *ui_Arc1;
-lv_obj_t *ui_actpos;
+// lv_obj_t *ui_actpos;
+// lv_obj_t *ui_IdleAnim;
+lv_obj_t *ui_IdleCat;
+lv_obj_t *ui_IdleCatShadow;
 
 
 
@@ -59,12 +62,10 @@ lv_obj_t *ui_cNav3;
 lv_obj_t *ui____initial_actions0;
 
 // SCREEN: ui_IdleAnim
-void ui_IdleAnim_screen_init(void);
-lv_obj_t *ui_IdleAnim;
-lv_obj_t *ui_IdleCat;
-lv_obj_t *ui_IdleCatShadow;
-lv_obj_t *ui_IdleQuote;
-lv_obj_t *ui____initial_actions0;
+// void ui_IdleAnim_screen_init(void);
+
+// lv_obj_t *ui_IdleQuote;
+// lv_obj_t *ui____initial_actions0;
 
 ///////////////////// TEST LVGL SETTINGS ////////////////////
 #if LV_COLOR_DEPTH != 16
@@ -101,7 +102,7 @@ ui_bootimg_screen_init();
 ui_valueScreen_screen_init();
 ui_profSelectScreen_screen_init();
 ui_genericPopupScreen_screen_init();
-ui_IdleAnim_screen_init();
+// ui_IdleAnim_screen_init();
 ui____initial_actions0 = lv_obj_create(NULL);
 lv_disp_load_scr( ui_bootimg);
 }
