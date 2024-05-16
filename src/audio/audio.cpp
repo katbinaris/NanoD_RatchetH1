@@ -188,8 +188,11 @@ bool BinarisAudioPlayer::check_file(String fName, uint8_t* audio_file){
         return false;
     }
     #endif
-    if (!(audio_file[24]==0x22 && audio_file[25]==0x56 && audio_file[26]==0x00 && audio_file[27]==0x00)) {
-        Serial.println(fName + ": audio file is not 22kHz.");
+    uint8_t b1, b2;
+    b1 = (SAMPLES_PER_SEC >> 8) & 0xFF;
+    b2 = SAMPLES_PER_SEC & 0xFF;
+    if (!(audio_file[24]==b2 && audio_file[25]==b1 && audio_file[26]==0x00 && audio_file[27]==0x00)) {
+        Serial.println(fName + ": audio file is not "+String(SAMPLES_PER_SEC)+" Hz.");
         return false;
     }
     if (!(audio_file[32]==0x04 && audio_file[33]==0x00)) {
