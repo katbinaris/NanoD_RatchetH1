@@ -3,6 +3,15 @@
 #include "nanofoc_d.h"
 #include "../haptic.h"
 
+#ifdef USE_AUDIO_LIB
+#include "XT_I2S_Audio.h"
+XT_I2S_Class* xt_player = nullptr;
+XT_PlayListItem_Class* clack_wav_sample;
+XT_PlayListItem_Class* loud_wav_sample;
+XT_PlayListItem_Class* soft_wav_sample;
+XT_PlayListItem_Class* hard_wav_sample;
+XT_PlayListItem_Class* chime_wav_sample;
+#endif
 
 #define SAMPLES_PER_SEC 22050
 #define DEFAULT_VOLUME 100
@@ -62,6 +71,16 @@ void BinarisAudioPlayer::audio_init(){
     audio_config.audio_feedback_lvl = 100;
     audio_config.audio_file = hard_wav;
 
+#ifdef USE_AUDIO_LIB
+    xt_player = new XT_I2S_Class(PIN_I2S_LRC, PIN_I2S_BCLK, PIN_I2S_DOUT, I2S_NUM_0);
+    xt_player->Volume = audio_config.audio_feedback_lvl;
+    clack_wav_sample = new XT_Wav_Class((const unsigned char *)clack_wav);
+    loud_wav_sample = new XT_Wav_Class((const unsigned char *)loud_wav);
+    soft_wav_sample = new XT_Wav_Class((const unsigned char *)soft_wav);
+    hard_wav_sample = new XT_Wav_Class((const unsigned char *)hard_wav);
+    chime_wav_sample = new XT_Wav_Class((const unsigned char *)chime_wav);
+    data_ptr=nullptr; // not used with xt_player
+#else
     i2s_config.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
     i2s_config.sample_rate = SAMPLES_PER_SEC;                       // Note, max sample rate
     i2s_config.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
@@ -89,6 +108,7 @@ void BinarisAudioPlayer::audio_init(){
     i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
     i2s_set_pin(I2S_NUM_0, &pin_config);
     i2s_set_sample_rates(I2S_NUM_0, SAMPLES_PER_SEC);
+#endif
 };
 
 
@@ -118,8 +138,26 @@ void BinarisAudioPlayer::play_haptic_audio(){
 
 
 void BinarisAudioPlayer::start_play(uint8_t* audio_file){
+    #ifdef USE_AUDIO_LIB
+        XT_PlayListItem_Class* sample;
+        if (audio_file==clack_wav)
+            sample = clack_wav_sample;
+        else if (audio_file==loud_wav)
+            sample = loud_wav_sample;
+        else if (audio_file==soft_wav)
+            sample = soft_wav_sample;
+        else if (audio_file==hard_wav)
+            sample = hard_wav_sample;
+        else if (audio_file==chime_wav)
+            sample = chime_wav_sample;
+        else
+            sample = nullptr;
+        if (sample!=nullptr && xt_player!=nullptr)
+            xt_player->Play(sample);
+    #else
         data_ptr = &audio_file[44];
         num_bytes_remaining = audio_file[40] + (audio_file[41] << 8) + (audio_file[42] << 16) + (audio_file[43] << 24);
+    #endif
 };
 
 
@@ -180,6 +218,10 @@ void BinarisAudioPlayer::handle_audio_commands(){
             case AudioCommandType::CONFIG:
                 //Serial.println("Audio config");
                 audio_config = command.config;
+                #ifdef USE_AUDIO_LIB
+                if (xt_player!=nullptr)
+                    xt_player->Volume = audio_config.audio_feedback_lvl;
+                #endif
                 break;
             default:
                 break;
@@ -195,6 +237,10 @@ int iter = 0;
 void BinarisAudioPlayer::audio_loop(){
     // fill the audio buffer with the next audio sample
     handle_audio_commands();
+#ifdef USE_AUDIO_LIB
+    if (xt_player!=nullptr)
+        xt_player->FillBuffer();
+#else
     if (data_ptr==nullptr) {
         return;
     }
@@ -211,6 +257,7 @@ void BinarisAudioPlayer::audio_loop(){
         iter++;
         data_ptr = data_ptr + num_bytes_written;
     }
+#endif
 };
 
 
