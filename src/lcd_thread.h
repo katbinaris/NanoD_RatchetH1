@@ -36,13 +36,12 @@ class LcdThread : public Thread<LcdThread> {
         ~LcdThread();
         
         void put_lcd_command(LcdCommand& cmd);
-    
+        void handleLcdCommand();
+        LcdCommand last_command;
+        
     protected:
         void run();
-        void handleLcdCommand();
-
-        LcdCommand last_command;
-
+        
     private:
         QueueHandle_t _q_lcd_in;
 };

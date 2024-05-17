@@ -48,7 +48,12 @@ void LcdThread::handleLcdCommand() {
     Screen: ui_valueScreen
 */
 static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
-    
+    lcd_thread.handleLcdCommand();
+    if (lv_scr_act()==ui_valueScreen){
+        lv_label_set_text_fmt(ui_profileName, "%s", lcd_thread.last_command.title->c_str());
+        lv_label_set_text_fmt(ui_profileDesc, "%s", lcd_thread.last_command.data1->c_str());
+
+    }
 }
 
 /* 
@@ -191,7 +196,7 @@ void LcdThread::run() {
     lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
     lv_timer_ready(animtimer);
     lv_timer_ready(postimer);
-    lv_timer_ready(lcd_cmd_timer);
+    // lv_timer_ready(lcd_cmd_timer);
 
 
     ui_init();
@@ -201,10 +206,10 @@ void LcdThread::run() {
 
     // Main Loop
     while (1) {        
-        // lv_task_handler();
+        
         lv_timer_handler();
         lv_tick_inc(10);
-        handleLcdCommand();
+        
         vTaskDelay(1 / portTICK_PERIOD_MS); // LCD Task crashes without it
     }
 };
