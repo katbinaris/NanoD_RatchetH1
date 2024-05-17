@@ -464,14 +464,52 @@ void ComThread::dispatchAudioConfig() {
 };
 
 
+String autoDescription = "";
+
+String ComThread::generateDescription(HapticProfile& curr) {
+  String desc = "";
+  if (curr.hmi_config.knob.num>0) {
+    switch (curr.hmi_config.knob.values[0].type) {
+      case knobValueType::KV_MIDI:
+        desc = "MIDI CC ";
+        desc += curr.hmi_config.knob.values[0].midi.cc;
+        break;
+      case knobValueType::KV_GAMEPAD:
+        desc = "Gamepad";
+        break;
+      case knobValueType::KV_MOUSE:
+        desc = "Mouse";
+        break;
+      case knobValueType::KV_ACTIONS:
+        desc = "Actions";
+        break;
+      case knobValueType::KV_DEVICE_PROFILES:
+        desc = "Profiles";
+        break;
+      default:
+        desc = "?";
+        break;
+    }
+  }
+  else {
+    desc = "No Mapping";
+  }
+  return desc;
+};
+
 void ComThread::dispatchLcdConfig() {
     HapticProfile* curr = HapticProfileManager::getInstance().getCurrentProfile();
     LcdCommand cmd;
     cmd.type = LCD_LAYOUT_DEFAULT;
     cmd.title = &curr->profile_name;
-    cmd.data1 = nullptr;
+    if (curr->profile_desc.length()>0)
+      cmd.data1 = &curr->profile_desc;
+    else {
+      autoDescription = generateDescription(*curr);
+      cmd.data1 = &autoDescription;
+    }
     cmd.data2 = nullptr;
-    cmd.data3 = nullptr; // TODO set fields
+    cmd.data3 = nullptr;
     cmd.data4 = nullptr;
     lcd_thread.put_lcd_command(cmd);
 };

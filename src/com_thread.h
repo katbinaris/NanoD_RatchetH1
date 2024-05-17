@@ -51,6 +51,8 @@ class ComThread : public Thread<ComThread> {
         void dispatchAudioConfig();
         void dispatchLcdConfig();
 
+        String generateDescription(HapticProfile& curr);
+
         void sendError(String& error, String* msg = nullptr);
         void sendError(String& error, String& msg);
         void sendError(const char* error, String& msg);
