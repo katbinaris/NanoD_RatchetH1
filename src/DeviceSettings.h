@@ -65,6 +65,9 @@ public:
     uint16_t deviceOrientation;
     midiSettings midiUsb;
     midiSettings midi2;
+    String wifiSsid;
+    String wifiPassword;
+    bool wifiEnabled;
 
     // read-only settings
     String serialNumber;

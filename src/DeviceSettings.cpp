@@ -34,6 +34,9 @@ DeviceSettings::DeviceSettings() {
     midiUsb = midiSettings();
     midi2 = midiSettings();
     dirty = true;
+    wifiSsid = "";
+    wifiPassword = "";
+    wifiEnabled = false;
 };
 
 
@@ -55,6 +58,12 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         deviceOrientation = obj["deviceOrientation"].as<uint16_t>();
     if (obj["deviceName"]!=nullptr)
         deviceName = obj["deviceName"].as<String>();
+    if (obj["wifiSsid"]!=nullptr)
+        wifiSsid = obj["wifiSsid"].as<String>();
+    if (obj["wifiPassword"]!=nullptr)
+        wifiPassword = obj["wifiPassword"].as<String>();
+    if (obj["wifiEnabled"]!=nullptr)
+        wifiEnabled = obj["wifiEnabled"].as<bool>();
     if (obj["midiUsb"]!=nullptr) {
         JsonObject midiUsbObj = obj["midiUsb"].as<JsonObject>();
         if (midiUsbObj["in"]!=nullptr)
@@ -94,6 +103,13 @@ void DeviceSettings::toJSON(JsonObject& obj){
     obj["maxVoltage"] = maxVoltage;
     obj["deviceOrientation"] = deviceOrientation;
     obj["deviceName"] = deviceName;
+
+    if (wifiSsid.length() > 0)
+        obj["wifiSsid"] = wifiSsid;
+    if (wifiPassword.length() > 0)
+        obj["wifiPassword"] = wifiPassword;
+    obj["wifiEnabled"] = wifiEnabled;
+
     obj["serialNumber"] = serialNumber;
     obj["firmwareVersion"] = firmwareVersion;
     JsonObject midiUsbObj = obj["midiUsb"].to<JsonObject>();

@@ -25,12 +25,25 @@ void ComThread::put_string_message(const StringMessage& msg){
 
 
 
+String title = "";
+String data1 = "";
+String data2 = "";
+String data3 = "";
+String data4 = "";
+
 void ComThread::run() {
     // serial is initialized in main.cpp, but subsequently used only here
     Serial.println("COM thread started");
     unsigned long ts = millis();
     ts_last_activity = ts;
     JsonDocument idleDoc;
+    LcdCommand remoteLcdCommand;
+    remoteLcdCommand.type = LCD_LAYOUT_DEFAULT;
+    remoteLcdCommand.title = &title;
+    remoteLcdCommand.data1 = &data1;
+    remoteLcdCommand.data2 = &data2;
+    remoteLcdCommand.data3 = &data3;
+    remoteLcdCommand.data4 = &data4;
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
@@ -61,6 +74,15 @@ void ComThread::run() {
               // send message to screen
               StringMessage msg{new String(v.as<String>()), STRING_MESSAGE_DEBUG};
               // TODO lcd_thread.put_string_message(msg);
+            }
+            v = doc["screen"];
+            if (v!=nullptr) {
+              if (v["title"].is<String>()) title = v["title"].as<String>(); else title = "";
+              if (v["data1"].is<String>()) data1 = v["data1"].as<String>(); else data1 = "";
+              if (v["data2"].is<String>()) data2 = v["data2"].as<String>(); else data2 = "";
+              if (v["data3"].is<String>()) data3 = v["data3"].as<String>(); else data3 = "";
+              if (v["data4"].is<String>()) data4 = v["data4"].as<String>(); else data4 = "";
+              lcd_thread.put_lcd_command(remoteLcdCommand);
             }
             v = doc["recalibrate"];
             if (v.is<bool>()) { // recalibrate motor
@@ -107,6 +129,7 @@ void ComThread::run() {
                 dispatchAudioConfig();
                 dispatchLedConfig();
                 dispatchHmiConfig();
+                dispatchLcdConfig();
               }
             }
         }
@@ -391,6 +414,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
       dispatchAudioConfig();
       dispatchLedConfig();
       dispatchHmiConfig();
+      dispatchLcdConfig();
     }
   }
 };
@@ -403,6 +427,7 @@ void ComThread::setCurrentProfile(String name){
     dispatchLedConfig();
     dispatchHmiConfig();
     dispatchAudioConfig();
+    dispatchLcdConfig();
   }
 };
 
@@ -442,14 +467,52 @@ void ComThread::dispatchAudioConfig() {
 };
 
 
+String autoDescription = "";
+
+String ComThread::generateDescription(HapticProfile& curr) {
+  String desc = "";
+  if (curr.hmi_config.knob.num>0) {
+    switch (curr.hmi_config.knob.values[0].type) {
+      case knobValueType::KV_MIDI:
+        desc = "MIDI CC ";
+        desc += curr.hmi_config.knob.values[0].midi.cc;
+        break;
+      case knobValueType::KV_GAMEPAD:
+        desc = "Gamepad";
+        break;
+      case knobValueType::KV_MOUSE:
+        desc = "Mouse";
+        break;
+      case knobValueType::KV_ACTIONS:
+        desc = "Actions";
+        break;
+      case knobValueType::KV_DEVICE_PROFILES:
+        desc = "Profiles";
+        break;
+      default:
+        desc = "?";
+        break;
+    }
+  }
+  else {
+    desc = "No Mapping";
+  }
+  return desc;
+};
+
 void ComThread::dispatchLcdConfig() {
     HapticProfile* curr = HapticProfileManager::getInstance().getCurrentProfile();
     LcdCommand cmd;
     cmd.type = LCD_LAYOUT_DEFAULT;
     cmd.title = &curr->profile_name;
-    cmd.data1 = nullptr;
+    if (curr->profile_desc.length()>0)
+      cmd.data1 = &curr->profile_desc;
+    else {
+      autoDescription = generateDescription(*curr);
+      cmd.data1 = &autoDescription;
+    }
     cmd.data2 = nullptr;
-    cmd.data3 = nullptr; // TODO set fields
+    cmd.data3 = nullptr;
     cmd.data4 = nullptr;
     lcd_thread.put_lcd_command(cmd);
 };

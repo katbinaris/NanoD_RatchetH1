@@ -35,7 +35,7 @@ class ComThread : public Thread<ComThread> {
         void setCurrentProfile(String name);
         void put_string_message(const StringMessage& msg);
         bool isProfileNameOk(String& name);
-
+        
     protected:
         void run();
         void handleProfileCommand(JsonVariant profile, JsonVariant updates);
@@ -50,6 +50,8 @@ class ComThread : public Thread<ComThread> {
         void dispatchSettings();
         void dispatchAudioConfig();
         void dispatchLcdConfig();
+
+        String generateDescription(HapticProfile& curr);
 
         void sendError(String& error, String* msg = nullptr);
         void sendError(String& error, String& msg);
