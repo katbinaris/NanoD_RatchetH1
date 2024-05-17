@@ -16,6 +16,7 @@ String default_data1 = "Starting up...";
 String default_data2 = "Please wait";
 String default_data3 = "";
 String default_data4 = "";
+String empty_string = "";
 
 LcdThread::LcdThread(const uint8_t task_core) : Thread("LCD", 8192, 1, task_core) {
     _q_lcd_in = xQueueCreate(2, sizeof( LcdCommand ));
@@ -50,9 +51,8 @@ void LcdThread::handleLcdCommand() {
 static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
     lcd_thread.handleLcdCommand();
     if (lv_scr_act()==ui_valueScreen){
-        lv_label_set_text_fmt(ui_profileName, "%s", lcd_thread.last_command.title->c_str());
-        lv_label_set_text_fmt(ui_profileDesc, "%s", lcd_thread.last_command.data1->c_str());
-
+        lv_label_set_text_fmt(ui_profileName, "%s", (lcd_thread.last_command.title==nullptr)?empty_string.c_str():lcd_thread.last_command.title->c_str());
+        lv_label_set_text_fmt(ui_profileDesc, "%s", (lcd_thread.last_command.data1==nullptr)?empty_string.c_str():lcd_thread.last_command.data1->c_str());
     }
 }
 
@@ -196,7 +196,7 @@ void LcdThread::run() {
     lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
     lv_timer_ready(animtimer);
     lv_timer_ready(postimer);
-    // lv_timer_ready(lcd_cmd_timer);
+    lv_timer_ready(lcd_cmd_timer);
 
 
     ui_init();
