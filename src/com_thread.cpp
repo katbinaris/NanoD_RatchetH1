@@ -25,12 +25,25 @@ void ComThread::put_string_message(const StringMessage& msg){
 
 
 
+String title = "";
+String data1 = "";
+String data2 = "";
+String data3 = "";
+String data4 = "";
+
 void ComThread::run() {
     // serial is initialized in main.cpp, but subsequently used only here
     Serial.println("COM thread started");
     unsigned long ts = millis();
     ts_last_activity = ts;
     JsonDocument idleDoc;
+    LcdCommand remoteLcdCommand;
+    remoteLcdCommand.type = LCD_LAYOUT_DEFAULT;
+    remoteLcdCommand.title = &title;
+    remoteLcdCommand.data1 = &data1;
+    remoteLcdCommand.data2 = &data2;
+    remoteLcdCommand.data3 = &data3;
+    remoteLcdCommand.data4 = &data4;
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
@@ -61,6 +74,15 @@ void ComThread::run() {
               // send message to screen
               StringMessage msg{new String(v.as<String>()), STRING_MESSAGE_DEBUG};
               // TODO lcd_thread.put_string_message(msg);
+            }
+            v = doc["screen"];
+            if (v!=nullptr) {
+              if (v["title"].is<String>()) title = v["title"].as<String>(); else title = "";
+              if (v["data1"].is<String>()) data1 = v["data1"].as<String>(); else data1 = "";
+              if (v["data2"].is<String>()) data2 = v["data2"].as<String>(); else data2 = "";
+              if (v["data3"].is<String>()) data3 = v["data3"].as<String>(); else data3 = "";
+              if (v["data4"].is<String>()) data4 = v["data4"].as<String>(); else data4 = "";
+              lcd_thread.put_lcd_command(remoteLcdCommand);
             }
             v = doc["recalibrate"];
             if (v.is<bool>()) { // recalibrate motor
