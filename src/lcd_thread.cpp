@@ -156,6 +156,7 @@ void LcdThread::run() {
         // lv_task_handler();
         lv_timer_handler();
         lv_tick_inc(10);
+        handleLcdCommand();
         vTaskDelay(1 / portTICK_PERIOD_MS); // LCD Task crashes without it
     }
 };
