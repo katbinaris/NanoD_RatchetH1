@@ -129,6 +129,7 @@ void ComThread::run() {
                 dispatchAudioConfig();
                 dispatchLedConfig();
                 dispatchHmiConfig();
+                dispatchLcdConfig();
               }
             }
         }
@@ -413,6 +414,7 @@ void ComThread::handleProfileCommand(JsonVariant profile, JsonVariant updates) {
       dispatchAudioConfig();
       dispatchLedConfig();
       dispatchHmiConfig();
+      dispatchLcdConfig();
     }
   }
 };
@@ -425,6 +427,7 @@ void ComThread::setCurrentProfile(String name){
     dispatchLedConfig();
     dispatchHmiConfig();
     dispatchAudioConfig();
+    dispatchLcdConfig();
   }
 };
 
