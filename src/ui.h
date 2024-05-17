@@ -46,26 +46,14 @@ extern lv_obj_t *ui_IdleCatShadow;
 // SCREEN: ui_profSelectScreen
 void ui_profSelectScreen_screen_init(void);
 extern lv_obj_t *ui_profSelectScreen;
-extern lv_obj_t *ui_selectWrapper1;
-extern lv_obj_t *ui_profileList1;
-extern lv_obj_t *ui_gradTop1;
-extern lv_obj_t *ui_gradBottom1;
-extern lv_obj_t *ui_actionArea;
-extern lv_obj_t *ui_actionName;
-extern lv_obj_t *ui_lowerAreaDesc;
-extern lv_obj_t *ui_actionCombo;
-extern lv_obj_t *ui_pressLab;
-extern lv_obj_t *ui_keyFirst;
-extern lv_obj_t *ui_plusLab;
-extern lv_obj_t *ui_keyLast;
-extern lv_obj_t *ui_profileCounter;
+extern lv_obj_t *ui_selWrap;
+extern lv_obj_t *ui_profList;
+extern lv_obj_t *ui_profCount;
 extern lv_obj_t *ui_pTitle;
 extern lv_obj_t *ui_pCount;
-extern lv_obj_t *ui_contextArea;
-extern lv_obj_t *ui_contextWindow2;
-extern lv_obj_t *ui_cTitlle1;
-extern lv_obj_t *ui_cDesc1;
-extern lv_obj_t *ui_cNav1;
+extern lv_obj_t *ui_arrInd;
+extern lv_obj_t *ui_arrReg;
+extern lv_obj_t *ui_arrSha;
 // SCREEN: ui_genericPopupScreen
 void ui_genericPopupScreen_screen_init(void);
 extern lv_obj_t *ui_genericPopupScreen;
@@ -87,6 +75,7 @@ LV_FONT_DECLARE( ui_font_SGK100h16);
 LV_FONT_DECLARE( ui_font_SGK100h32);
 LV_FONT_DECLARE( ui_font_SGdig60);
 LV_FONT_DECLARE( ui_font_IdleCat);
+LV_FONT_DECLARE( ui_font_idleArrow28);
 
 void ui_init(void);
 

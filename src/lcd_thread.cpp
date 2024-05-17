@@ -43,8 +43,23 @@ void LcdThread::handleLcdCommand() {
     }
 };
 
+/* 
+    Tasker for Profile data update - updates every 200ms (5Hz)
+    Screen: ui_valueScreen
+*/
+static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
+    
+}
 
+/* 
+    Tasker for sprite-sheet animation update - updates every 2 seconds - 0.5Hz
+    Screen: ui_valueScreen
+    Screen: ui_profSelectScreen
+*/
 static void idle_anim_handler(lv_timer_t * animtimer) {
+    if (lv_scr_act()==ui_valueScreen)
+{
+
     static uint8_t fps = 0;
     switch(fps) {
         case 0:
@@ -68,37 +83,69 @@ static void idle_anim_handler(lv_timer_t * animtimer) {
     }
     fps = (fps + 1) % 4;
 }
+if (lv_scr_act()==ui_profSelectScreen)
+{
 
-// TODO: move to screen event
+    static uint8_t fps = 0;
+    switch(fps) {
+        case 0:
+            lv_obj_set_x( ui_arrInd, 17 );
+            break;
+        case 1:
+            lv_obj_set_x( ui_arrInd, 12 );
+            break;
+        
+    }
+    fps = (fps + 1) % 2;
+}
+}
+
+/*
+    Tasker for Knob Position tracking - Updates every 16ms (60Hz)
+    Screen: ui_valueScreen
+    Screen: ui_profSelectScreen
+*/
+
 unsigned long lastCheckk = 0;
-static void counter_handler(lv_timer_t * quotetimer) {
+static void counter_handler(lv_timer_t * postimer) {
     static uint16_t last_pos = -1;
     static bool idleTime = false;
     static bool isIdle = false;
         uint16_t pos = foc_thread.pass_cur_pos();
         uint16_t end_pos = foc_thread.pass_end_pos();
         uint16_t idle_timeout_ms = 20000;
-        
 
+    // Temp Mock Vars of profile select
+        static uint8_t profile_count = 5;
+        static uint8_t selected_profile = 3;
 
          if (pos == last_pos) {
-        unsigned long elapsedTime = millis() - lastCheckk;
-        if (elapsedTime >= idle_timeout_ms) {
-            idleTime = true;          
-        }
-    } else {
+            unsigned long elapsedTime = millis() - lastCheckk;
+            if (elapsedTime >= idle_timeout_ms) {
+                idleTime = true;          
+            }
+        } else {
         
-        idleTime = false;
-        lv_label_set_text_fmt(ui_posind, "%d", pos);
-        lv_label_set_text_fmt(ui_posind, "%d", pos);
-        lv_label_set_text_fmt(ui_posindSha, "%d", pos);
-        lv_arc_set_range(ui_Arc1, 0, end_pos);
-        lv_arc_set_value(ui_Arc1, pos);
-        
-        last_pos = pos;
-        lastCheckk = millis();
-    }
+            idleTime = false;
+            if (lv_scr_act()==ui_valueScreen){
+                lv_label_set_text_fmt(ui_posind, "%d", pos);
+                lv_label_set_text_fmt(ui_posind, "%d", pos);
+                lv_label_set_text_fmt(ui_posindSha, "%d", pos);
+                lv_arc_set_range(ui_Arc1, 0, end_pos);
+                lv_arc_set_value(ui_Arc1, pos);
+                last_pos = pos;
+            }
+            if (lv_scr_act()==ui_profSelectScreen){
+                lv_label_set_text_fmt(ui_pCount, "%d", pos);
+                if(last_pos != pos){
+                lv_roller_set_selected(ui_profList, pos, LV_ANIM_ON);
+                last_pos = pos;
+                }
+            }
 
+             lastCheckk = millis();
+        }
+        
     if (idleTime == true) {
 
             if (isIdle == false) {
@@ -139,11 +186,12 @@ void LcdThread::run() {
     lv_display_t * disp;
     disp = lv_tft_espi_create(TFT_WIDTH, TFT_HEIGHT, draw_buf, sizeof(draw_buf));
     
-    
+    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 200, NULL);
     lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 2000, NULL);
     lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
     lv_timer_ready(animtimer);
     lv_timer_ready(postimer);
+    lv_timer_ready(lcd_cmd_timer);
 
 
     ui_init();

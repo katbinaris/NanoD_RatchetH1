@@ -30,26 +30,14 @@ lv_obj_t *ui_IdleCatShadow;
 // SCREEN: ui_profSelectScreen
 void ui_profSelectScreen_screen_init(void);
 lv_obj_t *ui_profSelectScreen;
-lv_obj_t *ui_selectWrapper1;
-lv_obj_t *ui_profileList1;
-lv_obj_t *ui_gradTop1;
-lv_obj_t *ui_gradBottom1;
-lv_obj_t *ui_actionArea;
-lv_obj_t *ui_actionName;
-lv_obj_t *ui_lowerAreaDesc;
-lv_obj_t *ui_actionCombo;
-lv_obj_t *ui_pressLab;
-lv_obj_t *ui_keyFirst;
-lv_obj_t *ui_plusLab;
-lv_obj_t *ui_keyLast;
-lv_obj_t *ui_profileCounter;
+lv_obj_t *ui_selWrap;
+lv_obj_t *ui_profList;
+lv_obj_t *ui_profCount;
 lv_obj_t *ui_pTitle;
 lv_obj_t *ui_pCount;
-lv_obj_t *ui_contextArea;
-lv_obj_t *ui_contextWindow2;
-lv_obj_t *ui_cTitlle1;
-lv_obj_t *ui_cDesc1;
-lv_obj_t *ui_cNav1;
+lv_obj_t *ui_arrInd;
+lv_obj_t *ui_arrReg;
+lv_obj_t *ui_arrSha;
 
 
 // SCREEN: ui_genericPopupScreen
