@@ -35,13 +35,7 @@ class ComThread : public Thread<ComThread> {
         void setCurrentProfile(String name);
         void put_string_message(const StringMessage& msg);
         bool isProfileNameOk(String& name);
-
-
-        String title = "";
-        String data1 = "";
-        String data2 = "";
-        String data3 = "";
-        String data4 = "";
+        
     protected:
         void run();
         void handleProfileCommand(JsonVariant profile, JsonVariant updates);
