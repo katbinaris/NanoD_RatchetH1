@@ -368,3 +368,14 @@ Show a message on the device screen:
 { "message": { "title": "Hey!", "text": "Get some work done.", "duration": 5.0 }}
 ```
 
+<hr>
+
+Control the device screen:
+
+```json
+{ "screen": { "title": "The Title", "data1": "Subtitle", "data2": "Text Content", "data3": "Text Content", "data4": "Text Content" } }
+```
+
+All fields are optional, if omitted the layout will blank them.
+
+Note: the meaning of the data1 - data4 fields depends on the layout of the screen.
