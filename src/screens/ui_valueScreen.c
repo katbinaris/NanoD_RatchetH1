@@ -110,6 +110,66 @@ lv_obj_set_style_border_opa(ui_Arc1, 255, LV_PART_KNOB| LV_STATE_DEFAULT);
 lv_obj_set_style_border_width(ui_Arc1, 5, LV_PART_KNOB| LV_STATE_DEFAULT);
 
 /* 
+    Message modal
+*/
+
+ui_msgModal2 = lv_obj_create(ui_valueScreen);
+lv_obj_remove_style_all(ui_msgModal2);
+lv_obj_set_width( ui_msgModal2, 170);
+lv_obj_set_height( ui_msgModal2, LV_SIZE_CONTENT);   /// 50
+lv_obj_set_align( ui_msgModal2, LV_ALIGN_CENTER );
+lv_obj_add_flag( ui_msgModal2, LV_OBJ_FLAG_HIDDEN);
+lv_obj_set_flex_flow(ui_msgModal2,LV_FLEX_FLOW_COLUMN);
+lv_obj_set_flex_align(ui_msgModal2, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+lv_obj_clear_flag( ui_msgModal2, LV_OBJ_FLAG_SCROLLABLE );    /// Flags
+lv_obj_set_style_radius(ui_msgModal2, 4, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_bg_color(ui_msgModal2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_bg_opa(ui_msgModal2, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_border_color(ui_msgModal2, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_border_opa(ui_msgModal2, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_border_width(ui_msgModal2, 3, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_outline_color(ui_msgModal2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT );
+lv_obj_set_style_outline_opa(ui_msgModal2, 255, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_outline_width(ui_msgModal2, 2, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_outline_pad(ui_msgModal2, 1, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_shadow_width(ui_msgModal2, 2, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_shadow_spread(ui_msgModal2, 2, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_shadow_ofs_x(ui_msgModal2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_shadow_ofs_y(ui_msgModal2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_left(ui_msgModal2, 12, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_right(ui_msgModal2, 12, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_top(ui_msgModal2, 12, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_bottom(ui_msgModal2, 12, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_msgTitle2 = lv_label_create(ui_msgModal2);
+lv_obj_set_width( ui_msgTitle2, 170);
+lv_obj_set_height( ui_msgTitle2, LV_SIZE_CONTENT);   /// 1
+lv_obj_set_align( ui_msgTitle2, LV_ALIGN_CENTER );
+lv_label_set_text(ui_msgTitle2,"MESSAGE RECEIVED");
+lv_obj_set_style_text_letter_space(ui_msgTitle2, 1, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_line_space(ui_msgTitle2, 4, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_msgTitle2, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_msgTitle2, &ui_font_SG12H16, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_left(ui_msgTitle2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_right(ui_msgTitle2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_top(ui_msgTitle2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_bottom(ui_msgTitle2, 6, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+ui_msgDesc2 = lv_label_create(ui_msgModal2);
+lv_obj_set_width( ui_msgDesc2, 170);
+lv_obj_set_height( ui_msgDesc2, LV_SIZE_CONTENT);   /// 40
+lv_obj_set_align( ui_msgDesc2, LV_ALIGN_CENTER );
+lv_label_set_text(ui_msgDesc2,"I'VE JUST RECEIVE A LOVELY MESSAGE FROM RICHARD. THANK YOU RICHARD!");
+lv_obj_set_style_text_letter_space(ui_msgDesc2, 1, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_line_space(ui_msgDesc2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_align(ui_msgDesc2, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_text_font(ui_msgDesc2, &ui_font_SGK100h16, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_left(ui_msgDesc2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_right(ui_msgDesc2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_top(ui_msgDesc2, 0, LV_PART_MAIN| LV_STATE_DEFAULT);
+lv_obj_set_style_pad_bottom(ui_msgDesc2, 8, LV_PART_MAIN| LV_STATE_DEFAULT);
+
+/* 
     Idle Overlay
 */
 

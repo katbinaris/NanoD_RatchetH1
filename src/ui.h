@@ -21,7 +21,7 @@ extern "C" {
 
 #include "ui_helpers.h"
 #include "ui_events.h"
-
+void showModal_Animation( lv_obj_t *TargetObject, int delay);
 // SCREEN: ui_bootimg
 void ui_bootimg_screen_init(void);
 void ui_event_bootimg( lv_event_t * e);
@@ -38,6 +38,9 @@ extern lv_obj_t *ui_posindSha;
 extern lv_obj_t *ui_profileName;
 extern lv_obj_t *ui_profileDesc;
 extern lv_obj_t *ui_Arc1;
+extern lv_obj_t *ui_msgModal2;
+extern lv_obj_t *ui_msgTitle2;
+extern lv_obj_t *ui_msgDesc2;
 extern lv_obj_t *ui_IdleCat;
 extern lv_obj_t *ui_IdleCatShadow; 
 

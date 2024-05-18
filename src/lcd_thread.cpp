@@ -48,18 +48,44 @@ static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
     lcd_thread.handleLcdCommand();
     if (lv_scr_act()==ui_valueScreen){
 
-        if (lcd_thread.last_command.title==nullptr) {
-            lv_obj_add_flag(ui_profileName, LV_OBJ_FLAG_HIDDEN); // Hide Profile Name
-        } else {
-            lv_obj_remove_flag(ui_profileName, LV_OBJ_FLAG_HIDDEN); // Show Profile Name
-            lv_label_set_text_fmt(ui_profileName, "%s", lcd_thread.last_command.title->c_str()); // Set Profile Name
+        if (lcd_thread.last_command.type == LCD_LAYOUT_DEFAULT){
+            if (lcd_thread.last_command.title==nullptr || lcd_thread.last_command.title->length()==0) {
+                lv_obj_add_flag(ui_profileName, LV_OBJ_FLAG_HIDDEN); // Hide Profile Name
+            } else {
+                lv_obj_remove_flag(ui_profileName, LV_OBJ_FLAG_HIDDEN); // Show Profile Name
+                lv_label_set_text_fmt(ui_profileName, "%s", lcd_thread.last_command.title->c_str()); // Set Profile Name
+            }
+            if (lcd_thread.last_command.data1==nullptr  || lcd_thread.last_command.data1->length()==0) {
+                lv_obj_add_flag(ui_profileDesc, LV_OBJ_FLAG_HIDDEN);    // Hide Profile Description
+            } else {
+                lv_obj_remove_flag(ui_profileDesc, LV_OBJ_FLAG_HIDDEN); // Show Profile Description
+                lv_label_set_text_fmt(ui_profileDesc, "%s", lcd_thread.last_command.data1->c_str()); // Set Profile Description
+            }
+            if (lcd_thread.last_command.data3==nullptr || lcd_thread.last_command.data3->length()==0) {
+                lv_obj_add_flag(ui_msgModal2, LV_OBJ_FLAG_HIDDEN); // Hide Modal
+            } else {
+                static uint32_t startTime = 0;
+                static const uint32_t interval = 5000; // 5 seconds
+
+                if (startTime == 0) {
+                    startTime = millis();
+                    
+                    lv_obj_remove_flag(ui_msgModal2, LV_OBJ_FLAG_HIDDEN); // Show Modal
+                } else {
+                    if (millis() - startTime >= interval) {
+                        lv_obj_add_flag(ui_msgModal2, LV_OBJ_FLAG_HIDDEN); // Hide Modal
+                        lcd_thread.last_command.data3 = nullptr; // Reset Command
+                        startTime = 0; // Reset the start time
+                    }
+                }
+            
+            }
         }
-        if (lcd_thread.last_command.data1==nullptr) {
-            lv_obj_add_flag(ui_profileDesc, LV_OBJ_FLAG_HIDDEN);    // Hide Profile Description
-        } else {
-            lv_obj_remove_flag(ui_profileDesc, LV_OBJ_FLAG_HIDDEN); // Show Profile Description
-            lv_label_set_text_fmt(ui_profileDesc, "%s", lcd_thread.last_command.data1->c_str()); // Set Profile Description
-        }
+
+        
+            
+        
+        
 
         
     }
@@ -167,6 +193,7 @@ static void counter_handler(lv_timer_t * postimer) {
             lv_obj_remove_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag( ui_msgModal2, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x565656), LV_PART_INDICATOR | LV_STATE_DEFAULT );
             ledcWrite(0, LEDC_MIN_BLK); // Set Backlight to Min Brightness
             isIdle = true; // Set Idle Flag
@@ -202,9 +229,10 @@ void LcdThread::run() {
         Set timers for LCD Data Handler, Idle Animation Handler and Counter Handler
     */
 
-    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 200, NULL);
+    
     lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 2000, NULL);
     lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
+    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 50, NULL);
 
     /* 
         Start Timers
