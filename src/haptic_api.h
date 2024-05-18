@@ -61,7 +61,7 @@ typedef struct {
  * if you are using the library as part of a larger system.
 */
 typedef struct {
-    float angle;
-    int32_t turns;
-    float velocity;
+    uint8_t start_pos;
+    uint16_t end_pos;
+    uint16_t cur_pos;
 } AngleEvt;
