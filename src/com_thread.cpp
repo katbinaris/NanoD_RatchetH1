@@ -181,10 +181,7 @@ void ComThread::handleEvents() {
       hadEvent = foc_thread.get_angle_event(&angleEvt);
       if (hadEvent) {
         eventDoc.clear();
-        eventDoc["a"] = angleEvt.angle;
-        eventDoc["t"] = angleEvt.turns;
-        eventDoc["p"] = angleEvt.velocity;  
-        eventDoc["v"] = hmi_thread.currentValue;
+        eventDoc["p"] = angleEvt.cur_pos;
         serializeJson(eventDoc, Serial);
         Serial.println(); // add a newline
         ts_last_activity = millis();

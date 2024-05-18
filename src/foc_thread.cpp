@@ -67,17 +67,18 @@ void FocThread::run() {
     }
     haptic.init();
     haptic.motor->sensor_offset = haptic.motor->shaft_angle;
-    float lastang = encoder.getAngle();
-    unsigned long ts = micros();
+    // float lastang = encoder.getAngle();
+    // unsigned long ts = micros();
+    uint16_t serial_last_pos = 0;
     while (true) {
         haptic.haptic_loop();
         float ang = encoder.getAngle();
         unsigned long now = micros();
-        if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
-            AngleEvt ae = { motor.shaft_angle, encoder.getFullRotations(), encoder.getVelocity() };
+        // if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
+        if (haptic.haptic_state.current_pos != serial_last_pos){
+            AngleEvt ae = { haptic.haptic_state.current_pos };
             xQueueSend(_q_angleevt_out, &ae, (TickType_t)0);
-            lastang = ang;
-            ts = now;
+            serial_last_pos = haptic.haptic_state.current_pos;
         }
         
         
