@@ -9,7 +9,6 @@
 #define MAX_KEY_KEYCODES 6
 
 
-
 typedef struct  {
     uint8_t channel;
     uint8_t cc;

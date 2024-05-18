@@ -52,7 +52,7 @@ class HmiThread : public Thread<HmiThread> {
         void halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
         void breathing(int fps, const struct CRGB& startCol);
 
-
+        void handleSysex(byte* array, unsigned size);
 
     protected:
         void run();
@@ -104,6 +104,7 @@ class HmiThread : public Thread<HmiThread> {
         void handleMidi();
         midiSettings midiUsbSettings;
         midiSettings midi2Settings;
+        uint8_t midi_sysex_id = 0x00;
 
         // animations
         bool gReverseDirection = false;

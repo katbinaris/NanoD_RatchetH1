@@ -48,12 +48,9 @@ HmiThread::~HmiThread() {}
 // init_usb() must be called before the thread is started
 void HmiThread::init_usb() {
   usb_midi.setStringDescriptor("Nano_D MIDI");
-  //usb_midi.setCableName(1, "Port1");
-  //usb_midi.setCableName(2, "Port THRU");
+  midiu.setHandleSystemExclusive(midi_sysex_handler);
   usb_midi.begin();
   midiu.begin();
-//   midi1.setThruFilterMode(midi::Thru::Off);
-//   midi2.setThruFilterMode(midi::Thru::Off);
 
   usb_hid.setBootProtocol(HID_ITF_PROTOCOL_NONE);
   usb_hid.setPollInterval(2);
@@ -73,6 +70,7 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
+    midi2.setHandleSystemExclusive(midi_sysex_handler);  
     midi2.begin();
     audioPlayer.audio_init();
 };
@@ -408,6 +406,19 @@ void HmiThread::handleMidi() {
     }
 };
 
+
+
+void HmiThread::handleSysex(byte* array, unsigned size){
+    if (array[0]==SYSEX_BINARIS_ID && array[1]==SYSEX_NANO_ID && array[2]==hmi_thread.midi_sysex_id) {
+        Serial.println("Received a sysex message");
+        // TODO handle sysex messages
+    }
+};
+
+
+void midi_sysex_handler(byte* array, unsigned size) {
+    hmi_thread.handleSysex(array, size);
+};
 
 
 

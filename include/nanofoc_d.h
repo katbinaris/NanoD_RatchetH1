@@ -78,3 +78,6 @@
 #define NANO_LOOP_FREQ 0
 #define NANO_SPI0_FREQ 0
 #define NANO_SPI1_FREQ 0
+
+#define SYSEX_BINARIS_ID 0xB1
+#define SYSEX_NANO_ID 0x01
