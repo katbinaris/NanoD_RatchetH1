@@ -76,7 +76,7 @@ void FocThread::run() {
         unsigned long now = micros();
         // if (fabs(ang - lastang) >= angleEventMinAngle && now - ts >= angleEventMinMicroseconds) {
         if (haptic.haptic_state.current_pos != serial_last_pos){
-            AngleEvt ae = { haptic.haptic_state.detent_profile.start_pos, haptic.haptic_state.detent_profile.end_pos, haptic.haptic_state.current_pos };
+            AngleEvt ae = { haptic.haptic_state.current_pos };
             xQueueSend(_q_angleevt_out, &ae, (TickType_t)0);
             serial_last_pos = haptic.haptic_state.current_pos;
         }
