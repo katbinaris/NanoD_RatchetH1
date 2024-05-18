@@ -29,9 +29,7 @@ uint8_t const desc_hid_report[] = {
 // USB HID object
 Adafruit_USBD_HID usb_hid;
 
-
-
-
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 // Hmi thread controls LED via FastLed and buttons via AceButton
 
@@ -448,7 +446,8 @@ void HmiThread::updateLeds() {
      if (cur_pos == last_pos) {
         unsigned long elapsedTime = millis() - lastCheck;
         if (elapsedTime >= idle_timeout_ms) {
-            hmi_thread.breathing(60, CRGB::OrangeRed);
+            hmi_thread.IdleLeds(45, CRGB::OrangeRed, CRGB::Khaki, CRGB::DarkOrange);
+            FastLED.setBrightness(25);
             isIdle = true;
         }
     } else {
@@ -456,6 +455,7 @@ void HmiThread::updateLeds() {
         last_pos = cur_pos;
         isIdle = false;
         updateKeyLeds();
+        FastLED.setBrightness(255);
         lastCheck = millis();
     }
     /*
@@ -491,39 +491,37 @@ void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orien
 
 
 /*
-    Breathing mode used for idle, changing fps increases pulses pace
+    IdleLed animation
+    Animates the LEDs with a color gradient
 */
 
-void HmiThread::breathing(int fps, const struct CRGB& startCol){
+uint8_t colorIndex = 0;
+void HmiThread::IdleLeds(int fps, const struct CRGB& idleColStart, const struct CRGB& idleColMid, const struct CRGB& idleColEnd){
+    
+    CRGB colors[] = {idleColStart ,idleColMid, idleColEnd};
     static unsigned long lastUpdateTime = 0;
     static bool increasing = false;
     static uint8_t darkness = 255;
-
+    static uint8_t progress = 0;
     unsigned long currentMillis = millis();
     if (currentMillis - lastUpdateTime < 1000/fps) {
-        return;
+        CRGB beginColor = colors[colorIndex];
+    CRGB endColor = colors[(colorIndex + 1) % ARRAY_SIZE(colors)];
+    CRGB currentColor = blend(beginColor, endColor, progress);
+
+  for(int i = 0; i < NANO_LED_A_NUM + 8; i++ ) {
+    leds[i] = currentColor;
+  }
+  
+
+  progress++;
+  if (progress == 0) {  // Overflow, time to move to the next color
+    colorIndex = (colorIndex + 1) % ARRAY_SIZE(colors);
+  }
     }
     lastUpdateTime = currentMillis;
 
-    CRGB currentCol;
-    currentCol = startCol;
-    currentCol.fadeToBlackBy(darkness);
-
-    for(int i = 0; i < (NANO_LED_A_NUM + 8); i++ ) {
-        leds[i] = currentCol;
-    }
-
-    if (increasing) {
-        darkness++;
-        if (darkness >= 250) {
-            increasing = false;
-        }
-    } else {
-        darkness--;
-        if (darkness == 220) {
-            increasing = true;
-        }
-    }
+    
 }
 
 STUSB4500 usb_pd;
