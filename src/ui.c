@@ -12,15 +12,13 @@ lv_obj_t *ui_bootMsg;
 // SCREEN: ui_valueScreen
 void ui_valueScreen_screen_init(void);
 lv_obj_t *ui_valueScreen;
-lv_obj_t *ui_Container2;
-lv_obj_t *ui_profileName;
-lv_obj_t *ui_profileDesc;
+lv_obj_t *ui_dataScreen;
 lv_obj_t *ui_posIndicator;
 lv_obj_t *ui_posind;
 lv_obj_t *ui_posindSha;
+lv_obj_t *ui_profileName;
+lv_obj_t *ui_profileDesc;
 lv_obj_t *ui_Arc1;
-// lv_obj_t *ui_actpos;
-// lv_obj_t *ui_IdleAnim;
 lv_obj_t *ui_IdleCat;
 lv_obj_t *ui_IdleCatShadow;
 

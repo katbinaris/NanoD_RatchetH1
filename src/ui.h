@@ -31,15 +31,13 @@ extern lv_obj_t *ui_bootMsg;
 // SCREEN: ui_valueScreen
 void ui_valueScreen_screen_init(void);
 extern lv_obj_t *ui_valueScreen;
-extern lv_obj_t *ui_Container2;
-extern lv_obj_t *ui_profileName;
-extern lv_obj_t *ui_profileDesc;
+extern lv_obj_t *ui_dataScreen;
 extern lv_obj_t *ui_posIndicator;
 extern lv_obj_t *ui_posind;
 extern lv_obj_t *ui_posindSha;
+extern lv_obj_t *ui_profileName;
+extern lv_obj_t *ui_profileDesc;
 extern lv_obj_t *ui_Arc1;
-// extern lv_obj_t *ui_actpos;
-// extern lv_obj_t *ui_IdleAnim;
 extern lv_obj_t *ui_IdleCat;
 extern lv_obj_t *ui_IdleCatShadow; 
 

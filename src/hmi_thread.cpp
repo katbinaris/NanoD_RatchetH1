@@ -201,8 +201,9 @@ void HmiThread::run() {
             total = 0;
             updates = 0;
         }
-
+        #ifdef AUDIO_EN
         audioPlayer.audio_loop();
+        #endif
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
