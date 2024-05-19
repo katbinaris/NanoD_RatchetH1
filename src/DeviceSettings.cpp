@@ -37,6 +37,7 @@ DeviceSettings::DeviceSettings() {
     wifiSsid = "";
     wifiPassword = "";
     wifiEnabled = false;
+    midi_sysex_id = 0x00;
 };
 
 

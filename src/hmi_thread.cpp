@@ -65,6 +65,7 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     led_max_brightness =  DeviceSettings::getInstance().ledMaxBrightness;
     uint8_t b = min(led_max_brightness, led_config.led_brightness);
     FastLED.setBrightness(b);
+    midi_sysex_id = DeviceSettings::getInstance().midi_sysex_id;
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
     Serial2.begin(31250, SERIAL_8N1, PIN_SERIAL2_RX, PIN_SERIAL2_TX);
@@ -122,6 +123,7 @@ void HmiThread::handleSettings() {
             FastLED.setBrightness(newBrightness);
             updateKeyLeds();
         }
+        midi_sysex_id = newSettings.midi_sysex_id;
         Serial.println("Hmi settings updated from global settings");
     }
 };

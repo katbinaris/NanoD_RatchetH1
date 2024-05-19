@@ -454,7 +454,8 @@ void ComThread::dispatchSettings() {
       .ledMaxBrightness = ds.ledMaxBrightness,
       .deviceOrientation = ds.deviceOrientation,
       .midiUsb = ds.midiUsb,
-      .midi2 = ds.midi2
+      .midi2 = ds.midi2,
+      .midi_sysex_id = ds.midi_sysex_id
     };
     hmi_thread.put_settings(hmiSettings);
 };

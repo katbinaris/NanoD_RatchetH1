@@ -27,6 +27,7 @@ typedef struct {
     uint16_t deviceOrientation;
     midiSettings midiUsb;
     midiSettings midi2;
+    uint8_t midi_sysex_id;
 } HmiDeviceSettings;
 
 
