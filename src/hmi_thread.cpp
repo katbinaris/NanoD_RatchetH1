@@ -186,12 +186,8 @@ void HmiThread::run() {
         for (int i = 0; i < 4; i++)
             buttons[i]->check();
         updateValue();
-        handleHid();
-        
+        handleHid();       
         updateLeds();
-        
-        // unsigned long us = micros();
-
         unsigned long currentMillis = millis();
         static unsigned long previousMillis = 0;
         if (currentMillis - previousMillis >= 16) {
@@ -199,21 +195,6 @@ void HmiThread::run() {
             FastLED.show();
             previousMillis = currentMillis;
         }
-        
-        
-        // unsigned long now = micros();
-        // us = now - us;
-        // updates++;
-        // total += us;
-        // if (now - ts > 10000000) {
-        //     float fps = 1000000.0 * updates / total;
-        //     float ups = 1000000.0 * updates / (now - ts);
-        //     StringMessage msg(new String("LED rate: " + String(ups) + " updates/s, "+ String(fps) +" frames/s raw (= " + String(fps * 64) + " pix/s = " + String(fps * 64 * 3 * 8 / 1000000) + "Mbps"));
-        //     com_thread.put_string_message(msg);
-        //     ts = now;
-        //     total = 0;
-        //     updates = 0;
-        // }
         #ifdef AUDIO_EN
         audioPlayer.audio_loop();
         #endif

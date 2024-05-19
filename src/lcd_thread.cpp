@@ -1,12 +1,10 @@
 #include <Arduino.h>
 #include "lcd_thread.h"
 
-
-
+// TODO: Move to PIO Build Flags
 static const uint8_t LEDC_CH_LCD_BKL = 0; // LEDC Channel for LCD Backlight
 static uint16_t LEDC_MAX_BLK = 3200; // Maximum Brightness for Active Mode
 static uint16_t LEDC_MIN_BLK = LEDC_MAX_BLK / 10; // Minimum Brightness for Idle Mode
-static uint16_t DEF_IDLE_TIMEOUT = 20000; // 20 seconds for Idle Timeout
 
 
 #define DRAW_BUF_SIZE (TFT_WIDTH * TFT_HEIGHT / 10 * (LV_COLOR_DEPTH / 8)) // 240*240/10*2 = 11520 bytes for 1/10 screen size
@@ -47,8 +45,6 @@ void LcdThread::handleLcdCommand() {
 static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
     lcd_thread.handleLcdCommand();
 
-    
-
     if (lv_scr_act()==ui_valueScreen){
 
         if (lcd_thread.last_command.type == LCD_LAYOUT_DEFAULT){
@@ -81,16 +77,8 @@ static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
                         startTime = 0; // Reset the start time
                     }
                 }
-            
             }
-        }
-
-        
-            
-        
-        
-
-        
+        }    
     }
 }
 
@@ -101,8 +89,9 @@ static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
     Updates Idle Cat Animation and Profile Selection Arrow Animation
 */
 static void idle_anim_handler(lv_timer_t * animtimer) {
-    if (lv_scr_act()==ui_valueScreen) // Value Screen
-{
+    if(com_thread.global_sleep_flag) { // Dont run animation rendering in background if in sleep mode
+    if (lv_scr_act()==ui_valueScreen) // Value Screen  
+        {
     static uint8_t fps = 0;
     switch(fps) {
         case 0:
@@ -140,6 +129,7 @@ if (lv_scr_act()==ui_profSelectScreen) // Profile Selection Screen
     }
     fps = (fps + 1) % 2; // 2 Frames every 2 seconds
 }
+    }
 }
 
 /*
@@ -151,53 +141,51 @@ if (lv_scr_act()==ui_profSelectScreen) // Profile Selection Screen
 
 static void counter_handler(lv_timer_t * postimer) {
     static uint16_t last_pos = -1; // Default Last Position
-
+    static bool overlay_toggle = false; // Default Overlay Toggle
     uint16_t pos = foc_thread.pass_cur_pos(); // Get Current Position from FOC Thread
     uint16_t end_pos = foc_thread.pass_end_pos(); // Get End Position from FOC Thread
     uint16_t last_end_pos;
     
-
-         if (pos != last_pos) {
-            
-            if (lv_scr_act()==ui_valueScreen){
-                lv_label_set_text_fmt(ui_posind, "%d", pos);
-                lv_label_set_text_fmt(ui_posindSha, "%d", pos);
-                if (end_pos != last_end_pos) {
-                    lv_arc_set_range(ui_Arc1, 0, end_pos);
-                    last_end_pos = end_pos;
-                    // Don't update arc range if end_pos is same as last_end_pos
-                }
-                lv_arc_set_value(ui_Arc1, pos);
-                last_pos = pos; // Update Last Position
-            }
-            if (lv_scr_act()==ui_profSelectScreen){
-                lv_label_set_text_fmt(ui_pCount, "%d", pos); // Set Position Indicator
-                if(last_pos != pos){
-                lv_roller_set_selected(ui_profList, pos, LV_ANIM_ON); // Set Roller to Current Position - Animate ON
-                last_pos = pos; // Update Last Position
-                }
-            }
-     
-        }
-        static bool overlay_toggle = false;
-        if (com_thread.global_sleep_flag && overlay_toggle) {
-            
-            lv_obj_remove_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag( ui_msgModal2, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x565656), LV_PART_INDICATOR | LV_STATE_DEFAULT );
-            ledcWrite(0, LEDC_MIN_BLK); // Set Backlight to Min Brightness
-            overlay_toggle = !overlay_toggle;
-        }
-        if (!com_thread.global_sleep_flag && !overlay_toggle){
-            
-            lv_obj_add_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_remove_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0xFF7D00), LV_PART_INDICATOR | LV_STATE_DEFAULT );
-            ledcWrite(0, LEDC_MAX_BLK); // Set Backlight to Max Brightness
-            overlay_toggle = !overlay_toggle;          
+    if (pos != last_pos) {
+       
+       if (lv_scr_act()==ui_valueScreen){
+           lv_label_set_text_fmt(ui_posind, "%d", pos);
+           lv_label_set_text_fmt(ui_posindSha, "%d", pos);
+           if (end_pos != last_end_pos) {
+               lv_arc_set_range(ui_Arc1, 0, end_pos);
+               last_end_pos = end_pos;
+               // Don't update arc range if end_pos is same as last_end_pos
+           }
+           lv_arc_set_value(ui_Arc1, pos);
+           last_pos = pos; // Update Last Position
+       }
+       if (lv_scr_act()==ui_profSelectScreen){
+           lv_label_set_text_fmt(ui_pCount, "%d", pos); // Set Position Indicator
+           if(last_pos != pos){
+           lv_roller_set_selected(ui_profList, pos, LV_ANIM_ON); // Set Roller to Current Position - Animate ON
+           last_pos = pos; // Update Last Position
+           }
+       }
+    }
+        
+    if (com_thread.global_sleep_flag && overlay_toggle) {
+        
+        lv_obj_remove_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag( ui_msgModal2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x565656), LV_PART_INDICATOR | LV_STATE_DEFAULT );
+        ledcWrite(0, LEDC_MIN_BLK); // Set Backlight to Min Brightness
+        overlay_toggle = !overlay_toggle;
+    }
+    if (!com_thread.global_sleep_flag && !overlay_toggle){
+        
+        lv_obj_add_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0xFF7D00), LV_PART_INDICATOR | LV_STATE_DEFAULT );
+        ledcWrite(0, LEDC_MAX_BLK); // Set Backlight to Max Brightness
+        overlay_toggle = !overlay_toggle;          
     }
 }
 
