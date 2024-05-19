@@ -35,10 +35,10 @@ typedef struct {
     */
 
 
-    // LED Ring array: Pointer, Primary, Scondary always store only one HEX value
+    // LED Ring array: Pointer, Primary, Secondary always store only one HEX value
     uint32_t pointer_col = 0xFFFFFF;
-    uint32_t primary_col = 0x140103;
-    uint32_t secondary_col = 0x010305;
+    uint32_t primary_col = 0x08596C;
+    uint32_t secondary_col = 0x47040D;
 
     uint32_t button_A_col_idle = 0x08596C; 
     uint32_t button_B_col_idle = 0x1A2E52; 
