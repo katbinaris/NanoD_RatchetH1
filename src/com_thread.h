@@ -37,6 +37,7 @@ class ComThread : public Thread<ComThread> {
         bool isProfileNameOk(String& name);
         
         bool global_sleep_flag = false;
+        unsigned long ts_last_activity;
         uint32_t global_idle_timeout = 5000;
 
     protected:
@@ -62,7 +63,6 @@ class ComThread : public Thread<ComThread> {
         void sendError(const char* error, const char* msg = nullptr);
 
         QueueHandle_t _q_strings_in;
-        unsigned long ts_last_activity;
 };
 
 
