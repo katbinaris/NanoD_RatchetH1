@@ -413,6 +413,8 @@ HapticProfile& HapticProfile::operator=(JsonObject& obj) {
           update_field(haptic, endPos, hmi_config.knob.values[i].haptic.end_pos);
           update_field(haptic, detentCount, hmi_config.knob.values[i].haptic.detent_count);
           update_field(haptic, vernier, hmi_config.knob.values[i].haptic.vernier);
+          update_field(haptic, kxForce, hmi_config.knob.values[i].haptic.kxForce);
+          update_field(haptic, outputRamp, hmi_config.knob.values[i].haptic.output_ramp);
         }
         String type = value["type"].as<String>();
         if (type=="midi") {
@@ -619,6 +621,8 @@ void HapticProfile::toJSON(JsonObject& doc){
     haptic["endPos"] = hmi_config.knob.values[i].haptic.end_pos;
     haptic["detentCount"] = hmi_config.knob.values[i].haptic.detent_count;
     haptic["vernier"] = hmi_config.knob.values[i].haptic.vernier;
+    haptic["kxForce"] = hmi_config.knob.values[i].haptic.kxForce;
+    haptic["outputRamp"] = hmi_config.knob.values[i].haptic.output_ramp;
     switch (hmi_config.knob.values[i].type) {
       case knobValueType::KV_MIDI:
         value["type"] = "midi";
