@@ -43,6 +43,12 @@ HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_cor
 HmiThread::~HmiThread() {}
 
 
+
+void midi_sysex_handler(byte* array, unsigned size) {
+    hmi_thread.handleSysex(array, size);
+};
+
+
 // init_usb() must be called before the thread is started
 void HmiThread::init_usb() {
   usb_midi.setStringDescriptor("Nano_D MIDI");
@@ -414,11 +420,6 @@ void HmiThread::handleSysex(byte* array, unsigned size){
         Serial.println("Received a sysex message");
         // TODO handle sysex messages
     }
-};
-
-
-void midi_sysex_handler(byte* array, unsigned size) {
-    hmi_thread.handleSysex(array, size);
 };
 
 
