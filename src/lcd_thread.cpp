@@ -245,7 +245,7 @@ void LcdThread::run() {
         Consist only of LVGL Timer Handler and LVGL Tick Increment
     */
 
-    // { "settings": { "deviceOrientation": 3 }}
+    // { "settings": { "deviceOrientation": 2 }}
 
     while (1) {        
       uint8_t device_orientation = DeviceSettings::getInstance().deviceOrientation;
@@ -264,8 +264,8 @@ void LcdThread::run() {
         
     }
     last_orientation = device_orientation;
-    lv_refr_now(disp);
-    }
+    lv_obj_invalidate(lv_scr_act());
+    };
 
         lv_timer_handler();
         lv_tick_inc(10);
