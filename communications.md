@@ -177,7 +177,10 @@ The response includes all profile fields, and would arrive in one line, but is s
                     "startPos": 0,
                     "endPos": 6.283185307179586,
                     "detentCount": 16,
-                    "vernier": 0
+                    "vernier": 0,
+                    "kxForce": true,
+                    "outputRamp": 1.4,
+                    "detentStrength": 17.9
                 }                
             }
         ],
