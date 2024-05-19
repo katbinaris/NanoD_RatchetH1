@@ -33,7 +33,7 @@ Adafruit_USBD_HID usb_hid;
 
 // Hmi thread controls LED via FastLed and buttons via AceButton
 
-HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4096, 1, task_core) {
+HmiThread::HmiThread(const uint8_t task_core ) : Thread("HMI", 4608, 1, task_core) {
     _q_config_in = xQueueCreate(2, sizeof( ledConfig ));
     _q_hmi_config_in = xQueueCreate(2, sizeof( hmiConfig ));
     _q_settings_in = xQueueCreate(2, sizeof( HmiDeviceSettings ));
@@ -190,21 +190,30 @@ void HmiThread::run() {
         
         updateLeds();
         
-        unsigned long us = micros();
-        FastLED.show();
-        unsigned long now = micros();
-        us = now - us;
-        updates++;
-        total += us;
-        if (now - ts > 10000000) {
-            float fps = 1000000.0 * updates / total;
-            float ups = 1000000.0 * updates / (now - ts);
-            StringMessage msg(new String("LED rate: " + String(ups) + " updates/s, "+ String(fps) +" frames/s raw (= " + String(fps * 64) + " pix/s = " + String(fps * 64 * 3 * 8 / 1000000) + "Mbps"));
-            com_thread.put_string_message(msg);
-            ts = now;
-            total = 0;
-            updates = 0;
+        // unsigned long us = micros();
+
+        unsigned long currentMillis = millis();
+        static unsigned long previousMillis = 0;
+        if (currentMillis - previousMillis >= 16) {
+            // Limit Leds to ~60fps
+            FastLED.show();
+            previousMillis = currentMillis;
         }
+        
+        
+        // unsigned long now = micros();
+        // us = now - us;
+        // updates++;
+        // total += us;
+        // if (now - ts > 10000000) {
+        //     float fps = 1000000.0 * updates / total;
+        //     float ups = 1000000.0 * updates / (now - ts);
+        //     StringMessage msg(new String("LED rate: " + String(ups) + " updates/s, "+ String(fps) +" frames/s raw (= " + String(fps * 64) + " pix/s = " + String(fps * 64 * 3 * 8 / 1000000) + "Mbps"));
+        //     com_thread.put_string_message(msg);
+        //     ts = now;
+        //     total = 0;
+        //     updates = 0;
+        // }
         #ifdef AUDIO_EN
         audioPlayer.audio_loop();
         #endif
@@ -460,7 +469,7 @@ void HmiThread::updateLeds() {
      if (cur_pos == last_pos) {
         unsigned long elapsedTime = millis() - lastCheck;
         if (elapsedTime >= idle_timeout_ms) {
-            hmi_thread.IdleLeds(45, CRGB::OrangeRed, CRGB::Khaki, CRGB::DarkOrange);
+            hmi_thread.IdleLeds(45, CRGB::Red, CRGB::Green, CRGB::Blue);
             FastLED.setBrightness(25);
             isIdle = true;
         }
