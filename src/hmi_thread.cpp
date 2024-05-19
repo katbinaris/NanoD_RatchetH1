@@ -466,20 +466,15 @@ void HmiThread::updateLeds() {
     uint16_t start = map(start_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t end = map(end_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
 
-     if (cur_pos == last_pos) {
-        unsigned long elapsedTime = millis() - lastCheck;
-        if (elapsedTime >= idle_timeout_ms) {
-            hmi_thread.IdleLeds(45, CRGB::Red, CRGB::Green, CRGB::Blue);
-            FastLED.setBrightness(25);
-            isIdle = true;
-        }
+
+     if (com_thread.global_sleep_flag) {
+        hmi_thread.IdleLeds(45, CRGB::Red, CRGB::Green, CRGB::Blue);
+        FastLED.setBrightness(25);
     } else {
         halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
-        last_pos = cur_pos;
-        isIdle = false;
         updateKeyLeds();
         FastLED.setBrightness(255);
-        lastCheck = millis();
+       
     }
     /*
         Interrupt delay helps stabilize leds in some cases

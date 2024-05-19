@@ -46,6 +46,9 @@ void LcdThread::handleLcdCommand() {
 */
 static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
     lcd_thread.handleLcdCommand();
+
+    
+
     if (lv_scr_act()==ui_valueScreen){
 
         if (lcd_thread.last_command.type == LCD_LAYOUT_DEFAULT){
@@ -145,24 +148,17 @@ if (lv_scr_act()==ui_profSelectScreen) // Profile Selection Screen
     Screen: ui_profSelectScreen
 */
 
-unsigned long lastCheckk = 0;
+
 static void counter_handler(lv_timer_t * postimer) {
     static uint16_t last_pos = -1; // Default Last Position
-    static bool idleTime = false; // Default Idle Time
-    static bool isIdle = false; // Default Idle Flag
+
     uint16_t pos = foc_thread.pass_cur_pos(); // Get Current Position from FOC Thread
     uint16_t end_pos = foc_thread.pass_end_pos(); // Get End Position from FOC Thread
     uint16_t last_end_pos;
     
 
-         if (pos == last_pos) {
-            unsigned long elapsedTime = millis() - lastCheckk;
-            if (elapsedTime >= DEF_IDLE_TIMEOUT) {
-                idleTime = true;          
-            }
-        } else {
-        
-            idleTime = false;
+         if (pos != last_pos) {
+            
             if (lv_scr_act()==ui_valueScreen){
                 lv_label_set_text_fmt(ui_posind, "%d", pos);
                 lv_label_set_text_fmt(ui_posindSha, "%d", pos);
@@ -181,34 +177,27 @@ static void counter_handler(lv_timer_t * postimer) {
                 last_pos = pos; // Update Last Position
                 }
             }
-
-             lastCheckk = millis();
+     
         }
-    /*
-        TODO: Wrap Idle Anim and Value Screen into containers so that they can be hidden and shown together rather than individually
-    */
-
-    if (idleTime == true) {
-            if (isIdle == false) {
+        static bool overlay_toggle = false;
+        if (com_thread.global_sleep_flag && overlay_toggle) {
+            
             lv_obj_remove_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_msgModal2, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0x565656), LV_PART_INDICATOR | LV_STATE_DEFAULT );
             ledcWrite(0, LEDC_MIN_BLK); // Set Backlight to Min Brightness
-            isIdle = true; // Set Idle Flag
-            }
+            overlay_toggle = !overlay_toggle;
+        }
+        if (!com_thread.global_sleep_flag && !overlay_toggle){
             
-    }
-    if (idleTime == false) {
-            if (isIdle == true) {
             lv_obj_add_flag( ui_IdleCat, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag( ui_IdleCatShadow, LV_OBJ_FLAG_HIDDEN);
             lv_obj_remove_flag( ui_dataScreen, LV_OBJ_FLAG_HIDDEN);
             lv_obj_set_style_arc_color(ui_Arc1, lv_color_hex(0xFF7D00), LV_PART_INDICATOR | LV_STATE_DEFAULT );
             ledcWrite(0, LEDC_MAX_BLK); // Set Backlight to Max Brightness
-            isIdle = false; // Reset Idle Flag
-            }
+            overlay_toggle = !overlay_toggle;          
     }
 }
 
@@ -229,10 +218,9 @@ void LcdThread::run() {
         Set timers for LCD Data Handler, Idle Animation Handler and Counter Handler
     */
 
-    
-    lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 2000, NULL);
-    lv_timer_t * postimer = lv_timer_create(counter_handler, 16, NULL);
-    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 50, NULL);
+    lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1500, NULL); // 0.5Hz
+    lv_timer_t * postimer = lv_timer_create(counter_handler, 33, NULL); // ~30Hz
+    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 1000, NULL); // 1Hz
 
     /* 
         Start Timers
