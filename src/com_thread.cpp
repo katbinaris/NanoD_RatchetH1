@@ -55,6 +55,7 @@ void ComThread::run() {
                 sendError("JSON parse error", error.c_str());
                 continue;
             }
+            ts_last_activity = millis();
             //Serial.println("JSON received");
             JsonVariant profile = doc["profile"];
             JsonVariant v = doc["updates"];
@@ -143,12 +144,16 @@ void ComThread::run() {
 
         // send idle message
         unsigned long now = millis();
-        if (now-ts>1000 && now-ts_last_activity>1000) {
+        if (now-ts>1000 && now-ts_last_activity>global_idle_timeout) {
           ts = now;          
           idleDoc["idle"] = now-ts_last_activity;
           serializeJson(idleDoc, Serial);
           Serial.println(); // add a newline
         }
+        if (now-ts_last_activity<=global_idle_timeout)
+          global_sleep_flag = false;
+        else
+          global_sleep_flag = true;
 
         vTaskDelay(10); // give other threads a chance to run...
     }
@@ -458,6 +463,7 @@ void ComThread::dispatchSettings() {
       .midi_sysex_id = ds.midi_sysex_id
     };
     hmi_thread.put_settings(hmiSettings);
+    global_idle_timeout = ds.idleTimeout;
 };
 
 

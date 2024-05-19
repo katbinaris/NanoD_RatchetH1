@@ -330,7 +330,9 @@ Response (formatted on multiple lines for clarity):
             "thru": false,
             "route": true,
             "nano": true
-        }
+        },
+        "sysexId": 0,
+        "idleTimeout": 5000
     }
 }
 ```

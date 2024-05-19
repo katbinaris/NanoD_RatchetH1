@@ -38,6 +38,7 @@ DeviceSettings::DeviceSettings() {
     wifiPassword = "";
     wifiEnabled = false;
     midi_sysex_id = 0x00;
+    idleTimeout = 5000;
 };
 
 
@@ -93,6 +94,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
     }
     if (obj["sysexId"].is<uint8_t>())
         midi_sysex_id = obj["sysexId"].as<uint8_t>();
+    if (obj["idleTimeout"].is<uint32_t>())
+        idleTimeout = obj["idleTimeout"].as<uint32_t>();
     dirty = true;
     return *this;
 };
@@ -128,6 +131,7 @@ void DeviceSettings::toJSON(JsonObject& obj){
     midi2Obj["route"] = midi2.route;
     midi2Obj["nano"] = midi2.nano;
     obj["sysexId"] = midi_sysex_id;
+    obj["idleTimeout"] = idleTimeout;
 };
 
 

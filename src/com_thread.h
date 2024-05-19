@@ -36,6 +36,9 @@ class ComThread : public Thread<ComThread> {
         void put_string_message(const StringMessage& msg);
         bool isProfileNameOk(String& name);
         
+        bool global_sleep_flag = false;
+        uint32_t global_idle_timeout = 5000;
+
     protected:
         void run();
         void handleProfileCommand(JsonVariant profile, JsonVariant updates);

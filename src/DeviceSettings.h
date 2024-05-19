@@ -70,6 +70,7 @@ public:
     String wifiSsid;
     String wifiPassword;
     bool wifiEnabled;
+    uint32_t idleTimeout;
 
     // read-only settings
     String serialNumber;
