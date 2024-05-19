@@ -243,7 +243,7 @@ void HapticProfileManager::fromSPIFFS() {
       profile->hmi_config.knob.values[0].step = 1;
       profile->hmi_config.knob.values[0].midi.channel = 0;
       profile->hmi_config.knob.values[0].midi.cc = 0;
-      profile->hmi_config.knob.values[0].haptic.mode = HapticMode::VERNIER;
+      profile->hmi_config.knob.values[0].haptic.mode = HapticMode::REGULAR;
       profile->hmi_config.knob.values[0].haptic.detent_count = 127;
       profile->hmi_config.knob.values[0].haptic.start_pos = 0;
       profile->hmi_config.knob.values[0].haptic.end_pos = 127;
