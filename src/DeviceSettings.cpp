@@ -27,7 +27,7 @@ DeviceSettings::DeviceSettings() {
     ledMaxBrightness = DEFAULT_LED_MAX_BRIGHTNESS;
     maxVelocity = 10.0;
     maxVoltage = 5.0;
-    deviceOrientation = 0;
+    deviceOrientation = 1;
     serialNumber = String(ESP.getEfuseMac(), HEX);
     deviceName = "Nano_" + serialNumber;
     firmwareVersion = String(NANO_FIRMWARE_VERSION);

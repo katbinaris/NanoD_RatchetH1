@@ -141,6 +141,7 @@ bool HmiThread::get_key_event(KeyEvt* keyEvt){
 
 
 
+
 void HmiThread::run() {
     FastLED.addLeds<LED_CHIPSET, PIN_LED_A, RGB>(leds, NANO_LED_A_NUM);
     FastLED.addLeds<LED_CHIPSET, PIN_LED_B, LED_COL_ORDER>(ledsp, NANO_LED_B_NUM);
@@ -197,7 +198,7 @@ void HmiThread::run() {
         }
         #ifdef AUDIO_EN
         audioPlayer.audio_loop();
-        #endif
+         #endif
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     
@@ -441,26 +442,21 @@ void HmiThread::updateLeds() {
     uint16_t cur_pos = foc_thread.pass_cur_pos();
     uint16_t start_pos = foc_thread.pass_start_pos();
     uint16_t end_pos = foc_thread.pass_end_pos();
-    uint16_t idle_timeout_ms = 20000;
-    uint8_t led_orientation = 45;
+    uint8_t device_orientation = DeviceSettings::getInstance().deviceOrientation;
+    uint8_t led_orientation = map(device_orientation, 0, 3, 0, 135);
     uint16_t point = map(cur_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t start = map(start_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
     uint16_t end = map(end_pos, end_pos, start_pos, 0, NANO_LED_A_NUM - 1);
 
 
      if (com_thread.global_sleep_flag) {
-        hmi_thread.IdleLeds(45, CRGB::Red, CRGB::Green, CRGB::Blue);
+        hmi_thread.IdleLeds(25, CRGB::Red, CRGB::Green, CRGB::Blue);
         FastLED.setBrightness(25);
     } else {
         halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
         updateKeyLeds();
-        FastLED.setBrightness(255);
-       
+        FastLED.setBrightness(led_config.led_brightness);
     }
-    /*
-        Interrupt delay helps stabilize leds in some cases
-    */
-    // vTaskDelay(1); 
 };
 
     
@@ -480,21 +476,17 @@ void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orien
              leds[index] = preCol;
          }
     }
-     
-        int index = ( indicator + orientation) % NANO_LED_A_NUM;
-     leds[index] = pointerCol;
+    int index = ( indicator + orientation) % NANO_LED_A_NUM;
+    leds[index] = pointerCol;
+    return;
 };
-
-
-
-
 
 /*
     IdleLed animation
     Animates the LEDs with a color gradient
 */
 
-uint8_t colorIndex = 0;
+static uint8_t colorIndex = 0;
 void HmiThread::IdleLeds(int fps, const struct CRGB& idleColStart, const struct CRGB& idleColMid, const struct CRGB& idleColEnd){
     
     CRGB colors[] = {idleColStart ,idleColMid, idleColEnd};
@@ -502,25 +494,18 @@ void HmiThread::IdleLeds(int fps, const struct CRGB& idleColStart, const struct 
     static bool increasing = false;
     static uint8_t darkness = 255;
     static uint8_t progress = 0;
-    unsigned long currentMillis = millis();
-    if (currentMillis - lastUpdateTime < 1000/fps) {
-        CRGB beginColor = colors[colorIndex];
+    CRGB beginColor = colors[colorIndex];
     CRGB endColor = colors[(colorIndex + 1) % ARRAY_SIZE(colors)];
     CRGB currentColor = blend(beginColor, endColor, progress);
-
-  for(int i = 0; i < NANO_LED_A_NUM + 8; i++ ) {
+    for(int i = 0; i < NANO_LED_A_NUM + 8; i++ ) {
     leds[i] = currentColor;
-  }
-  
-
-  progress++;
-  if (progress == 0) {  // Overflow, time to move to the next color
-    colorIndex = (colorIndex + 1) % ARRAY_SIZE(colors);
-  }
     }
-    lastUpdateTime = currentMillis;
-
-    
+    progress++;
+    if (progress == 0) {  // Overflow, time to move to the next color
+    colorIndex = (colorIndex + 1) % ARRAY_SIZE(colors);
+    }
+    if(!com_thread.global_sleep_flag)
+    return;
 }
 
 STUSB4500 usb_pd;
