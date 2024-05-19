@@ -232,6 +232,25 @@ void HapticProfileManager::fromSPIFFS() {
       profile->hmi_config.keys[3].pressed[0].type = keyActionType::KA_KEY;
       profile->hmi_config.keys[3].pressed[0].hid.num = 1;
       profile->hmi_config.keys[3].pressed[0].hid.key_codes[0] = HID_KEY_O;
+      profile->dirty = true;
+      profile->hmi_config.knob.num = 1;
+      profile->hmi_config.knob.values[0].type = knobValueType::KV_MIDI;
+      profile->hmi_config.knob.values[0].value_min = 0;
+      profile->hmi_config.knob.values[0].value_max = 127;
+      profile->hmi_config.knob.values[0].angle_min = 0;
+      profile->hmi_config.knob.values[0].angle_max = _2PI;
+      profile->hmi_config.knob.values[0].wrap = false;
+      profile->hmi_config.knob.values[0].step = 1;
+      profile->hmi_config.knob.values[0].midi.channel = 0;
+      profile->hmi_config.knob.values[0].midi.cc = 0;
+      profile->hmi_config.knob.values[0].haptic.mode = HapticMode::VERNIER;
+      profile->hmi_config.knob.values[0].haptic.detent_count = 127;
+      profile->hmi_config.knob.values[0].haptic.start_pos = 0;
+      profile->hmi_config.knob.values[0].haptic.end_pos = 127;
+      profile->hmi_config.knob.values[0].haptic.vernier = 5;
+      profile->hmi_config.knob.values[0].haptic.output_ramp = 0.5;
+      profile->hmi_config.knob.values[0].haptic.detent_strength = 0;
+      profile->hmi_config.knob.values[0].haptic.kxForce = true;
       current_profile = profile;
     }
     else {
