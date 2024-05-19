@@ -55,6 +55,7 @@ typedef struct {
     uint8_t vernier;
     bool kxForce;
     float output_ramp;
+    float detent_strength;
 } DetentProfile;
 
 /**
