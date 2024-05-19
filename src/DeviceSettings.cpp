@@ -90,6 +90,8 @@ DeviceSettings& DeviceSettings::operator=(JsonObject& obj){
         if (midi2Obj["nano"]!=nullptr)
             midi2.nano = midi2Obj["nano"].as<bool>();
     }
+    if (obj["sysexId"].is<uint8_t>())
+        midi_sysex_id = obj["sysexId"].as<uint8_t>();
     dirty = true;
     return *this;
 };
@@ -124,6 +126,7 @@ void DeviceSettings::toJSON(JsonObject& obj){
     midi2Obj["thru"] = midi2.thru;
     midi2Obj["route"] = midi2.route;
     midi2Obj["nano"] = midi2.nano;
+    obj["sysexId"] = midi_sysex_id;
 };
 
 
