@@ -44,6 +44,7 @@ void ComThread::run() {
     remoteLcdCommand.data2 = &data2;
     remoteLcdCommand.data3 = &data3;
     remoteLcdCommand.data4 = &data4;
+    dispatchLcdConfig();
     while (true) {
         JsonDocument doc;
         if (Serial.available()) {
