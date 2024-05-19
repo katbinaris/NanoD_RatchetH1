@@ -1,11 +1,17 @@
 #include <Arduino.h>
 #include "lcd_thread.h"
 
+// TODO: See if can do it more elegantly from LVGL tfteSPI driver 
+#include <TFT_eSPI.h> 
+TFT_eSPI tft;
+
+
 // TODO: Move to PIO Build Flags
 static const uint8_t LEDC_CH_LCD_BKL = 0; // LEDC Channel for LCD Backlight
 static uint16_t LEDC_MAX_BLK = 3200; // Maximum Brightness for Active Mode
 static uint16_t LEDC_MIN_BLK = LEDC_MAX_BLK / 10; // Minimum Brightness for Idle Mode
 
+static uint8_t last_orientation = -1;
 
 #define DRAW_BUF_SIZE (TFT_WIDTH * TFT_HEIGHT / 10 * (LV_COLOR_DEPTH / 8)) // 240*240/10*2 = 11520 bytes for 1/10 screen size
 uint32_t draw_buf[DRAW_BUF_SIZE / 4];   // Declare a buffer for drawing
@@ -42,7 +48,18 @@ void LcdThread::handleLcdCommand() {
     Screen: ui_valueScreen
     Checks for last_command and updates Profile Name and Description
 */
-static void lcd_data_handler(lv_timer_t * lcd_cmd_timer) {
+static void lcd_manager(lv_timer_t * lcd_cmd_timer) {
+    
+    /* 
+    Listen for Orientation change */
+    
+
+   
+
+    /*
+        Handle LCD Command 
+    */
+
     lcd_thread.handleLcdCommand();
 
     if (lv_scr_act()==ui_valueScreen){
@@ -189,6 +206,7 @@ static void counter_handler(lv_timer_t * postimer) {
     }
 }
 
+
 void LcdThread::run() {
     // Setup LedC
     ledcSetup(0, 5000, 12); // 4096 steps @ 5Khz
@@ -208,7 +226,7 @@ void LcdThread::run() {
 
     lv_timer_t * animtimer = lv_timer_create(idle_anim_handler, 1500, NULL); // 0.5Hz
     lv_timer_t * postimer = lv_timer_create(counter_handler, 33, NULL); // ~30Hz
-    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_data_handler, 1000, NULL); // 1Hz
+    lv_timer_t * lcd_cmd_timer = lv_timer_create(lcd_manager, 1000, NULL); // 1Hz
 
     /* 
         Start Timers
@@ -227,7 +245,28 @@ void LcdThread::run() {
         Consist only of LVGL Timer Handler and LVGL Tick Increment
     */
 
+    // { "settings": { "deviceOrientation": 3 }}
+
     while (1) {        
+      uint8_t device_orientation = DeviceSettings::getInstance().deviceOrientation;
+    if (last_orientation != device_orientation) {
+    if (device_orientation == 0) {
+        tft.setRotation(2);
+    
+    } else if (device_orientation == 1) {
+        tft.setRotation(3);
+       
+    } else if (device_orientation == 2) {
+        tft.setRotation(0);
+        
+    } else if (device_orientation == 3) {
+        tft.setRotation(1);
+        
+    }
+    last_orientation = device_orientation;
+    lv_refr_now(disp);
+    }
+
         lv_timer_handler();
         lv_tick_inc(10);
         vTaskDelay(1 / portTICK_PERIOD_MS);

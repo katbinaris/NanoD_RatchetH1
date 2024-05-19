@@ -464,7 +464,7 @@ void HmiThread::updateLeds() {
 
 
 // Standard Pointer with two halves
-void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol){ 
+void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& postCol, const struct CRGB& preCol){ 
     
     for (int i = NANO_LED_A_NUM - 1; i >= 0; i--) {
          if(i > indicator) {
