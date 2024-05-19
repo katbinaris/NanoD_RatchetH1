@@ -248,8 +248,8 @@ void HapticProfileManager::fromSPIFFS() {
       profile->hmi_config.knob.values[0].haptic.start_pos = 0;
       profile->hmi_config.knob.values[0].haptic.end_pos = 127;
       profile->hmi_config.knob.values[0].haptic.vernier = 5;
-      profile->hmi_config.knob.values[0].haptic.output_ramp = 0.5;
-      profile->hmi_config.knob.values[0].haptic.detent_strength = 0;
+      profile->hmi_config.knob.values[0].haptic.output_ramp = 5000.0f;
+      profile->hmi_config.knob.values[0].haptic.detent_strength = 3.0f;
       profile->hmi_config.knob.values[0].haptic.kxForce = true;
       current_profile = profile;
     }
