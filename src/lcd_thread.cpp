@@ -51,10 +51,23 @@ void LcdThread::handleLcdCommand() {
 static void lcd_manager(lv_timer_t * lcd_cmd_timer) {
     
     /* 
-    Listen for Orientation change */
+    Listen for Orientation change 
+    */
     
-
-   
+    uint8_t device_orientation = DeviceSettings::getInstance().deviceOrientation;
+    if (last_orientation != device_orientation) {
+        if (device_orientation == 0) {
+            tft.setRotation(2);
+        } else if (device_orientation == 1) {
+            tft.setRotation(3);   
+        } else if (device_orientation == 2) {
+            tft.setRotation(0);
+        } else if (device_orientation == 3) {
+            tft.setRotation(1);
+        }
+    last_orientation = device_orientation;
+    lv_obj_invalidate(lv_scr_act());
+    };
 
     /*
         Handle LCD Command 
@@ -248,24 +261,7 @@ void LcdThread::run() {
     // { "settings": { "deviceOrientation": 2 }}
 
     while (1) {        
-      uint8_t device_orientation = DeviceSettings::getInstance().deviceOrientation;
-    if (last_orientation != device_orientation) {
-    if (device_orientation == 0) {
-        tft.setRotation(2);
-    
-    } else if (device_orientation == 1) {
-        tft.setRotation(3);
-       
-    } else if (device_orientation == 2) {
-        tft.setRotation(0);
-        
-    } else if (device_orientation == 3) {
-        tft.setRotation(1);
-        
-    }
-    last_orientation = device_orientation;
-    lv_obj_invalidate(lv_scr_act());
-    };
+     
 
         lv_timer_handler();
         lv_tick_inc(10);
