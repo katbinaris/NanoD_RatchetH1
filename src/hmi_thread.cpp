@@ -324,6 +324,7 @@ void HmiThread::updateValue() {
                     value = round(value / v.step) * v.step;
                 }
                 currentValue = value;
+                currentValue = foc_thread.pass_cur_pos(); // TODO fix and remove this in future
                 if (currentValue!=lastValue) {
                     if (v.type==knobValueType::KV_MIDI) {
                         uint8_t midi_value = (uint8_t)(value);
