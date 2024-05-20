@@ -241,7 +241,7 @@ void HapticProfileManager::fromSPIFFS() {
       profile->hmi_config.knob.values[0].angle_max = _2PI;
       profile->hmi_config.knob.values[0].wrap = false;
       profile->hmi_config.knob.values[0].step = 1;
-      profile->hmi_config.knob.values[0].midi.channel = 0;
+      profile->hmi_config.knob.values[0].midi.channel = 1;
       profile->hmi_config.knob.values[0].midi.cc = 0;
       profile->hmi_config.knob.values[0].haptic.mode = HapticMode::REGULAR;
       profile->hmi_config.knob.values[0].haptic.detent_count = 127;
