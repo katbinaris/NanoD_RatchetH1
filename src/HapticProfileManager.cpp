@@ -217,9 +217,7 @@ void HapticProfileManager::fromSPIFFS() {
       Serial.println(profile->profile_name);
       // only for the default profile, set a default key-mapping
       profile->hmi_config.keys[0].num_pressed_actions = 1;
-      profile->hmi_config.keys[0].pressed[0].type = keyActionType::KA_KEY;
-      profile->hmi_config.keys[0].pressed[0].hid.num = 1;
-      profile->hmi_config.keys[0].pressed[0].hid.key_codes[0] = HID_KEY_N;
+      profile->hmi_config.keys[0].pressed[0].type = keyActionType::KA_PROFILE_NEXT;
       profile->hmi_config.keys[1].num_pressed_actions = 1;
       profile->hmi_config.keys[1].pressed[0].type = keyActionType::KA_KEY;
       profile->hmi_config.keys[1].pressed[0].hid.num = 1;
@@ -227,11 +225,9 @@ void HapticProfileManager::fromSPIFFS() {
       profile->hmi_config.keys[2].num_pressed_actions = 1;
       profile->hmi_config.keys[2].pressed[0].type = keyActionType::KA_KEY;
       profile->hmi_config.keys[2].pressed[0].hid.num = 1;
-      profile->hmi_config.keys[2].pressed[0].hid.key_codes[0] = HID_KEY_N;
+      profile->hmi_config.keys[2].pressed[0].hid.key_codes[0] = HID_KEY_B;
       profile->hmi_config.keys[3].num_pressed_actions = 1;
-      profile->hmi_config.keys[3].pressed[0].type = keyActionType::KA_KEY;
-      profile->hmi_config.keys[3].pressed[0].hid.num = 1;
-      profile->hmi_config.keys[3].pressed[0].hid.key_codes[0] = HID_KEY_O;
+      profile->hmi_config.keys[3].pressed[0].type = keyActionType::KA_PROFILE_PREV;
       profile->dirty = true;
       profile->hmi_config.knob.num = 1;
       profile->hmi_config.knob.values[0].type = knobValueType::KV_MIDI;
