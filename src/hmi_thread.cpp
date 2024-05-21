@@ -327,7 +327,7 @@ void HmiThread::updateValue() {
                 currentValue = foc_thread.pass_cur_pos(); // TODO fix and remove this in future
                 if (currentValue!=lastValue) {
                     if (v.type==knobValueType::KV_MIDI) {
-                        uint8_t midi_value = (uint8_t)(value);
+                        uint8_t midi_value = (uint8_t)(currentValue);
                         midi_value = _constrain(midi_value, 0, 127);
                         if (midiUsbSettings.nano)
                             midiu.sendControlChange(v.midi.cc, midi_value, v.midi.channel);
