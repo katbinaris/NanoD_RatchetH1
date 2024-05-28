@@ -865,7 +865,7 @@ XT_I2S_Class::XT_I2S_Class(uint8_t LRCLKPin,uint8_t BCLKPin,uint8_t I2SOutPin,i2
      i2s_config.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
      i2s_config.communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB);
      i2s_config.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;             // high interrupt priority
-     i2s_config.dma_buf_count = 8;                                   // 8 buffers
+     i2s_config.dma_buf_count = 2;                                   // 8 buffers
      i2s_config.dma_buf_len = 256;                                   // 256 bytes per buffer, so 2K of buffer space
      i2s_config.use_apll=0;
      i2s_config.tx_desc_auto_clear= true; 

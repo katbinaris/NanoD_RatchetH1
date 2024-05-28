@@ -2,6 +2,9 @@
 Oncetop Motor
 Primary Recommended Motor 
 */
+#pragma once
+
+#include "nanofoc_d.h"
 
 #if ONCETOP
 

@@ -26,7 +26,7 @@
 #define MAX_WAVE_HEIGHT 32767			// Max height wave can be 
 #define MIN_WAVE_HEIGHT -32768			// Min height wave can be 
 
-#define DEFAULT_MASTER_VOLUME 50		// Master output volume for the final mixed sound
+#define DEFAULT_MASTER_VOLUME 100		// Master output volume for the final mixed sound
 
 class XT_Envelope_Class;						// forward ref for this class
 

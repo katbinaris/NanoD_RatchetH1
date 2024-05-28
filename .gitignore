@@ -5,3 +5,5 @@
 .vscode/ipch
 .vscode/extensions.json
 *.code-workspace
+lib/Ardunio-FOC-drivers
+messages.txt
