@@ -44,6 +44,7 @@ void ComThread::run() {
     remoteLcdCommand.data2 = &data2;
     remoteLcdCommand.data3 = &data3;
     remoteLcdCommand.data4 = &data4;
+    dispatchSettings();
     dispatchLcdConfig();
     while (true) {
         JsonDocument doc;
@@ -144,13 +145,13 @@ void ComThread::run() {
 
         // send idle message
         unsigned long now = millis();
-        if (now-ts>1000 && now-ts_last_activity>global_idle_timeout) {
+        if (now-ts>1000 && now-ts_last_activity>global_idle_timeout && global_idle_timeout>0) {
           ts = now;          
           idleDoc["idle"] = now-ts_last_activity;
           serializeJson(idleDoc, Serial);
           Serial.println(); // add a newline
         }
-        if (now-ts_last_activity<=global_idle_timeout)
+        if (now-ts_last_activity<=global_idle_timeout || global_idle_timeout==0)
           global_sleep_flag = false;
         else
           global_sleep_flag = true;
