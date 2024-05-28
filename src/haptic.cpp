@@ -62,6 +62,7 @@ HapticState::HapticState(DetentProfile profile, uint16_t position){
 void HapticState::load_profile(DetentProfile profile, uint16_t new_position = 0xFFFF){
     
     uint16_t isVernier = profile.mode == HapticMode::VERNIER ? profile.vernier : 1;
+   
     num_detents = profile.end_pos - profile.start_pos;
     detent_width = _2PI / profile.detent_count;
 
@@ -126,6 +127,7 @@ void HapticInterface::correct_pid(void)
     float raw = d_lower_strength;
     raw += (d_upper_strength - d_lower_strength)/(d_upper_pos_width - d_lower_pos_width);
     raw *= haptic_state.detent_width - d_lower_pos_width;
+    
 
     uint16_t total_positions = haptic_state.detent_profile.end_pos - haptic_state.detent_profile.start_pos + 1;
     // If the error is large, clamp the D term so we don't overdrive the response.
@@ -146,7 +148,8 @@ void HapticInterface::correct_pid(void)
         clipping = false;
 
     haptic_pid->P = clipping ? haptic_state.endstop_strength_unit : haptic_state.detent_strength_unit;
-
+    
+    
     if(haptic_state.wasAtLimit)
     haptic_pid->P = 0;
 }
@@ -320,7 +323,8 @@ void HapticInterface::haptic_target(void)
 {
     float error = haptic_state.last_attract_angle - motor->shaft_angle;
     float error_threshold = haptic_state.detent_width * 0.0075; // 0.75% gives good snap without ringing
-
+    // default_pid.output_ramp = haptic_state.detent_profile.output_ramp;
+    haptic_pid->output_ramp = haptic_state.detent_profile.output_ramp;
      // Prevent knob velocity from getting too high and overshooting.
     // If the position error is small, reduce strength to prevent oscillation
     if(fabsf(error) < error_threshold)

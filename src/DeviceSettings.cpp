@@ -38,7 +38,7 @@ DeviceSettings::DeviceSettings() {
     wifiPassword = "";
     wifiEnabled = false;
     midi_sysex_id = 0x00;
-    idleTimeout = 5000;
+    idleTimeout = 10000;
 };
 
 
