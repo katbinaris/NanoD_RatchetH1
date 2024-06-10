@@ -21,6 +21,7 @@
 // I2C
 #define PIN_NANO_I2C_SDA 12
 #define PIN_NANO_I2C_SCL 13
+#define PD_I2C_ADDR 0x28        //0x28 or 0x29 or 0x2A or 0x2B
 
 // Smart LED (WS2811)
 #define PIN_LED_A 38
