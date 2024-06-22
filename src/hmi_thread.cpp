@@ -10,6 +10,9 @@ using namespace ace_button;
 
 Adafruit_USBD_MIDI usb_midi(1);
 
+Adafruit_NeoPixel pixels1(NANO_LED_A_NUM, PIN_LED_A, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel pixels2(NANO_LED_B_NUM, PIN_LED_B, NEO_GRB + NEO_KHZ800);
+
 MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, midiu);
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial2, midi2)
 
@@ -50,17 +53,20 @@ void midi_sysex_handler(byte* array, unsigned size) {
 
 
 // init_usb() must be called before the thread is started
-void HmiThread::init_usb() {
+bool HmiThread::init_usb() {
+  bool result = true;
   usb_midi.setStringDescriptor("Nano_D MIDI");
   midiu.setHandleSystemExclusive(midi_sysex_handler);
-  usb_midi.begin();
+  result &= usb_midi.begin();
   midiu.begin();
 
   usb_hid.setBootProtocol(HID_ITF_PROTOCOL_NONE);
   usb_hid.setPollInterval(2);
   usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
   usb_hid.setStringDescriptor("Nano_D HID");
-  usb_hid.begin();
+  result &= usb_hid.begin();
+
+  return result;
 };
 
 
@@ -70,7 +76,8 @@ void HmiThread::init(ledConfig& initial_led_config, hmiConfig& initial_hmi_confi
     hmi_config = initial_hmi_config;
     led_max_brightness =  DeviceSettings::getInstance().ledMaxBrightness;
     uint8_t b = min(led_max_brightness, led_config.led_brightness);
-    FastLED.setBrightness(b);
+    pixels1.setBrightness(b);
+    pixels2.setBrightness(b);
     midi_sysex_id = DeviceSettings::getInstance().midi_sysex_id;
     midiUsbSettings = DeviceSettings::getInstance().midiUsb;
     midi2Settings = DeviceSettings::getInstance().midi2;
@@ -102,8 +109,9 @@ void HmiThread::handleConfig() {
     if (xQueueReceive(_q_config_in, &newConfig, (TickType_t)0)) {
         led_config = newConfig;
         uint8_t newBrightness = min(led_max_brightness, led_config.led_brightness);
-        if (FastLED.getBrightness() != newBrightness) {
-            FastLED.setBrightness(newBrightness);
+        if (pixels1.getBrightness() != newBrightness) {
+            pixels1.setBrightness(newBrightness);
+            pixels2.setBrightness(newBrightness);
         }
         updateKeyLeds();
     }
@@ -125,8 +133,9 @@ void HmiThread::handleSettings() {
         midi2.setInputChannel(midi2Settings.in? MIDI_CHANNEL_OMNI : MIDI_CHANNEL_OFF);
         led_max_brightness = newSettings.ledMaxBrightness;
         uint8_t newBrightness = min(newSettings.ledMaxBrightness, led_config.led_brightness);
-        if (FastLED.getBrightness() != newBrightness) {
-            FastLED.setBrightness(newBrightness);
+        if (pixels1.getBrightness() != newBrightness) {
+            pixels1.setBrightness(newBrightness);
+            pixels2.setBrightness(newBrightness);
             updateKeyLeds();
         }
         midi_sysex_id = newSettings.midi_sysex_id;
@@ -143,9 +152,10 @@ bool HmiThread::get_key_event(KeyEvt* keyEvt){
 
 
 void HmiThread::run() {
-    FastLED.addLeds<LED_CHIPSET, PIN_LED_A, RGB>(leds, NANO_LED_A_NUM);
-    FastLED.addLeds<LED_CHIPSET, PIN_LED_B, LED_COL_ORDER>(ledsp, NANO_LED_B_NUM);
-    FastLED.setBrightness( DEFAULT_LED_MAX_BRIGHTNESS );
+    pixels1.setBrightness(DEFAULT_LED_MAX_BRIGHTNESS);
+    pixels2.setBrightness(DEFAULT_LED_MAX_BRIGHTNESS);
+    pixels1.begin();
+    pixels2.begin();
     pinMode(PIN_BTN_A, INPUT_PULLUP);
     pinMode(PIN_BTN_B, INPUT_PULLUP);
     pinMode(PIN_BTN_C, INPUT_PULLUP);
@@ -162,7 +172,7 @@ void HmiThread::run() {
     }
     int keys[4] = {0x1, 0x2, 0x4, 0x8};
     int leds[4][2] = {{3, 4}, {2, 5}, {1, 6}, {0, 7}};
-    CRGB colors[4][2] = {
+    uint32_t colors[4][2] = {
         {led_config.button_A_col_press, led_config.button_A_col_idle},
         {led_config.button_B_col_press, led_config.button_B_col_idle},
         {led_config.button_C_col_press, led_config.button_C_col_idle},
@@ -170,7 +180,7 @@ void HmiThread::run() {
     };
 
     for (int i = 0; i < 4; i++) {
-        CRGB color = (keyState & keys[i]) ? colors[i][0] : colors[i][1];
+        uint32_t color = (keyState & keys[i]) ? colors[i][0] : colors[i][1];
         ledsp[leds[i][0]] = color;
         ledsp[leds[i][1]] = color;
     }
@@ -193,7 +203,8 @@ void HmiThread::run() {
         static unsigned long previousMillis = 0;
         if (currentMillis - previousMillis >= 16) {
             // Limit Leds to ~60fps
-            FastLED.show();
+            pixels1.show();
+            pixels2.show();
             previousMillis = currentMillis;
         }
         #ifdef AUDIO_EN
@@ -420,7 +431,7 @@ void HmiThread::handleSysex(byte* array, unsigned size){
 void HmiThread::updateKeyLeds() {
     int keys[4] = {0x1, 0x2, 0x4, 0x8};
     int leds[4][2] = {{3, 4}, {2, 5}, {1, 6}, {0, 7}};
-    CRGB colors[4][2] = {
+    uint32_t colors[4][2] = {
         {led_config.button_A_col_press, led_config.button_A_col_idle},
         {led_config.button_B_col_press, led_config.button_B_col_idle},
         {led_config.button_C_col_press, led_config.button_C_col_idle},
@@ -428,7 +439,7 @@ void HmiThread::updateKeyLeds() {
     };
 
     for (int i = 0; i < 4; i++) {
-        CRGB color = (keyState & keys[i]) ? colors[i][0] : colors[i][1];
+        uint32_t color = (keyState & keys[i]) ? colors[i][0] : colors[i][1];
         ledsp[leds[i][0]] = color;
         ledsp[leds[i][1]] = color;
     }
@@ -451,12 +462,12 @@ void HmiThread::updateLeds() {
 
 
      if (com_thread.global_sleep_flag) {
-        hmi_thread.IdleLeds(25, CRGB::Red, CRGB::Green, CRGB::Blue);
-        FastLED.setBrightness(25);
+        hmi_thread.IdleLeds(25, pixels1.Color(255,0,0), pixels1.Color(0,255,0), pixels1.Color(0,0,255));
+        pixels1.setBrightness(25);
     } else {
-        halvesPointer(point, start, end, led_orientation, (led_config.pointer_col), CRGB(led_config.primary_col), CRGB(led_config.secondary_col));
+        halvesPointer(point, start, end, led_orientation, led_config.pointer_col, led_config.primary_col, led_config.secondary_col);
         updateKeyLeds();
-        FastLED.setBrightness(led_config.led_brightness);
+        pixels1.setBrightness(led_config.led_brightness);
     }
 };
 
@@ -465,7 +476,7 @@ void HmiThread::updateLeds() {
 
 
 // Standard Pointer with two halves
-void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& postCol, const struct CRGB& preCol){ 
+void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orientation, uint32_t pointerCol, uint32_t postCol, uint32_t preCol){ 
     
     for (int i = NANO_LED_A_NUM - 1; i >= 0; i--) {
          if(i > indicator) {
@@ -487,17 +498,26 @@ void HmiThread::halvesPointer(int indicator, int startpos, int endpos, int orien
     Animates the LEDs with a color gradient
 */
 
+uint8_t blend(uint32_t c1, uint32_t c2, uint8_t amount_c2) {
+    uint8_t keep = 255 - amount_c2;
+    uint32_t r = ((c1 >> 16) & 0xFF) * keep + ((c2 >> 16) & 0xFF) * amount_c2;
+    uint32_t g = ((c1 >> 8) & 0xFF) * keep + ((c2 >> 8) & 0xFF) * amount_c2;
+    uint32_t b = (c1 & 0xFF) * keep + (c2 & 0xFF) * amount_c2;
+    return (r / 255) << 16 | (g / 255) << 8 | b / 255;
+};
+
+
 static uint8_t colorIndex = 0;
-void HmiThread::IdleLeds(int fps, const struct CRGB& idleColStart, const struct CRGB& idleColMid, const struct CRGB& idleColEnd){
+void HmiThread::IdleLeds(int fps, uint32_t idleColStart, uint32_t idleColMid, uint32_t idleColEnd){
     
-    CRGB colors[] = {idleColStart ,idleColMid, idleColEnd};
+    uint32_t colors[] = {idleColStart ,idleColMid, idleColEnd};
     static unsigned long lastUpdateTime = 0;
     static bool increasing = false;
     static uint8_t darkness = 255;
     static uint8_t progress = 0;
-    CRGB beginColor = colors[colorIndex];
-    CRGB endColor = colors[(colorIndex + 1) % ARRAY_SIZE(colors)];
-    CRGB currentColor = blend(beginColor, endColor, progress);
+    uint32_t beginColor = colors[colorIndex];
+    uint32_t endColor = colors[(colorIndex + 1) % ARRAY_SIZE(colors)];
+    uint32_t currentColor = blend(beginColor, endColor, progress);
     for(int i = 0; i < NANO_LED_A_NUM + 8; i++ ) {
     leds[i] = currentColor;
     }
@@ -540,4 +560,23 @@ PowerType HmiThread::init_pd() {
     // TODO: read status register to determine selected PDO
 
   return POWER_5V_USB;
+}
+
+
+
+uint32_t HmiThread::read_pdstatus() {
+
+    Wire.beginTransmission(PD_I2C_ADDR);
+    Wire.write(0x91);
+    Wire.endTransmission();
+    Wire.requestFrom(PD_I2C_ADDR, 4);
+
+    uint32_t status = Wire.read();
+    status = (status << 8) | Wire.read();
+    status = (status << 8) | Wire.read();
+    status = (status << 8) | Wire.read();
+
+    Serial.println("PD Status: 0x" + String(status, HEX));
+
+    return status;
 }

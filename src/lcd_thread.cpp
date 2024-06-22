@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "lcd_thread.h"
+#include "driver/ledc.h"
 
 // TODO: See if can do it more elegantly from LVGL tfteSPI driver 
 #include <TFT_eSPI.h> 
@@ -222,8 +223,43 @@ static void counter_handler(lv_timer_t * postimer) {
 
 void LcdThread::run() {
     // Setup LedC
-    ledcSetup(0, 5000, 12); // 4096 steps @ 5Khz
-    ledcAttachPin(5, 0); // LEDC on Pin 5
+    // ledcSetup(0, 5000, 12); // 4096 steps @ 5Khz
+    // ledcAttachPin(5, 0); // LEDC on Pin 5
+
+    ledc_channel_t channel = static_cast<ledc_channel_t>(0);
+    ledc_mode_t group = static_cast<ledc_mode_t>(0);
+
+    ledc_timer_bit_t res = static_cast<ledc_timer_bit_t>(12);
+    ledc_timer_config_t ledc_timer;
+    ledc_timer.speed_mode = group;
+    ledc_timer.timer_num = LEDC_TIMER_0;
+    ledc_timer.duty_resolution = res;
+    ledc_timer.freq_hz = 5000;
+    ledc_timer.clk_cfg = LEDC_AUTO_CLK;
+    if (ledc_timer_config(&ledc_timer) != ESP_OK) {
+        while (1) {
+            Serial.println("ledc_timer_config failed");
+            delay(100);
+        }
+    }
+    uint32_t duty = ledc_get_duty(group, channel);
+    ledc_channel_config_t ledc_channel;
+    ledc_channel.speed_mode = group;
+    ledc_channel.channel =  channel;
+    ledc_channel.timer_sel = LEDC_TIMER_0; 
+    ledc_channel.intr_type = LEDC_INTR_DISABLE;
+    ledc_channel.gpio_num = 5;
+    ledc_channel.duty = duty;
+    ledc_channel.hpoint = 0;
+    ledc_channel.flags.output_invert = 0; // 0 is active high, 1 is active low
+    if (ledc_channel_config(&ledc_channel)!= ESP_OK) {
+        while (1) {
+            Serial.println("ledc_channel_config failed");
+            delay(100);
+        }
+    }
+
+
     lv_init(); // Initialize LVGL
 
     /*

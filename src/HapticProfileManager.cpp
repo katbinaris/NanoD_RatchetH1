@@ -1,7 +1,8 @@
 
 #include "./HapticProfileManager.h"
 #include "./DeviceSettings.h"
-#include "SPIFFS.h"
+#include <FS.h>
+#include <LittleFS.h>
 #include "audio/audio_api.h"
 
 #include "class/hid/hid.h"
@@ -169,7 +170,7 @@ void HapticProfileManager::fromSPIFFS() {
   Serial.println("Loading profiles from SPIFFS...");
   // load profiles from SPIFFS
   int count = 0;
-  File dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+  File dir = LittleFS.open(PROFILES_DIRECTORY, "r");
   if (dir) {
     File file = dir.openNextFile();
     while (file) {
@@ -264,14 +265,14 @@ void HapticProfileManager::fromSPIFFS() {
 
 void HapticProfileManager::toSPIFFS() {
   Serial.println("Saving profiles to SPIFFS...");
-  File dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+  File dir = LittleFS.open(PROFILES_DIRECTORY, "r");
   if (!dir) {
     Serial.println("Creating profiles directory...");
-    if (!SPIFFS.mkdir(PROFILES_DIRECTORY)){
+    if (!LittleFS.mkdir(PROFILES_DIRECTORY)){
       Serial.println("ERROR: Failed to create profiles directory.");
       return;
     }
-    dir = SPIFFS.open(PROFILES_DIRECTORY, "r");
+    dir = LittleFS.open(PROFILES_DIRECTORY, "r");
     if (!dir) {
       Serial.println("ERROR: Failed to open profiles directory.");
       return;
@@ -297,7 +298,7 @@ void HapticProfileManager::toSPIFFS() {
         remove += "/" + filename;
         Serial.print("Removing deleted profile: ");
         Serial.println(remove);
-        SPIFFS.remove(remove);
+        LittleFS.remove(remove);
       }
     }
     file = dir.openNextFile();
@@ -311,7 +312,7 @@ void HapticProfileManager::toSPIFFS() {
       filename += "/";
       filename += profiles[i].profile_name;
       filename += ".json";
-      File file = SPIFFS.open(filename, "w");
+      File file = LittleFS.open(filename, "w");
       if (file) {
         JsonDocument doc;
         JsonObject obj = doc.to<JsonObject>();

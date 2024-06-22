@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 #include <AceButton.h>
-#include <FastLED.h>
+#include <Adafruit_NeoPixel.h>
 #include "thread_crtp.h"
 #include "nanofoc_d.h"
 #include "./led_api.h"
@@ -38,8 +38,9 @@ class HmiThread : public Thread<HmiThread> {
         HmiThread(const uint8_t task_core);
         ~HmiThread();
        
-        void init_usb();
+        bool init_usb();
         PowerType init_pd();
+        uint32_t read_pdstatus();
         void init(ledConfig& initial_led_config, hmiConfig& initial_hmi_config);
     
         // queues
@@ -49,8 +50,8 @@ class HmiThread : public Thread<HmiThread> {
         void put_settings(HmiDeviceSettings& new_settings);
 
         // Light Effects
-        void halvesPointer(int indicator, int startpos, int endpos, int orientation, const struct CRGB& pointerCol, const struct CRGB& preCol, const struct CRGB& postCol);
-        void IdleLeds(int fps, const struct CRGB& idleColStart, const struct CRGB& idleColMid, const struct CRGB& idleColEnd);
+        void halvesPointer(int indicator, int startpos, int endpos, int orientation, uint32_t pointerCol, uint32_t preCol, uint32_t postCol);
+        void IdleLeds(int fps, uint32_t idleColStart, uint32_t idleColMid, uint32_t idleColEnd);
 
         void handleSysex(byte* array, unsigned size);
 
@@ -70,8 +71,8 @@ class HmiThread : public Thread<HmiThread> {
         // LEDs
         uint8_t led_max_brightness = 100;
         ledConfig led_config;
-        CRGB leds[NANO_LED_A_NUM];
-        CRGB ledsp[NANO_LED_B_NUM];
+        uint32_t leds[NANO_LED_A_NUM];
+        uint32_t ledsp[NANO_LED_B_NUM];
         unsigned long lastCheck = 0;
         uint16_t last_pos = -1;
         bool isIdle = false;

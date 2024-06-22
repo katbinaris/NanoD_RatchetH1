@@ -2,7 +2,8 @@
 #include "./DeviceSettings.h"
 #include <Arduino.h>
 #include "nanofoc_d.h"
-#include "SPIFFS.h"
+#include <FS.h>
+#include <LittleFS.h>
 #include <Preferences.h>
 #include <common/foc_utils.h>
 
@@ -140,7 +141,7 @@ bool DeviceSettings::toSPIFFS(){
     // note: use of serial: this function is called from the comms thread.
     if (dirty) {
         Serial.println("Saving settings to SPIFFS...");
-        File file = SPIFFS.open(DEVICE_SETTINGS_FILE, "w");
+        File file = LittleFS.open(DEVICE_SETTINGS_FILE, "w");
         if (!file) {
             Serial.println("ERROR: unable to open settings file!");
             return false;
@@ -162,8 +163,8 @@ bool DeviceSettings::toSPIFFS(){
 bool DeviceSettings::fromSPIFFS(){
     // note: use of serial: this function is called from setup() in main.cpp, or from the comms thread.
     Serial.println("Loading settings from SPIFFS...");
-    if (SPIFFS.exists(DEVICE_SETTINGS_FILE)) {
-        File file = SPIFFS.open(DEVICE_SETTINGS_FILE, "r");
+    if (LittleFS.exists(DEVICE_SETTINGS_FILE)) {
+        File file = LittleFS.open(DEVICE_SETTINGS_FILE, "r");
         if (!file) {
             Serial.println("ERROR: unable to open settings file!");
             return false;
@@ -193,11 +194,11 @@ bool DeviceSettings::init() {
         Serial.println("ERROR: unable to open Preferences!");
         return false;
     }
-    if (SPIFFS.begin(true)) {
-        Serial.println("SPIFFS mounted successfully");
+    if (LittleFS.begin(true)) {
+        Serial.println("LittleFS mounted successfully");
     }
     else {
-        Serial.println("ERROR: SPIFFS mount failed");
+        Serial.println("ERROR: LittleFS mount failed");
         // this is kind of fatal...
         return false;
     }

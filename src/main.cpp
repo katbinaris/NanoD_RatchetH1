@@ -7,9 +7,7 @@
 #include "./com_thread.h"
 #include "./DeviceSettings.h"
 #include <esp_task_wdt.h>
-#include "SPIFFS.h"
 #include <Adafruit_TinyUSB.h>
-
 #include <SparkFun_STUSB4500.h>
 
 FocThread foc_thread(1);
@@ -24,7 +22,7 @@ void setup() {
 
   // initialize USB
   TinyUSBDevice.begin();
-  hmi_thread.init_usb();
+  bool usbinitresult = hmi_thread.init_usb();
   TinyUSBDevice.setID(0x239A, 0x8010); // TODO move to #define
   TinyUSBDevice.setProductDescriptor("Nano_D++ (Beta)"); // TODO move to #define
   TinyUSBDevice.setManufacturerDescriptor("Binaris Circuitry");
@@ -37,6 +35,13 @@ void setup() {
   Serial.print("Firmware version: ");
   Serial.println(NANO_FIRMWARE_VERSION);
   Serial.println("Initializing...");
+  if (!usbinitresult) {
+    while (1) {
+      delay(1000);
+      Serial.println("USB initialization failed!");
+      Serial.flush();
+    }
+  }
   // before we begin, load our global settings...
   DeviceSettings& settings = DeviceSettings::getInstance();
   settings.init();
@@ -44,6 +49,7 @@ void setup() {
 
   // initialize PD power
   hmi_thread.init_pd();
+  hmi_thread.read_pdstatus();
 
   // then load the profiles
   HapticProfileManager& profileManager = HapticProfileManager::getInstance();
