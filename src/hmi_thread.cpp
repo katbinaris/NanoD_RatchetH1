@@ -189,7 +189,9 @@ void HmiThread::run() {
     unsigned long updates = 0;
     unsigned long ts = micros();
 
+    #ifdef AUDIO_EN
     audioPlayer.play_audio(chime_wav, 80);
+    #endif
     while (1) {
         handleSettings();
         handleConfig();
@@ -203,13 +205,13 @@ void HmiThread::run() {
         static unsigned long previousMillis = 0;
         if (currentMillis - previousMillis >= 16) {
             // Limit Leds to ~60fps
-            pixels1.show();
-            pixels2.show();
+            //pixels1.show();
+            //pixels2.show();
             previousMillis = currentMillis;
         }
         #ifdef AUDIO_EN
         audioPlayer.audio_loop();
-         #endif
+        #endif
         vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     

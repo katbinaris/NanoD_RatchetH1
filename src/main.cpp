@@ -68,11 +68,12 @@ void setup() {
   if (profileManager.getCurrentProfile()->hmi_config.knob.num > 0)
     foc_thread.init(profileManager.getCurrentProfile()->hmi_config.knob.values[0].haptic);
 
+
   // start threads
   Serial.println("Starting threads...");
   Serial.flush();
   vTaskDelay(100 / portTICK_PERIOD_MS);
-  lcd_thread.begin();
+  //lcd_thread.begin();
   com_thread.begin();
   hmi_thread.begin();
   foc_thread.begin();
