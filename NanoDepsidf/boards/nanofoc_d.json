@@ -1,0 +1,45 @@
+{
+    "build": {
+      "core": "esp32",
+      "f_cpu": "240000000L",
+      "f_flash": "80000000L",
+      "flash_mode": "qio",
+      "hwids": [
+        [
+          "0x239A",
+          "0x811B"
+        ],
+        [
+          "0x239A",
+          "0x011B"
+        ],
+        [
+          "0x239A",
+          "0x811C"
+        ]
+      ],
+      "mcu": "esp32s3",
+      "extra_flags": [
+        "-DBOARD_HAS_PSRAM"
+      ]
+    },
+    "connectivity": [],
+    "debug": {
+      "openocd_target": "esp32s3.cfg"
+    },
+    "frameworks": [
+      "espidf"
+    ],
+    "name": "NanoFOC_D",
+    "upload": {
+      "flash_size": "4MB",
+      "maximum_ram_size": 327680,
+      "maximum_size": 4194304,
+      "use_1200bps_touch": true,
+      "wait_for_upload_port": true,
+      "require_upload_port": true,
+      "speed": 460800
+    },
+    "url": "https://store.binaris.io",
+    "vendor": "Binaris"
+  }

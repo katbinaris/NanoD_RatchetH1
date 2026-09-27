@@ -1,0 +1,128 @@
+# Baseline config deltas for NanoFOC_D. Kept as sdkconfig.defaults (not hand-edits to the
+# generated per-env sdkconfig file) because raw edits to the generated file were found not
+# to reliably survive rebuilds -- e.g. CONFIG_ESP_WIFI_ENABLED silently reverted to y.
+
+# No WiFi/BLE in this project (see DEVELOPMENT_PLAN.md decisions log).
+# NOTE: ESP_WIFI_ENABLED has no prompt in this IDF version (hidden symbol, hard-derived
+# as "default y if SOC_WIFI_SUPPORTED" -- always true on S3, not a real toggle). It cannot
+# be set from sdkconfig/defaults at all; confirmed empirically -- every attempt to disable
+# it here was silently discarded on regen. The actual mechanism for "no WiFi" is simply
+# never calling esp_wifi_init()/esp_netif_init(): the linker's dead-code elimination drops
+# the WiFi driver automatically since nothing references it (confirmed: build stays at
+# ~13% flash with zero WiFi calls in the app). BT_ENABLED is a real, promptable option:
+# CONFIG_BT_ENABLED is not set
+
+# NanoFOC_D has 4MB flash (board.json also sets this; kept here for robustness)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Found during Phase 8 display-performance debugging: this project had been building at
+# ESP-IDF's DEFAULT debug optimization level (-Og-equivalent) and 160MHz this whole time --
+# neither had ever been touched. Both affect CPU-bound work broadly, including the
+# lv_draw_sw_rotate() software pixel-transpose esp_lvgl_port runs on every single flush
+# because of this project's sw_rotate=true display config (display_task.c) -- a real,
+# previously-unaccounted-for per-frame cost. Switched to the performance optimization
+# profile and the S3's max clock.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# Core 0 is architecturally dedicated exclusively to the control task (see
+# DEVELOPMENT_PLAN.md, tasks_common.h) -- at CONTROL_LOOP_PERIOD_US=100 (10kHz) that task
+# intentionally saturates Core 0, which starves IDLE0 and trips the task watchdog
+# ("IDLE0 ... did not reset the watchdog in time") within seconds on real hardware. That's
+# expected/intended for a core deliberately reserved for one real-time task, not a bug to
+# fix by shrinking the control task's work further -- disable IDLE0 watchdog monitoring
+# specifically (IDLE1 / Core 1 still monitored normally, since it isn't saturated).
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n
+
+# Custom partition table -- also set via board_build.partitions in platformio.ini,
+# which is what actually drives partition table generation under PlatformIO.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/nano_partitions.csv"
+
+# Chip is ESP32-S3-N4R2: 4MB flash + 2MB PSRAM, both in-package. The 2MB (R2) PSRAM
+# variant is always Quad SPI (Octal is only R8/R16 variants) -- confirmed against
+# components/esp_psram/esp32s3/Kconfig.spiram before setting this, not guessed.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_QUAD=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+# Conservative for first hardware bring-up. Quad PSRAM supports 80MHz without the
+# experimental-feature caveat that applies at 120MHz -- worth trying once boot is
+# confirmed stable on real hardware, but don't start there.
+CONFIG_SPIRAM_SPEED_40M=y
+
+# Phase 3: TinyUSB composite HID device (one interface, three report IDs -- keyboard,
+# mouse, gamepad; see usb_task.c). This is the only sdkconfig entry TinyUSB's HID class
+# needs -- endpoint size/polling interval/report-descriptor length are literal args in
+# TUD_HID_DESCRIPTOR in usb_task.c, not Kconfig.
+CONFIG_TINYUSB_HID_COUNT=1
+
+# CDC-ACM, composited alongside HID (not a separate device) -- required, not optional:
+# this board's upload flow (`use_1200bps_touch` in boards/nanofoc_d.json) depends on the
+# *running* firmware exposing a USB-CDC serial port for PlatformIO/esptool to open and
+# toggle at 1200 baud to trigger a reset into the bootloader. A HID-only descriptor has no
+# such port, which would silently break `pio run -t upload` (falls back to needing the
+# physical BOOT switch every time -- reserved for brick recovery only, not routine
+# reflashing). Endpoint budget confirmed fine on hardware, not assumed: ESP32-S3's OTG FS
+# controller has 7 total endpoint numbers / 5 usable IN slots (confirmed directly from
+# TinyUSB's dwc2_esp32.h port source); CDC needs 2 IN + 1 OUT, HID's 3 report IDs share a
+# single IN endpoint -- 3 IN + 1 OUT total, comfortably inside budget. Also fixes the
+# secondary-console conflict noted in Phase 7's plan entry above (USB-Serial-JTAG can't
+# coexist with TinyUSB on the same physical OTG PHY) by giving the running firmware its
+# own CDC console instead.
+CONFIG_TINYUSB_CDC_ENABLED=y
+CONFIG_TINYUSB_CDC_COUNT=1
+
+# Phase 8 config menu: the default LVGL font (Montserrat 14, set when Phase 4 first brought
+# the display up) is too large to fit a scrollable multi-row list or a compact button-legend
+# cheat sheet on this 240x240 round panel without overflowing the circular safe area -- a
+# smaller size for list rows/captions, alongside the existing 14 kept for the Main Screen's
+# big detent readout.
+CONFIG_LV_FONT_MONTSERRAT_12=y
+
+# NOTE: an earlier custom menu font (Sora, RLE-compressed by lv_font_conv) briefly needed
+# CONFIG_LV_USE_FONT_COMPRESSED=y here -- without it, LVGL's compressed-glyph decode branch
+# is compiled out and text silently draws as nothing. No longer needed after switching to
+# Silkscreen (src/fonts/ui_font_silkscreen_16_*.c, --no-compress). Explicitly unset rather
+# than just deleted -- sdkconfig.defaults values only fill in symbols that are still unset,
+# they don't retroactively clear one already saved as `y` in the generated per-env sdkconfig
+# from an earlier build (confirmed: deleting the line here left it =y in
+# sdkconfig.esp32-s3-devkitm-1 after a clean rebuild). Same idiom this file already uses for
+# CONFIG_BT_ENABLED above.
+# CONFIG_LV_USE_FONT_COMPRESSED is not set
+
+# Menu roller animation still felt a step slow on hardware even after the real "laggy" bug
+# (task_max_sleep_ms, see the Phase 8 log) was fixed -- confirmed by the numbers, not
+# guessed, that this is a real hidden ceiling: LV_DEF_REFR_PERIOD gates how often LVGL
+# advances any animation or redraw at all, regardless of how much rendering/SPI-transfer
+# headroom exists. Panel transfer itself isn't the bottleneck (240x240x2 bytes @ 80MHz SPI is
+# ~11.5ms for a FULL frame -- this menu only ever redraws a small dirty area, so real per-
+# frame cost is well under that), so the 33ms default (~30fps, ~4 animation steps over
+# MENU_ROLLER_ANIM_MS=120's duration) was the actual step-count limiter, not throughput.
+# Halved to double the step count per scroll animation.
+CONFIG_LV_DEF_REFR_PERIOD=16
+
+# Temporary diagnostic (Phase 8) -- prints real measured FPS/CPU-usage to the log instead of
+# guessing from feel, same evidence-first approach that found task_max_sleep_ms earlier in
+# this phase. Revert all three once the refresh-period change above is confirmed to actually
+# help. LV_USE_PERF_MONITOR is gated behind LV_USE_SYSMON (a "Debugging > System Monitoring"
+# parent option, off by default) -- confirmed by reading the Kconfig's `if LV_USE_SYSMON`
+# block directly after the first attempt at just the two lines below silently produced no
+# CONFIG_LV_USE_PERF_MONITOR line at all in the generated sdkconfig (not even as "is not
+# set" -- the symbol doesn't exist in that config tree without its parent enabled).
+CONFIG_LV_USE_SYSMON=y
+CONFIG_LV_USE_PERF_MONITOR=y
+CONFIG_LV_USE_PERF_MONITOR_LOG_MODE=y
+
+# Still printed nothing on hardware with just the three lines above -- read lv_log.c to find
+# out why rather than guess again: LV_USE_PERF_MONITOR_LOG_MODE calls the bare `LV_LOG(...)`
+# macro, which maps to `lv_log()`, and that function is a no-op unless EITHER a custom print
+# callback is registered via lv_log_register_print_cb() (this project never calls that) OR
+# CONFIG_LV_LOG_PRINTF routes it through vprintf() -- confirmed directly from lv_log.c's body
+# (`if(custom_print_cb) ... #if LV_LOG_PRINTF else vprintf(...)`). LV_USE_SYSMON/PERF_MONITOR
+# alone only compute the stats; nothing was ever going to print without this. vprintf() lands
+# on ESP-IDF's default console (same UART/USB-CDC stream as every ESP_LOGx call), so no
+# separate callback is needed here. Default LV_LOG_LEVEL_WARN is left alone -- LV_LOG() itself
+# isn't level-filtered (only LV_LOG_LEVEL_NONE fully disables it), and WARN keeps the rest of
+# LVGL's own internal logging quiet, avoiding a flood of unrelated TRACE/INFO noise.
+CONFIG_LV_USE_LOG=y
+CONFIG_LV_LOG_PRINTF=y

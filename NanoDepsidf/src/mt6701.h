@@ -1,0 +1,11 @@
+#pragma once
+#include <stdint.h>
+#include "esp_err.h"
+
+esp_err_t mt6701_init(void);
+
+// Raw 14-bit angle (0-16383), or -1 on read failure.
+int32_t mt6701_read_angle_raw(void);
+
+// Angle in radians [0, 2*PI). NAN on read failure.
+float mt6701_read_angle_rad(void);

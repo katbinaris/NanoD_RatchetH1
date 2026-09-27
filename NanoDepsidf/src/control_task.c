@@ -1,0 +1,1058 @@
+#include "control_task.h"
+#include "tasks_common.h"
+#include "ipc.h"
+#include "mt6701.h"
+#include "motor_config.h"
+#include "motor_driver.h"
+#include "foc_math.h"
+#include "foc_calibration.h"
+#include "board_pins.h"
+#include "audio_trigger.h"
+#include "ui_state.h"
+#include "menu.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_timer.h"
+#include "esp_attr.h"
+#include "esp_log.h"
+#include "driver/gpio.h"
+#include <math.h>
+#include <stdbool.h>
+#include <inttypes.h>
+
+static const char *TAG = "control";
+static TaskHandle_t s_task_handle = NULL;
+static esp_timer_handle_t s_pacing_timer = NULL;
+
+// Converts a duration in milliseconds to an iteration count at the current
+// CONTROL_LOOP_PERIOD_US, so every *_ITERS constant below keeps its real-world meaning
+// regardless of loop rate (see the comment on CONTROL_LOOP_PERIOD_US in tasks_common.h).
+#define MS_TO_ITERS(ms) ((uint32_t)(((uint64_t)(ms) * 1000ULL) / CONTROL_LOOP_PERIOD_US))
+// Inverse of the above, for turning an iteration count back into seconds for logging.
+#define ITERS_TO_SEC(iters) (((iters) * (float)CONTROL_LOOP_PERIOD_US) / 1000000.0f)
+
+// --- Phase 2a closed-loop bench validation ---
+// Open-loop bring-up proved the driver/sensor/commutation are electrically correct (up to
+// 1000 RPM). A first closed-loop position-hold test then proved calibration + real feedback
+// control work (bidirectional holding confirmed by hand). This extends that into a bench
+// validation: step through several target positions around a full revolution (not just
+// holding wherever the rotor happened to start), measuring steady-state tracking accuracy
+// at each, using a PD controller (P alone showed real but expected overshoot on a firm
+// nudge -- D damps that). NOT the real haptic control program -- that's Phase 2b, gated on
+// a joint design session.
+//
+// New risk closed-loop introduces that open-loop didn't have: a sign error in calibration
+// (direction or offset) turns the controller into POSITIVE feedback -- it would push harder
+// away from the target as error grows, instead of correcting toward it. Voltage is still
+// capped the same way as every other test (see motor_config.h), so this isn't a new
+// electrical-safety issue, but it is a real correctness failure mode -- guarded by
+// CL_DIVERGE_ABORT_RAD below.
+typedef enum { CL_HOLD, CL_RAMP_DOWN, CL_DONE } closed_loop_phase_t;
+static closed_loop_phase_t s_cl_phase = CL_DONE; // CL_DONE until calibration succeeds
+static uint32_t s_cl_iter = 0;
+static uint32_t s_cl_target_idx = 0;
+static foc_calibration_t s_cal;
+static float s_base_mech_rad = 0.0f;
+static float s_last_vq = 0.0f;
+static float s_prev_mech_rad = 0.0f;
+static bool s_prev_mech_rad_valid = false;
+
+// Steady-state tracking stats, accumulated over the last CL_STEADYSTATE_ITERS of each
+// target's hold (after the initial move/settle transient) and reset per target.
+static float s_ss_max_abs_error = 0.0f;
+static float s_ss_sum_abs_error = 0.0f;
+static uint32_t s_ss_count = 0;
+
+// Tour around a full revolution and back, relative to wherever the rotor sits when the test
+// starts -- validates arbitrary commanded positions, not just "hold the starting point".
+// RESTORED from the single-position PD-tuning simplification: 0.35A/0.5A static-cap bisection
+// (single fixed position, gentle) came back clean at the full 0.5A, matching the rotating
+// cap and legacy's target. Real next question: does the ORIGINAL brownout (multi-target
+// tour, instant 90deg jumps) now also survive at 0.5A, now that voltage slew-rate limiting
+// (MOTOR_VOLTAGE_SLEW_LIMIT_V_PER_S, CL_MAX_VQ_STEP_V) is in place to bound the inrush a
+// jump like that causes? If yes, slew-limiting was the real fix all along, not a lower
+// static cap. 3s/target restored (shorter than the 60s single-position test -- this is
+// re-testing the tour, not interactive push-testing).
+//
+// EXTENDED to 30 evenly-spaced targets (12deg apart) around a full revolution, per request,
+// to test haptics between much smaller steps than the original 5-point (90deg) tour --
+// computed at runtime (not a 30-element literal array) since the values are a trivial
+// closed form. 1.5s hold/target (30 x 1.5s = 45s total, still bounded).
+#define CL_NUM_TARGETS 30
+static float s_cl_target_offsets[CL_NUM_TARGETS];
+#define CL_TARGET_HOLD_ITERS MS_TO_ITERS(1500) // 1.5s per target: move + settle + measure
+#define CL_STEADYSTATE_ITERS MS_TO_ITERS(500) // last 0.5s of each target's hold used for jitter stats
+
+#define CL_RAMP_DOWN_ITERS MS_TO_ITERS(300) // 0.3s soft-stop
+
+// PD gains. Kp alone (first closed-loop test) held correctly but overshot visibly on a firm
+// nudge -- textbook proportional-only behavior. Kd damps velocity to tighten that up.
+//
+// RAISED to 5.0/0.08 for the 30-target (12deg step) tour to force movement through what
+// looked like static-friction/cogging breakaway torque (target 7/30 frozen for a full
+// 1.5s hold). REVERTED back down: that symptom is now understood to have actually been the
+// MOTOR_POLE_PAIRS bug (was 4, corrected to 7 -- see motor_config.h) -- with the wrong pole
+// count, commutation phase alignment only matched reality near the calibration point and
+// drifted at other mechanical positions, producing exactly this kind of "stuck at one
+// particular target" pattern, not real friction. Now that phase alignment is correct
+// everywhere, real torque-per-volt is both stronger and consistent at every position, so
+// the boosted gains overshoot/oscillate violently on a target step -- confirmed on hardware
+// immediately after the pole-pair fix. Back to the original pre-boost values as the sane
+// starting point; retest the single-position hold and 30-target tour, and only raise again
+// incrementally (watching for overshoot/ringing) if still needed now that the real root
+// cause is fixed.
+#define CL_KP 1.5f  // V/rad
+#define CL_KD 0.05f // V per (rad/s)
+
+// Max commanded-voltage change per control iteration, derived from
+// MOTOR_VOLTAGE_SLEW_LIMIT_V_PER_S -- bounds inrush current on a target step (a legitimate
+// up-to-180deg position change otherwise commands close to full effective voltage in one
+// 1ms tick, which the static current cap's steady-state Ohm's-law model can't account for).
+#define CL_MAX_VQ_STEP_V (MOTOR_VOLTAGE_SLEW_LIMIT_V_PER_S * (CONTROL_LOOP_PERIOD_US / 1000000.0f))
+
+#define CL_DIVERGE_ABORT_RAD 1.5f // ~86 deg -- if a converged hold needs this much
+                                  // correction, treat it as a likely sign error
+#define CL_DIVERGE_CHECK_SETTLE_ITERS MS_TO_ITERS(1000) // 1s grace period after each target change before
+                                            // the check above applies -- a legitimate target
+                                            // step (up to 180 deg) creates a large error for
+                                            // an instant, before the motor has had time to
+                                            // move; checking from tick 0 of a new target
+                                            // false-tripped on exactly that (bug found during
+                                            // the first bench-validation run, not a real
+                                            // calibration/control problem -- target 1 held to
+                                            // <0.01 rad both times before this fired)
+
+#define OL_ENABLE_NEUTRAL_ITERS MS_TO_ITERS(300) // 0.3s at 0V before calibration starts
+
+// --- Reconstructed open-loop diagnostic (BTN_C at boot) ---
+// The original open-loop rotation test from earlier this session's bring-up (proven strong,
+// no brownouts, up to 1000 RPM) was fully replaced by the closed-loop path, not merely
+// disabled -- and NanoDepsidf/ was never under git, so there's no history to restore it
+// from. Reconstructed here as a separate BTN_C-gated mode specifically so it runs on the
+// *exact same* build (same MOTOR_MAX_CURRENT_*, same 10kHz carrier, same hardware) as the
+// closed-loop test that's currently weak/browning out -- an apples-to-apples check of
+// whether that's a closed-loop-specific regression or something affecting the driver at a
+// more fundamental level (hardware, caps, PWM). Deliberately simpler than the original
+// 5-step 1000 RPM staircase (this is a quick diagnostic, not a re-run of full bring-up):
+// one ramp to a modest 200 RPM (a level the original test held strongly at), brief hold,
+// ramp down. Uses the direct-axis (Vd) trick like the original -- no calibration/feedback
+// needed for open-loop forced commutation.
+typedef enum { OL_RAMP, OL_HOLD, OL_RAMPDOWN, OL_TEST_DONE } open_loop_phase_t;
+static open_loop_phase_t s_ol_phase = OL_TEST_DONE;
+static uint32_t s_ol_iter = 0;
+static float s_ol_theta_e = 0.0f;
+static int64_t s_ol_start_us = 0;
+static bool s_open_loop_mode = false;
+
+#define OL_START_RPM 20.0f
+#define OL_TARGET_RPM 200.0f // modest vs. the original's 1000 RPM ceiling -- this level held
+                             // strongly with no brownout earlier in bring-up, enough to
+                             // answer "is the driver/hardware still fine" quickly
+#define OL_SPEED_RAMP_ITERS MS_TO_ITERS(5000) // 5s ramp, same reasoning as the original: an instant
+                                 // step risks the rotor falling out of sync (open-loop has
+                                 // no feedback to correct a missed step)
+#define OL_ROTATE_HOLD_ITERS MS_TO_ITERS(5000) // 5s hold at target RPM
+#define OL_RAMPDOWN_ITERS_2 MS_TO_ITERS(300) // 0.3s soft-stop (separate name from CL_RAMP_DOWN_ITERS)
+#define OL_HARD_TIMEOUT_US (15 * 1000 * 1000) // 15s, above the ~10.3s expected duration
+
+// --- Pole-pair verification diagnostic (BTN_D at boot) ---
+// The "properly unconfounded" method noted in motor_config.h's history, finally wired up:
+// command a KNOWN, FIXED electrical frequency open-loop (sidesteps MOTOR_POLE_PAIRS
+// entirely -- driving directly in electrical Hz, not RPM, means this test doesn't depend on
+// the value it's trying to verify), then measure the ACTUAL mechanical rotation via the
+// MT6701 sensor over a fixed window. pole_pairs = electrical_Hz / measured_mechanical_Hz.
+// Diagnostic only -- does not change MOTOR_POLE_PAIRS itself, just logs the computed value
+// alongside the currently-configured one for comparison.
+typedef enum { PP_RAMP, PP_MEASURE, PP_RAMPDOWN, PP_DONE } polepair_test_phase_t;
+static polepair_test_phase_t s_pp_phase = PP_DONE;
+static uint32_t s_pp_iter = 0;
+static float s_pp_theta_e = 0.0f;
+static float s_pp_prev_mech_rad = 0.0f;
+static bool s_pp_prev_mech_rad_valid = false;
+static float s_pp_accumulated_mech_rad = 0.0f;
+static bool s_polepair_test_mode = false;
+static int64_t s_pp_start_us = 0;
+
+#define PP_TEST_ELECTRICAL_HZ 3.0f // modest -- low slip risk across the plausible 4-7 pole-
+                                   // pair range this is meant to distinguish between
+#define PP_RAMP_ITERS MS_TO_ITERS(2000) // 2s ramp to PP_TEST_ELECTRICAL_HZ -- avoids an instant-step
+                            // slip risk, same reasoning as the open-loop diagnostic's ramp
+#define PP_MEASURE_ITERS MS_TO_ITERS(5000) // 5s at constant electrical Hz -- mechanical angle accumulated
+                              // over this window via the sensor
+#define PP_RAMPDOWN_ITERS MS_TO_ITERS(300) // 0.3s soft-stop
+#define PP_HARD_TIMEOUT_US (12 * 1000 * 1000) // 12s, above the ~7.3s expected duration
+
+// --- Haptic detent demo (BTN_A+BTN_B+BTN_D at boot) ---
+// Nearest-grid-point linear ("sawtooth") detent profile: retarget every tick to whichever
+// of the N evenly-spaced detents is nearest, then Vq = Kp*error - Kd*velocity. Force ramps
+// UP linearly as you move away from a detent center, then INSTANTLY inverts sign at the
+// midpoint between two detents -- the max-slope moment (the snap) happens exactly at the
+// boundary, and the profile is gentlest exactly at rest (center).
+//
+// SECOND APPROACH after a sine-wave profile (Vq = -Kclick*sin(N*rel) - Kd*velocity)
+// prototype: continuous, no target-flip discontinuity, but structurally backwards for a
+// "click" -- sine's slope (local stiffness) is STEEPEST at the center (causing persistent
+// oscillation there, worse the more detents/gain) and FLATTEST at the boundary (the
+// opposite of a snap -- felt like "a bump" not a click, no matter how much Kp/Kd/filtering/
+// loop-rate tuning was applied). This linear profile has the max-slope moment in the right
+// place (the boundary) and is gentler at the exact point (center) that was ringing.
+//
+// FIRST tried this same linear approach even earlier, before most of the infrastructure
+// improvements landed (10kHz loop, rate-correct velocity filter, 0.5A current cap, faster
+// haptic-only slew, legacy-inspired velocity coasting) -- it was never fairly retested
+// under today's conditions, only compared against sine under the old, weaker setup.
+#define HAPTIC_NUM_DETENTS_DEFAULT 12 // 30deg spacing -- adjustable live, see below
+#define HAPTIC_NUM_DETENTS_MIN 3
+#define HAPTIC_NUM_DETENTS_MAX 36
+// Extra margin (fraction of one detent spacing) past the midpoint before the committed
+// detent switches. Without this, sitting still exactly at a midpoint lets sensor noise
+// alone flip the nearest-detent pick every tick, chattering between two targets.
+#define HAPTIC_DETENT_HYSTERESIS_FRAC 0.15f
+#define HAPTIC_KP_DEFAULT 6.0f // V/rad -- "sharpness", adjustable live, see below -- likely
+                               // saturates against the voltage cap over much of a detent's
+                               // travel (that's capped by MOTOR_MAX_CURRENT_STATIC_A, a
+                               // separate knob, not by this gain)
+#define HAPTIC_KP_MIN 0.0f // 0 = no detents at all, pure Kd -- see the "viscous fluid"
+                           // discovery below
+#define HAPTIC_KP_MAX 20.0f
+#define HAPTIC_KP_STEP 1.0f // per BTN_A/BTN_B press
+#define HAPTIC_KD_DEFAULT 0.01f // V per (rad/s), adjustable live, see below -- LOWERED
+                                // from 0.03: velocity is highest right at a detent boundary
+                                // crossing, exactly where -Kd*velocity subtracts torque
+                                // from the snap; the hand holding the knob provides real
+                                // mechanical damping too, so less electronic Kd is needed
+                                // for settling stability than the bench-tour's hands-off
+                                // 0.05 required
+//
+// DISCOVERED on hardware: Kp=0 (HAPTIC_KP_MIN), Kd~0.055 gives a distinct "viscous
+// fluid" knob feel -- pure velocity damping, no positional spring at all. This is the
+// VISCOSE mode noted as a future TODO earlier in this session -- turns out it falls
+// straight out of the existing live-tunable Kp/Kd knobs with no new code needed, just
+// needed HAPTIC_KP_MIN lowered to actually reach it live (0.5 floor excluded it before).
+#define HAPTIC_KD_MIN 0.0f
+#define HAPTIC_KD_MAX 0.15f
+#define HAPTIC_KD_STEP 0.005f // per BTN_A+BTN_C / BTN_B+BTN_D combo press
+// Compared against legacy_fw/src/haptic.cpp (SimpleFOC): the dominant reason legacy feels
+// "clicky" while ours feels "dampened" is that legacy has real closed-loop current control
+// (up to 1.22A/5V) -- ~6x our static Ohm's-law voltage/current ceiling (~0.3A/0.79V), a hard
+// physical limit no amount of Kp/Kd retuning can work around. But legacy also does two
+// things structurally different that ARE worth adopting without touching the current cap:
+// (1) it zeroes the restoring torque entirely above a shaft-velocity threshold ("knob is
+// smooth while rotating quickly by hand but snappy during fine adjust" -- their comment) --
+// our -Kd*velocity term does the opposite, actively resisting fast motion, which reads as
+// friction; (2) it has no explicit slew limit, relying on SimpleFOC's real current control
+// to respond in one PWM cycle, vs. our explicit rate limit smearing the boundary flip out
+// over real time even within our already-small voltage budget.
+#define HAPTIC_COAST_VELOCITY_RAD_S 30.0f // legacy's threshold -- above this speed, apply
+                                          // ZERO torque (neither Kp nor Kd) and let the
+                                          // knob coast freely on hand momentum; only engage
+                                          // the restoring spring for slow/fine adjustment
+#define HAPTIC_VELOCITY_FILTER_TAU_S 0.0067f // EMA low-pass time constant on velocity before
+                                             // it feeds Kd -- raw finite-difference velocity
+                                             // from a quantized 14-bit encoder is noisy;
+                                             // that noise is normally masked by a large
+                                             // steady Kp*error torque, but right at a
+                                             // detent center (error near zero) the
+                                             // restoring term is near zero too, so
+                                             // unfiltered noise through Kd was the
+                                             // dominant, unmasked signal -- causing the
+                                             // buzzing/oscillation-only-at-center symptom
+                                             // found on hardware. Expressed as a real time
+                                             // constant (not a bare alpha) so it stays
+                                             // correct if CONTROL_LOOP_PERIOD_US changes --
+                                             // a fixed alpha would silently get 10x weaker
+                                             // in real-world terms when the loop rate went
+                                             // 1kHz->10kHz (tau = dt/alpha, so the same
+                                             // alpha at a 10x smaller dt is a 10x shorter,
+                                             // i.e. weaker, filter) -- exactly the kind of
+                                             // bug that motivated MS_TO_ITERS() elsewhere.
+                                             // 0.0067s matches the originally-tuned alpha=
+                                             // 0.15 at the old 1kHz rate. Lower = more
+                                             // filtering.
+#define HAPTIC_VELOCITY_FILTER_ALPHA \
+    ((CONTROL_LOOP_PERIOD_US / 1000000.0f) / (HAPTIC_VELOCITY_FILTER_TAU_S + (CONTROL_LOOP_PERIOD_US / 1000000.0f)))
+#define HAPTIC_VOLTAGE_SLEW_LIMIT_V_PER_S 200.0f // LOOSENED from 40 -- still bounded (a
+                                                 // literal instant flip risks an inrush
+                                                 // spike the static Ohm's-law cap can't see),
+                                                 // but legacy's real current control responds
+                                                 // far faster than our original slew rate
+#define HAPTIC_MAX_VQ_STEP_V (HAPTIC_VOLTAGE_SLEW_LIMIT_V_PER_S * (CONTROL_LOOP_PERIOD_US / 1000000.0f))
+// "Click" transient pulse: on detent-index change, inject a short decaying oscillation
+// directly on top of the (slew-limited) background Vq, DELIBERATELY bypassing the slew
+// limiter -- the whole point is a fast, audible tick, and the slew limiter's job is to
+// smooth exactly that kind of transition, so the two goals are in direct conflict. Still
+// hard-clamped to MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V same as everything else, so it
+// can't exceed the current-safety model -- just approach that same cap much faster than
+// the slew limiter would normally allow. Residual risk worth watching for on hardware: a
+// clipped +-cap oscillation is a smaller-scale version of the same switching-current-spike
+// phenomenon that caused the 32kHz-PWM-carrier brownout earlier in this project's history
+// -- much gentler here (200Hz vs 32kHz, ~160x slower edge rate) but not rigorously zero.
+// Two-stage: a brief, high-amplitude/lower-frequency IMPACT (deliberately over-driven past
+// the voltage cap so it clips into a sharp edge -- that clipping is what gives it a
+// percussive feel rather than a tone), followed by a longer, lower-amplitude/lower-
+// frequency TAIL that rings down smoothly (mostly stays under the cap, so it's a cleaner
+// sine, mimicking a real detent's decaying mechanical ring after the initial impact).
+//
+// TUNED for a deeper "thock" instead of a sharp/buzzy "tick": both stages' frequencies
+// dropped a lot (600->100Hz impact, 150->70Hz tail) and the impact stretched slightly
+// (2->4ms) for more perceived weight -- lower frequency content reads as duller/heavier,
+// higher as sharper/buzzier, independent of amplitude/clipping.
+#define HAPTIC_PULSE_IMPACT_DURATION_ITERS MS_TO_ITERS(4) // 4ms low, punchy impact
+#define HAPTIC_PULSE_IMPACT_FREQ_HZ 100.0f
+#define HAPTIC_PULSE_IMPACT_AMPLITUDE_V 6.0f // well above the ~1.3V cap on purpose -- clips
+                                             // hard into a near-square edge
+#define HAPTIC_PULSE_TAIL_DURATION_ITERS MS_TO_ITERS(20) // 20ms softer ring-down
+#define HAPTIC_PULSE_TAIL_FREQ_HZ 70.0f
+#define HAPTIC_PULSE_TAIL_AMPLITUDE_V 1.0f // under the cap -- stays a mostly-clean sine
+#define HAPTIC_PULSE_DURATION_ITERS (HAPTIC_PULSE_IMPACT_DURATION_ITERS + HAPTIC_PULSE_TAIL_DURATION_ITERS)
+// No HAPTIC_RUN_DURATION_US/HARD_TIMEOUT_US -- deliberately runs indefinitely, see the
+// comment in the main loop where the other modes' hard-timeout checks live.
+
+// Phase 3: first mapping-engine decision made (see DEVELOPMENT_PLAN.md "Open decisions")
+// -- knob rotation maps to the HID mouse scroll wheel, one detent crossing = one step.
+// +1 = one sign of rotation, -1 = the other; which physical direction (CW/CCW) that
+// actually is depends on this board's mounting/calibration and hasn't been checked on
+// hardware yet -- flip this single constant if scrolling comes out backwards, same
+// pattern as MOTOR_POLE_PAIRS/s_cal.direction elsewhere in this file.
+#define HID_WHEEL_SIGN 1
+
+typedef enum { HAPTIC_RUN, HAPTIC_DONE } haptic_phase_t;
+static haptic_phase_t s_haptic_phase = HAPTIC_DONE;
+static int64_t s_haptic_start_us = 0;
+static bool s_haptic_mode = false;
+
+// Phase 8: the old live-tuning button combos described above (BTN_D/BTN_C detent count,
+// BTN_A/BTN_B Kp, BTN_A+BTN_C/BTN_B+BTN_D Kd) are RETIRED -- F1/F3/F4 (BTN_A/BTN_C/BTN_D)
+// now have fixed, global menu roles (select/back/open, see DEVELOPMENT_PLAN.md Phase 8 and
+// the Architecture decisions log) that structurally conflict with the old per-combo
+// meanings. Kp/Kd/detent-count stay live-adjustable, just through the real menu
+// (`menu.c`) instead of button combos -- see Phase 8 build-order step 3. Between now and
+// step 3 landing, these three are stuck at their compile-time defaults with no live
+// adjustment path -- an expected, temporary gap, not a bug.
+static uint32_t s_haptic_num_detents = HAPTIC_NUM_DETENTS_DEFAULT;
+static float s_haptic_kp = HAPTIC_KP_DEFAULT;
+static float s_haptic_kd = HAPTIC_KD_DEFAULT;
+static float s_haptic_filtered_velocity = 0.0f;
+static int32_t s_haptic_prev_detent_index = 0;
+static bool s_haptic_prev_detent_index_valid = false;
+static uint32_t s_haptic_pulse_ticks_remaining = 0;
+static float s_haptic_pulse_sign = 1.0f;
+
+// F1/F3/F4 (BTN_A/BTN_C/BTN_D) press-edge state for the real menu (`menu.c`) -- F2/BTN_B
+// is unused/reserved per the Phase 8 button-role decision, not read here. One shared
+// cooldown (not per-button) is enough now that each button fires a single, unambiguous
+// action rather than needing combo disambiguation like the retired scheme above did.
+static bool s_menu_prev_btn_a_pressed = false;
+static bool s_menu_prev_btn_c_pressed = false;
+static bool s_menu_prev_btn_d_pressed = false;
+static uint32_t s_menu_btn_cooldown_until_iter = 0;
+#define MENU_BTN_COOLDOWN_ITERS MS_TO_ITERS(250) // 250ms, same debounce margin the retired scheme used
+
+// Independent safety net, decoupled from the iteration counter above. First bring-up hit a
+// real bug (see motor_config.h) where per-tick error logging starved the scheduler badly
+// enough that the iteration count fell ~18s behind wall-clock time -- the motor stayed
+// energized far longer than the intended bounded test because phase transitions were gated
+// on iteration count, not actual elapsed time. This checks wall-clock time directly via
+// esp_timer_get_time() and force-disables the driver past a hard deadline regardless of
+// what the state machine above thinks is happening.
+#define CL_HARD_TIMEOUT_US (60 * 1000 * 1000) // 60s, above the intended ~45.3s (30 x 1.5s)
+static int64_t s_cl_start_us = 0;
+
+static void IRAM_ATTR pacing_timer_cb(void *arg) {
+    // Runs in the esp_timer service task context (default dispatch method), not a true
+    // ISR -- IRAM_ATTR still helps avoid a flash-cache-miss stall here even in task-dispatch
+    // mode, but the "nanosecond latency" benefit people associate with it really applies to
+    // ESP_TIMER_ISR dispatch, which this deliberately isn't: the actual per-tick work below
+    // (blocking SPI reads via spi_device_polling_transmit, ESP_LOGI, xQueueSend) is not safe
+    // to call from a true interrupt handler without a much larger rewrite (ISR-safe SPI,
+    // no logging in the hot path, xQueueSendFromISR) for a benefit we don't need -- our
+    // real problem was Core 0 CPU-time starvation of IDLE0, not dispatch latency, and that's
+    // fixed via CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n in sdkconfig.defaults instead.
+    xTaskNotifyGive(s_task_handle);
+}
+
+// Wrap to (-pi, pi].
+static float wrap_pi(float rad) {
+    while (rad > (float)M_PI) rad -= 2.0f * (float)M_PI;
+    while (rad <= -(float)M_PI) rad += 2.0f * (float)M_PI;
+    return rad;
+}
+
+static float raw_to_rad(int32_t raw) {
+    return ((float)raw / 16384.0f) * 2.0f * (float)M_PI;
+}
+
+static void control_task_fn(void *arg) {
+    ESP_LOGI(TAG, "control task started on core %d, prio %d", xPortGetCoreID(), uxTaskPriorityGet(NULL));
+
+    // Deliberate delay before anything time-sensitive (button check, motor init) so there's
+    // generous slack for a serial monitor to reattach after a physical unplug/replug --
+    // macOS/host USB-CDC re-enumeration plus a monitor script's reconnect can easily eat
+    // the first couple seconds after reset, which was repeatedly causing the actual
+    // arm-check and test-run log lines to be missed entirely during bring-up.
+    ESP_LOGI(TAG, "Waiting 3s before BTN_A arm check (attach a serial monitor now if you want to watch)...");
+    vTaskDelay(pdMS_TO_TICKS(3000));
+
+    esp_err_t sensor_err = mt6701_init();
+    if (sensor_err != ESP_OK) {
+        ESP_LOGE(TAG, "MT6701 init failed, angle reads will fail");
+    }
+
+    // The haptic detent demo (see haptic_phase_t below) is now the default/main behavior
+    // on a plain reset/reconnect -- promoted from behind a button combo now that it's
+    // mature/hardware-validated (see DEVELOPMENT_PLAN.md Phase 2b). This is a deliberate
+    // departure from the earlier "motor never energizes on a plain reset" safety posture
+    // established during Phase 2a bring-up (see DEVELOPMENT_PLAN.md: every reflash/reset
+    // silently re-energizing the motor is exactly what made those early incidents hard to
+    // investigate) -- that posture was about protecting an *unvalidated* control loop
+    // during bring-up, not a blanket rule; haptic mode has its own independent safety net
+    // (aborts if error ever exceeds one full detent spacing -- a real control bug, not
+    // normal operation) and is exactly the mode meant to run continuously/hands-on.
+    // BTN_A held at boot instead arms the legacy diagnostic suite: BTN_B held at the same
+    // time forces a fresh calibration even if a valid one is cached in NVS; BTN_C held at
+    // the same time selects the reconstructed open-loop diagnostic instead of the
+    // closed-loop bench test (see open_loop_phase_t above); BTN_D held at the same time
+    // selects the pole-pair verification diagnostic instead (see polepair_test_phase_t
+    // above). The old explicit BTN_A+BTN_B+BTN_D combo for haptic mode is retired now that
+    // it doesn't need a combo at all.
+    gpio_config_t btn_cfg = {
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << PIN_BTN_A) | (1ULL << PIN_BTN_B) | (1ULL << PIN_BTN_C) | (1ULL << PIN_BTN_D),
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&btn_cfg);
+    // Poll for a few seconds rather than sampling once ~20ms after boot -- a single-shot
+    // sample requires catching an exact split-second right at boot, which is impractical
+    // when arming via unplug/replug (no way to see the log in real time to know when that
+    // window is). This gives a few seconds of slack: hold BTN_A any time during the window.
+    bool armed = false;
+    bool force_recal = false;
+    int last_level = -1;
+    for (int i = 0; i < 60; i++) { // 60 x 50ms = 3s
+        last_level = gpio_get_level(PIN_BTN_A);
+        if (last_level == 0) { // assumed active-low; see diagnostic log below if this never arms
+            armed = true;
+            force_recal = (gpio_get_level(PIN_BTN_B) == 0);
+            s_open_loop_mode = (gpio_get_level(PIN_BTN_C) == 0);
+            s_polepair_test_mode = (gpio_get_level(PIN_BTN_D) == 0);
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    // Haptic mode is now the unconditional default whenever the legacy diagnostic suite
+    // isn't armed -- see the comment above this arm-window loop.
+    s_haptic_mode = !armed;
+    ESP_LOGI(TAG, "BTN_A arm window done, armed=%d, force_recal=%d, open_loop_mode=%d, polepair_test_mode=%d, haptic_mode=%d, last observed level=%d",
+             armed, force_recal, s_open_loop_mode, s_polepair_test_mode, s_haptic_mode, last_level);
+
+    {
+        esp_err_t drv_err = motor_driver_init();
+        if (drv_err != ESP_OK) {
+            ESP_LOGE(TAG, "motor driver init failed, skipping test");
+        } else {
+            motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f); // neutral duty before enabling
+            motor_driver_enable(true);
+            s_cl_start_us = esp_timer_get_time();
+            vTaskDelay(pdMS_TO_TICKS(OL_ENABLE_NEUTRAL_ITERS));
+
+            if (armed && s_open_loop_mode) {
+                s_ol_phase = OL_RAMP;
+                s_ol_start_us = esp_timer_get_time();
+                ESP_LOGI(TAG, "ARMED: open-loop diagnostic, ramp %.0f->%.0f RPM over %.1fs, hold %.1fs",
+                         OL_START_RPM, OL_TARGET_RPM, ITERS_TO_SEC(OL_SPEED_RAMP_ITERS), ITERS_TO_SEC(OL_ROTATE_HOLD_ITERS));
+            } else if (s_haptic_mode) {
+                // Reuses the calibration cache like the plain bench tour -- force_recal only
+                // applies to the legacy diagnostic suite (BTN_A held), not the default path.
+                bool have_cal = foc_calibration_load(&s_cal);
+                if (!have_cal) {
+                    s_cal = foc_calibration_run();
+                    if (s_cal.valid) {
+                        foc_calibration_save(&s_cal);
+                    }
+                }
+                if (!s_cal.valid) {
+                    ESP_LOGE(TAG, "calibration failed -- disabling, not attempting haptic demo");
+                    motor_driver_enable(false);
+                } else {
+                    int32_t raw = mt6701_read_angle_raw();
+                    s_base_mech_rad = raw_to_rad(raw);
+                    s_haptic_num_detents = HAPTIC_NUM_DETENTS_DEFAULT;
+                    s_haptic_kp = HAPTIC_KP_DEFAULT;
+                    s_haptic_kd = HAPTIC_KD_DEFAULT;
+                    s_haptic_filtered_velocity = 0.0f;
+                    s_haptic_prev_detent_index_valid = false;
+                    s_haptic_pulse_ticks_remaining = 0;
+                    s_haptic_pulse_sign = 1.0f;
+                    s_menu_prev_btn_a_pressed = false;
+                    s_menu_prev_btn_c_pressed = false;
+                    s_menu_prev_btn_d_pressed = false;
+                    s_menu_btn_cooldown_until_iter = 0;
+                    s_haptic_phase = HAPTIC_RUN;
+                    s_haptic_start_us = esp_timer_get_time();
+                    ESP_LOGI(TAG, "ARMED: haptic detent demo, %lu detents (%.1f deg spacing), "
+                                   "Kp=%.2f V/rad, Kd=%.3f V/(rad/s), running indefinitely -- turn the "
+                                   "knob by hand, F4 opens the config menu (F3 back, F1 select)",
+                             (unsigned long)s_haptic_num_detents, 360.0f / s_haptic_num_detents, s_haptic_kp,
+                             s_haptic_kd);
+                }
+            } else if (s_polepair_test_mode) {
+                s_pp_phase = PP_RAMP;
+                s_pp_start_us = esp_timer_get_time();
+                ESP_LOGI(TAG, "ARMED: pole-pair diagnostic, ramp to %.1f Hz electrical over %.1fs, "
+                               "measure for %.1fs (configured pole_pairs=%d for comparison)",
+                         PP_TEST_ELECTRICAL_HZ, ITERS_TO_SEC(PP_RAMP_ITERS), ITERS_TO_SEC(PP_MEASURE_ITERS),
+                         MOTOR_POLE_PAIRS);
+            } else {
+            // Skip the calibration jerks if a sane calibration is already cached and a fresh
+            // one wasn't explicitly requested -- the sensor/motor mounting doesn't change
+            // between reboots, so a valid calibration remains valid indefinitely.
+            bool have_cal = !force_recal && foc_calibration_load(&s_cal);
+            if (!have_cal) {
+                s_cal = foc_calibration_run();
+                if (s_cal.valid) {
+                    foc_calibration_save(&s_cal);
+                }
+            }
+
+            if (!s_cal.valid) {
+                ESP_LOGE(TAG, "calibration failed -- disabling, not attempting closed-loop control");
+                motor_driver_enable(false);
+            } else {
+                int32_t raw = mt6701_read_angle_raw();
+                s_base_mech_rad = raw_to_rad(raw);
+                for (int i = 0; i < CL_NUM_TARGETS; i++) {
+                    s_cl_target_offsets[i] = wrap_pi(2.0f * (float)M_PI * i / CL_NUM_TARGETS);
+                }
+                s_cl_phase = CL_HOLD;
+                ESP_LOGI(TAG, "ARMED: closed-loop bench validation, %d targets x %.1fs each, "
+                               "Kp=%.2f V/rad, Kd=%.3f V/(rad/s), diverge-abort at %.2f rad",
+                         (int)CL_NUM_TARGETS, ITERS_TO_SEC(CL_TARGET_HOLD_ITERS), CL_KP, CL_KD,
+                         CL_DIVERGE_ABORT_RAD);
+            }
+            }
+        }
+    }
+
+    uint32_t iterations = 0;
+    while (1) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        iterations++;
+
+        // Read-only sensor log, throttled to ~2Hz -- an ongoing sanity check that the
+        // encoder is still readable independent of the closed-loop test below.
+        // Logging temporarily disabled -- pure console noise during haptic-feel tuning.
+        // Re-enable if debugging encoder read failures.
+        if (false && iterations % MS_TO_ITERS(500) == 0) {
+            int32_t raw = mt6701_read_angle_raw();
+            ESP_LOGI(TAG, "MT6701 raw angle: %ld / 16383", (long)raw);
+        }
+
+        // Hard wall-clock safety net -- checked before the state machine, independent of
+        // iteration counting (see comment above CL_HARD_TIMEOUT_US).
+        if (s_cl_phase != CL_DONE && (esp_timer_get_time() - s_cl_start_us) > CL_HARD_TIMEOUT_US) {
+            s_cl_phase = CL_DONE;
+            motor_driver_enable(false);
+            ESP_LOGE(TAG, "closed-loop test HARD TIMEOUT (%.1fs elapsed) -- forcing driver disabled",
+                      (esp_timer_get_time() - s_cl_start_us) / 1000000.0f);
+        }
+        if (s_ol_phase != OL_TEST_DONE && (esp_timer_get_time() - s_ol_start_us) > OL_HARD_TIMEOUT_US) {
+            s_ol_phase = OL_TEST_DONE;
+            motor_driver_enable(false);
+            ESP_LOGE(TAG, "open-loop diagnostic HARD TIMEOUT (%.1fs elapsed) -- forcing driver disabled",
+                      (esp_timer_get_time() - s_ol_start_us) / 1000000.0f);
+        }
+        if (s_pp_phase != PP_DONE && (esp_timer_get_time() - s_pp_start_us) > PP_HARD_TIMEOUT_US) {
+            s_pp_phase = PP_DONE;
+            motor_driver_enable(false);
+            ESP_LOGE(TAG, "pole-pair diagnostic HARD TIMEOUT (%.1fs elapsed) -- forcing driver disabled",
+                      (esp_timer_get_time() - s_pp_start_us) / 1000000.0f);
+        }
+        // Haptic demo deliberately has NO time-based cutoff (unlike every other mode above) --
+        // it's meant to be worn/used indefinitely, not a bounded scripted test. Still stops
+        // immediately on a real fault via the sensor-read-failure and divergence aborts below.
+
+        if (s_pp_phase != PP_DONE) {
+            float electrical_hz;
+            switch (s_pp_phase) {
+                case PP_RAMP:
+                    electrical_hz = PP_TEST_ELECTRICAL_HZ * ((float)s_pp_iter / PP_RAMP_ITERS);
+                    if (++s_pp_iter >= PP_RAMP_ITERS) {
+                        s_pp_iter = 0;
+                        s_pp_phase = PP_MEASURE;
+                        s_pp_accumulated_mech_rad = 0.0f;
+                        s_pp_prev_mech_rad_valid = false;
+                        ESP_LOGI(TAG, "pole-pair diagnostic: ramp complete, measuring for %.1fs",
+                                 ITERS_TO_SEC(PP_MEASURE_ITERS));
+                    }
+                    break;
+                case PP_MEASURE: {
+                    electrical_hz = PP_TEST_ELECTRICAL_HZ;
+                    int32_t raw = mt6701_read_angle_raw();
+                    if (raw >= 0) {
+                        // Accumulate the true (unwrapped) mechanical travel by summing shortest-
+                        // path deltas between consecutive 1kHz samples -- the rotor can't move
+                        // more than a small fraction of a revolution per tick, so wrap_pi's
+                        // shortest-path assumption holds and correctly handles the 16383/0
+                        // sensor wraparound without losing whole revolutions.
+                        float mech_rad = raw_to_rad(raw);
+                        if (s_pp_prev_mech_rad_valid) {
+                            s_pp_accumulated_mech_rad += wrap_pi(mech_rad - s_pp_prev_mech_rad);
+                        }
+                        s_pp_prev_mech_rad = mech_rad;
+                        s_pp_prev_mech_rad_valid = true;
+                    }
+                    if (++s_pp_iter >= PP_MEASURE_ITERS) {
+                        float duration_s = ITERS_TO_SEC(PP_MEASURE_ITERS);
+                        float mech_hz = fabsf(s_pp_accumulated_mech_rad) / (2.0f * (float)M_PI) / duration_s;
+                        float computed_pole_pairs = mech_hz > 0.0001f ? PP_TEST_ELECTRICAL_HZ / mech_hz : 0.0f;
+                        ESP_LOGI(TAG, "pole-pair diagnostic RESULT: %.3f rad mechanical over %.1fs "
+                                       "(%.4f Hz mechanical) at %.2f Hz electrical -> computed "
+                                       "pole_pairs=%.2f (currently configured: %d)",
+                                 s_pp_accumulated_mech_rad, duration_s, mech_hz, PP_TEST_ELECTRICAL_HZ,
+                                 computed_pole_pairs, MOTOR_POLE_PAIRS);
+                        s_pp_iter = 0;
+                        s_pp_phase = PP_RAMPDOWN;
+                    }
+                    break;
+                }
+                case PP_RAMPDOWN:
+                default:
+                    electrical_hz = PP_TEST_ELECTRICAL_HZ;
+                    break;
+            }
+
+            s_pp_theta_e = wrap_pi(s_pp_theta_e + 2.0f * (float)M_PI * electrical_hz * (CONTROL_LOOP_PERIOD_US / 1000000.0f));
+
+            float pp_vd = MOTOR_EFFECTIVE_ROTATING_VOLTAGE_LIMIT_V;
+            if (s_pp_phase == PP_RAMPDOWN) {
+                pp_vd = MOTOR_EFFECTIVE_ROTATING_VOLTAGE_LIMIT_V * (1.0f - (float)s_pp_iter / PP_RAMPDOWN_ITERS);
+                if (++s_pp_iter >= PP_RAMPDOWN_ITERS) {
+                    s_pp_phase = PP_DONE;
+                    motor_driver_enable(false);
+                    ESP_LOGI(TAG, "pole-pair diagnostic complete, driver disabled");
+                }
+            }
+
+            if (s_pp_phase != PP_DONE) {
+                foc_dq_t dq = { .d = pp_vd, .q = 0.0f }; // direct-axis trick, same as the open-loop
+                                                          // diagnostic -- no feedback needed
+                foc_ab_t ab = foc_inverse_park(dq, s_pp_theta_e);
+                foc_abc_t abc = foc_inverse_clarke(ab);
+                motor_driver_set_phase_voltages(abc.a, abc.b, abc.c);
+            }
+        }
+
+        if (s_ol_phase != OL_TEST_DONE) {
+            float current_rpm;
+            switch (s_ol_phase) {
+                case OL_RAMP:
+                    current_rpm = OL_START_RPM + (OL_TARGET_RPM - OL_START_RPM) * ((float)s_ol_iter / OL_SPEED_RAMP_ITERS);
+                    if (++s_ol_iter >= OL_SPEED_RAMP_ITERS) {
+                        s_ol_iter = 0;
+                        s_ol_phase = OL_HOLD;
+                        ESP_LOGI(TAG, "open-loop diagnostic: target %.0f RPM reached, holding", OL_TARGET_RPM);
+                    }
+                    break;
+                case OL_HOLD:
+                    current_rpm = OL_TARGET_RPM;
+                    if (++s_ol_iter >= OL_ROTATE_HOLD_ITERS) {
+                        s_ol_iter = 0;
+                        s_ol_phase = OL_RAMPDOWN;
+                        ESP_LOGI(TAG, "open-loop diagnostic: hold complete, ramping down");
+                    }
+                    break;
+                case OL_RAMPDOWN:
+                default:
+                    current_rpm = OL_TARGET_RPM;
+                    break;
+            }
+
+            float electrical_hz = (current_rpm / 60.0f) * MOTOR_POLE_PAIRS;
+            s_ol_theta_e = wrap_pi(s_ol_theta_e + 2.0f * (float)M_PI * electrical_hz * (CONTROL_LOOP_PERIOD_US / 1000000.0f));
+
+            float vd = MOTOR_EFFECTIVE_ROTATING_VOLTAGE_LIMIT_V;
+            if (s_ol_phase == OL_RAMPDOWN) {
+                vd = MOTOR_EFFECTIVE_ROTATING_VOLTAGE_LIMIT_V * (1.0f - (float)s_ol_iter / OL_RAMPDOWN_ITERS_2);
+                if (++s_ol_iter >= OL_RAMPDOWN_ITERS_2) {
+                    s_ol_phase = OL_TEST_DONE;
+                    motor_driver_enable(false);
+                    ESP_LOGI(TAG, "open-loop diagnostic complete, driver disabled");
+                }
+            }
+
+            if (s_ol_phase != OL_TEST_DONE) {
+                foc_dq_t dq = { .d = vd, .q = 0.0f }; // direct-axis trick -- no feedback needed,
+                                                       // forced commutation via a virtual
+                                                       // rotating angle
+                foc_ab_t ab = foc_inverse_park(dq, s_ol_theta_e);
+                foc_abc_t abc = foc_inverse_clarke(ab);
+                motor_driver_set_phase_voltages(abc.a, abc.b, abc.c);
+            }
+
+            if (iterations % MS_TO_ITERS(500) == 0 && s_ol_phase != OL_TEST_DONE) {
+                ESP_LOGI(TAG, "open-loop: rpm=%.0f vd=%.3fV", current_rpm, vd);
+            }
+        }
+
+        if (!s_open_loop_mode && s_cl_phase != CL_DONE) {
+            int32_t raw = mt6701_read_angle_raw();
+            if (raw < 0) {
+                ESP_LOGE(TAG, "sensor read failed mid-test -- aborting closed-loop control");
+                s_cl_phase = CL_DONE;
+                motor_driver_enable(false);
+            } else {
+                float mech_rad = raw_to_rad(raw);
+                float elec_rad = wrap_pi(s_cal.direction * mech_rad * MOTOR_POLE_PAIRS - s_cal.electrical_offset_rad);
+                float target = wrap_pi(s_base_mech_rad + s_cl_target_offsets[s_cl_target_idx < CL_NUM_TARGETS ? s_cl_target_idx : 0]);
+                float error = wrap_pi(target - mech_rad);
+
+                float velocity = 0.0f;
+                if (s_prev_mech_rad_valid) {
+                    velocity = wrap_pi(mech_rad - s_prev_mech_rad) / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
+                }
+                s_prev_mech_rad = mech_rad;
+                s_prev_mech_rad_valid = true;
+
+                if (s_cl_iter > CL_DIVERGE_CHECK_SETTLE_ITERS && fabsf(error) > CL_DIVERGE_ABORT_RAD) {
+                    ESP_LOGE(TAG, "position error diverged (%.3f rad > %.2f rad abort threshold) -- "
+                                   "likely a calibration sign error, not a real disturbance. Aborting.",
+                             error, CL_DIVERGE_ABORT_RAD);
+                    s_cl_phase = CL_DONE;
+                    motor_driver_enable(false);
+                } else {
+                    float vq = CL_KP * error - CL_KD * velocity;
+                    if (vq > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                    if (vq < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                    // elec_rad's slope wrt raw mech_rad is (direction*pole_pairs) -- positive Vq
+                    // (at an accurate elec_rad) always drives elec_rad, hence raw mech_rad, in
+                    // that same signed slope's direction. error/velocity above are computed
+                    // directly in raw-mech_rad terms, so the PD effort must be re-signed by
+                    // `direction` before injection, or a direction=-1 calibration (raw sensor
+                    // counts running opposite the commutation convention -- confirmed correct
+                    // via the calibration step's clean magnitude match) turns this into positive
+                    // feedback: found on hardware immediately after the pole-pair fix (previous
+                    // calibrations apparently always landed on direction=+1, which silently
+                    // masked this).
+                    vq *= s_cal.direction;
+                    // Slew-limit relative to the last actually-applied vq (s_last_vq) --
+                    // only meaningfully affects CL_HOLD, since CL_RAMP_DOWN below overwrites
+                    // vq with its own already-gradual decay before it's ever applied.
+                    if (vq > s_last_vq + CL_MAX_VQ_STEP_V) vq = s_last_vq + CL_MAX_VQ_STEP_V;
+                    if (vq < s_last_vq - CL_MAX_VQ_STEP_V) vq = s_last_vq - CL_MAX_VQ_STEP_V;
+
+                    switch (s_cl_phase) {
+                        case CL_HOLD:
+                            if (s_cl_iter == 0) {
+                                s_ss_max_abs_error = 0.0f;
+                                s_ss_sum_abs_error = 0.0f;
+                                s_ss_count = 0;
+                            }
+                            if (s_cl_iter >= CL_TARGET_HOLD_ITERS - CL_STEADYSTATE_ITERS) {
+                                float abs_err = fabsf(error);
+                                if (abs_err > s_ss_max_abs_error) s_ss_max_abs_error = abs_err;
+                                s_ss_sum_abs_error += abs_err;
+                                s_ss_count++;
+                            }
+                            s_last_vq = vq;
+                            if (++s_cl_iter >= CL_TARGET_HOLD_ITERS) {
+                                ESP_LOGI(TAG, "target %lu/%d (%.3f rad) steady-state: max|err|=%.4f rad, "
+                                               "avg|err|=%.4f rad",
+                                         (unsigned long)(s_cl_target_idx + 1), (int)CL_NUM_TARGETS, target,
+                                         s_ss_max_abs_error, s_ss_count ? s_ss_sum_abs_error / s_ss_count : 0.0f);
+                                s_cl_iter = 0;
+                                s_cl_target_idx++;
+                                if (s_cl_target_idx >= CL_NUM_TARGETS) {
+                                    s_cl_phase = CL_RAMP_DOWN;
+                                    ESP_LOGI(TAG, "closed-loop test: all targets complete, ramping down");
+                                }
+                            }
+                            break;
+                        case CL_RAMP_DOWN:
+                            vq = s_last_vq * (1.0f - (float)s_cl_iter / CL_RAMP_DOWN_ITERS);
+                            if (++s_cl_iter >= CL_RAMP_DOWN_ITERS) {
+                                s_cl_phase = CL_DONE;
+                                motor_driver_enable(false);
+                                ESP_LOGI(TAG, "closed-loop test complete, driver disabled");
+                            }
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (s_cl_phase != CL_DONE) {
+                        foc_dq_t dq = { .d = 0.0f, .q = vq }; // quadrature axis -- real torque, unlike
+                                                               // the open-loop test's direct-axis trick
+                        foc_ab_t ab = foc_inverse_park(dq, elec_rad);
+                        foc_abc_t abc = foc_inverse_clarke(ab);
+                        motor_driver_set_phase_voltages(abc.a, abc.b, abc.c);
+                    }
+
+                    if (iterations % MS_TO_ITERS(500) == 0 && s_cl_phase != CL_DONE) {
+                        ESP_LOGI(TAG, "target=%.3f error=%.4f rad, vq=%.3fV", target, error, vq);
+                    }
+                }
+            }
+        }
+
+        if (s_haptic_phase != HAPTIC_DONE) {
+            if (s_haptic_phase == HAPTIC_RUN) {
+                // Phase 8: F1/F3/F4 (BTN_A/BTN_C/BTN_D) drive the real config menu
+                // (`menu.c`) -- fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the
+                // Architecture decisions log. F2/BTN_B is unused/reserved, not read here.
+                bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0);
+                bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0);
+                bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0);
+
+                if (iterations >= s_menu_btn_cooldown_until_iter) {
+                    if (btn_d_pressed && !s_menu_prev_btn_d_pressed) {
+                        menu_input_toggle_open(); // F4
+                        s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                    } else if (btn_c_pressed && !s_menu_prev_btn_c_pressed) {
+                        menu_input_back(); // F3
+                        s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                    } else if (btn_a_pressed && !s_menu_prev_btn_a_pressed) {
+                        menu_input_select(); // F1
+                        s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                    }
+                }
+                s_menu_prev_btn_a_pressed = btn_a_pressed;
+                s_menu_prev_btn_c_pressed = btn_c_pressed;
+                s_menu_prev_btn_d_pressed = btn_d_pressed;
+            }
+
+            int32_t raw = mt6701_read_angle_raw();
+            if (raw < 0) {
+                ESP_LOGE(TAG, "sensor read failed mid-test -- aborting haptic demo");
+                s_haptic_phase = HAPTIC_DONE;
+                motor_driver_enable(false);
+            } else {
+                float mech_rad = raw_to_rad(raw);
+                float elec_rad = wrap_pi(s_cal.direction * mech_rad * MOTOR_POLE_PAIRS - s_cal.electrical_offset_rad);
+
+                // Nearest-grid-point linear ("sawtooth") detent profile: retarget every
+                // tick to whichever of the N evenly-spaced detents is nearest, then
+                // Vq = Kp*error - Kd*velocity. Force ramps up linearly moving away from a
+                // detent center, then INSTANTLY inverts sign at the midpoint between two
+                // detents -- the snap happens exactly at the boundary (max-slope moment),
+                // and the profile is gentlest exactly at rest (center) -- the opposite
+                // shape from the sine profile this replaced, and structurally correct for
+                // both symptoms that profile had (mushy transition, center oscillation).
+                float detent_spacing = 2.0f * (float)M_PI / (float)s_haptic_num_detents;
+                float rel = wrap_pi(mech_rad - s_base_mech_rad);
+
+                // Hysteresis: stick with the previously committed detent until rel moves
+                // past its midpoint by an extra margin, instead of always retargeting to
+                // whichever is instantaneously nearest -- otherwise sensor noise alone
+                // chatters the pick back and forth while sitting still at a midpoint.
+                int32_t detent_index;
+                if (s_haptic_prev_detent_index_valid) {
+                    float committed_target_rel = (float)s_haptic_prev_detent_index * detent_spacing;
+                    float dist_from_committed = wrap_pi(rel - committed_target_rel);
+                    if (fabsf(dist_from_committed) > detent_spacing * (0.5f + HAPTIC_DETENT_HYSTERESIS_FRAC)) {
+                        detent_index = (int32_t)roundf(rel / detent_spacing);
+                    } else {
+                        detent_index = s_haptic_prev_detent_index;
+                    }
+                } else {
+                    detent_index = (int32_t)roundf(rel / detent_spacing);
+                }
+                float target_rel = (float)detent_index * detent_spacing;
+                float error = wrap_pi(target_rel - rel);
+
+                float velocity = 0.0f;
+                if (s_prev_mech_rad_valid) {
+                    velocity = wrap_pi(mech_rad - s_prev_mech_rad) / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
+                }
+                s_prev_mech_rad = mech_rad;
+                s_prev_mech_rad_valid = true;
+                s_haptic_filtered_velocity = HAPTIC_VELOCITY_FILTER_ALPHA * velocity
+                                              + (1.0f - HAPTIC_VELOCITY_FILTER_ALPHA) * s_haptic_filtered_velocity;
+
+                // error can never legitimately exceed half a detent's spacing (target is
+                // always the NEAREST one) -- past a full spacing signals a real control bug
+                // (e.g. the direction-sign class of bug found earlier), not normal operation.
+                if (fabsf(error) > detent_spacing) {
+                    ESP_LOGE(TAG, "haptic demo: error (%.3f rad) exceeds one full detent spacing "
+                                   "(%.3f rad) -- likely a control bug, aborting.",
+                             error, detent_spacing);
+                    s_haptic_phase = HAPTIC_DONE;
+                    motor_driver_enable(false);
+                } else {
+                    // Legacy-inspired coasting: above a fast hand-flick speed, apply zero
+                    // torque and let the knob spin freely on momentum rather than fighting
+                    // it -- only the slow/fine-adjustment regime gets the restoring spring.
+                    // is_coasting is reused below by the click-pulse arming logic -- see
+                    // that comment for why the pulse needs to know this too.
+                    bool is_coasting = fabsf(s_haptic_filtered_velocity) > HAPTIC_COAST_VELOCITY_RAD_S;
+                    float vq;
+                    if (is_coasting) {
+                        vq = 0.0f;
+                    } else {
+                        vq = s_haptic_kp * error - s_haptic_kd * s_haptic_filtered_velocity;
+                    }
+                    if (vq > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                    if (vq < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                    vq *= s_cal.direction; // see the bench-tour loop's comment above -- same fix applies here
+                    if (vq > s_last_vq + HAPTIC_MAX_VQ_STEP_V) vq = s_last_vq + HAPTIC_MAX_VQ_STEP_V;
+                    if (vq < s_last_vq - HAPTIC_MAX_VQ_STEP_V) vq = s_last_vq - HAPTIC_MAX_VQ_STEP_V;
+                    s_last_vq = vq; // slew-limiter's anchor tracks the smooth background
+                                     // only -- the transient pulse below is added AFTER
+                                     // this, deliberately not slew-limited, and must not
+                                     // corrupt next tick's slew reference
+
+                    // Edge-detect an actual detent-index change (not a vague "threshold
+                    // crossing" check) to trigger the click pulse exactly once per crossing.
+                    // Captured AFTER vq is final (clamped, direction-corrected, slew-
+                    // limited) so the pulse's sign can be tied to the SAME sense the
+                    // background push already has at this instant -- without this, the
+                    // pulse's fixed waveform phase would reinforce the snap on one turn
+                    // direction and partially cancel against the background on the other,
+                    // since the background's sign naturally flips depending on which way
+                    // you cross into the next detent (expected/correct) while a
+                    // direction-agnostic pulse wouldn't follow that flip.
+                    if (s_haptic_prev_detent_index_valid && detent_index != s_haptic_prev_detent_index) {
+                        // **Root cause of "spins fast on its own, still clicking" found on
+                        // hardware**: this pulse-arming logic had no idea about the coast
+                        // state above -- it fired a full, cap-level voltage kick on every
+                        // single crossing regardless of whether the background torque had
+                        // already gone to zero for coasting. During a fast flick that enters
+                        // coast (meant to be a passive, torque-free spin on hand momentum),
+                        // every crossing was still injecting an active push in the direction
+                        // of travel -- actively adding energy to what should have been
+                        // passive: more speed -> more crossings -> more kicks -> more speed,
+                        // a real positive-feedback loop. Explains both symptoms reported
+                        // together: reduced background resistance (that's coasting working
+                        // as designed) *plus* continued active clicks accelerating the spin
+                        // (that's this bug). Fixed: the pulse now only arms while NOT
+                        // coasting, matching the background torque's own gate exactly --
+                        // once genuinely coasting, no new clicks fire at all until velocity
+                        // drops back into the normal (non-coast) range.
+                        //
+                        // Independently, only (re)arm if the previous pulse is past its
+                        // IMPACT phase (the first ~4ms, deliberately over-driven to 6V and
+                        // clipped to the safety cap) -- retriggering *during* that clipped
+                        // window is what chained into a sustained near-max voltage before
+                        // the coast-gate above existed (see DEVELOPMENT_PLAN.md Phase 2b).
+                        // Guarding the whole ~24ms pulse (impact+tail) was tried first and
+                        // was too coarse -- it also blocked retriggering during the much
+                        // gentler ~1V tail, silently dropping most clicks during any
+                        // moderately fast (but non-coasting) crossing cadence like normal
+                        // menu browsing. The tail was never the dangerous part.
+                        uint32_t ticks_since_arm = HAPTIC_PULSE_DURATION_ITERS - s_haptic_pulse_ticks_remaining;
+                        bool past_impact_phase = (s_haptic_pulse_ticks_remaining == 0)
+                                               || (ticks_since_arm >= HAPTIC_PULSE_IMPACT_DURATION_ITERS);
+                        if (!is_coasting && past_impact_phase) {
+                            s_haptic_pulse_ticks_remaining = HAPTIC_PULSE_DURATION_ITERS;
+                            s_haptic_pulse_sign = (vq >= 0.0f) ? 1.0f : -1.0f;
+                        }
+                        // Phase 7: same detent-index edge that triggers the electrical
+                        // click pulse above also triggers the audible one. Non-blocking,
+                        // safe from this real-time loop -- see audio_trigger.h. Fires
+                        // unconditionally, menu open or not -- same physical click either
+                        // way, only what the crossing *means* (below) changes.
+                        audio_trigger_click(AUDIO_CLICK_NORMAL);
+
+                        // Direction comes from the filtered rotation velocity's sign at
+                        // this instant, NOT detent_index's own increasing/decreasing
+                        // value -- detent_index is derived from a wrap_pi'd angle, so its
+                        // raw integer value jumps once per full revolution at the +-pi
+                        // wrap boundary; velocity has no such discontinuity.
+                        bool positive_dir = (s_haptic_filtered_velocity >= 0.0f);
+
+                        if (menu_is_open()) {
+                            // Phase 8: this crossing drives the real menu (list navigation,
+                            // or value adjustment while editing a field) instead of
+                            // scrolling -- deliberately does NOT enqueue a HID wheel event
+                            // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
+                            menu_input_rotate(positive_dir ? 1 : -1);
+                        } else {
+                            // Phase 3: knob -> mouse scroll wheel mapping.
+                            int8_t wheel_delta = positive_dir ? (int8_t)HID_WHEEL_SIGN : (int8_t)(-HID_WHEEL_SIGN);
+                            hid_report_msg_t hid_msg = {
+                                .type = HID_EVENT_MOUSE_WHEEL,
+                                .wheel_delta = wheel_delta,
+                            };
+                            xQueueSend(g_hid_report_queue, &hid_msg, 0); // non-blocking --
+                                                                          // a full queue
+                                                                          // just drops this
+                                                                          // tick's scroll
+                                                                          // event
+                        }
+                    }
+                    s_haptic_prev_detent_index = detent_index;
+                    s_haptic_prev_detent_index_valid = true;
+
+                    // Phase 4: live "current detent" readout for the default screen --
+                    // wrapped to 0..(num_detents-1) since the raw detent_index is an
+                    // unbounded counter from wherever the device booted, not a meaningful
+                    // position on its own. Updated every tick (cheap atomic store), not
+                    // just on the edge above, so it's never stale.
+                    int32_t wrapped_detent = ((detent_index % (int32_t)s_haptic_num_detents)
+                                              + (int32_t)s_haptic_num_detents) % (int32_t)s_haptic_num_detents;
+                    ui_state_set_detent(wrapped_detent);
+
+                    // Click transient: a two-stage impact+tail added on top of the smooth
+                    // background Vq, triggered on the detent-index edge above. Deliberately
+                    // NOT slew-limited (see HAPTIC_PULSE_* comment) -- this is what actually
+                    // makes the transition fast enough to be audible, rather than smeared
+                    // over ~13ms like the background alone would be.
+                    float vq_out = vq;
+                    if (s_haptic_pulse_ticks_remaining > 0) {
+                        uint32_t ticks_elapsed = HAPTIC_PULSE_DURATION_ITERS - s_haptic_pulse_ticks_remaining;
+                        float dt_s = CONTROL_LOOP_PERIOD_US / 1000000.0f;
+                        float transient;
+                        if (ticks_elapsed < HAPTIC_PULSE_IMPACT_DURATION_ITERS) {
+                            // Impact: constant amplitude for the full short burst -- no
+                            // envelope decay here, that's what keeps the attack sharp.
+                            float elapsed_s = ticks_elapsed * dt_s;
+                            transient = HAPTIC_PULSE_IMPACT_AMPLITUDE_V
+                                       * sinf(2.0f * (float)M_PI * HAPTIC_PULSE_IMPACT_FREQ_HZ * elapsed_s);
+                        } else {
+                            // Tail: decaying ring-down, same shape as the original single-
+                            // stage pulse, just lower amplitude/frequency and starting from
+                            // wherever the impact left off.
+                            uint32_t tail_ticks_elapsed = ticks_elapsed - HAPTIC_PULSE_IMPACT_DURATION_ITERS;
+                            float progress = 1.0f - (float)tail_ticks_elapsed / HAPTIC_PULSE_TAIL_DURATION_ITERS; // 1->0
+                            float elapsed_s = tail_ticks_elapsed * dt_s;
+                            transient = HAPTIC_PULSE_TAIL_AMPLITUDE_V
+                                       * sinf(2.0f * (float)M_PI * HAPTIC_PULSE_TAIL_FREQ_HZ * elapsed_s)
+                                       * progress;
+                        }
+                        vq_out += s_haptic_pulse_sign * transient;
+                        if (vq_out > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                        if (vq_out < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                        s_haptic_pulse_ticks_remaining--;
+                    }
+
+                    if (s_haptic_phase != HAPTIC_DONE) {
+                        foc_dq_t dq = { .d = 0.0f, .q = vq_out };
+                        foc_ab_t ab = foc_inverse_park(dq, elec_rad);
+                        foc_abc_t abc = foc_inverse_clarke(ab);
+                        motor_driver_set_phase_voltages(abc.a, abc.b, abc.c);
+                    }
+
+                    if (iterations % MS_TO_ITERS(200) == 0 && s_haptic_phase != HAPTIC_DONE) {
+                        ESP_LOGI(TAG, "haptic: detent=%" PRId32 " error=%.4f rad vq=%.3fV",
+                                 detent_index, error, vq_out);
+                    }
+                }
+            }
+        }
+
+        if (iterations % MS_TO_ITERS(1000) == 0) {
+            ESP_LOGI(TAG, "control loop alive, %lu iterations", (unsigned long)iterations);
+        }
+    }
+}
+
+void control_task_start(void) {
+    xTaskCreatePinnedToCore(control_task_fn, "control", 4096, NULL, PRIO_CONTROL, &s_task_handle, CORE_CONTROL);
+
+    const esp_timer_create_args_t timer_args = {
+        .callback = &pacing_timer_cb,
+        .name = "control_pacing",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_pacing_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(s_pacing_timer, CONTROL_LOOP_PERIOD_US));
+}

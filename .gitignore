@@ -1,9 +1,7 @@
-.pio
-.vscode/.browse.c_cpp.db*
-.vscode/c_cpp_properties.json
-.vscode/launch.json
-.vscode/ipch
-.vscode/extensions.json
-*.code-workspace
-lib/Ardunio-FOC-drivers
-messages.txt
+.DS_Store
+
+# Only NanoDepsidf/ is tracked in this repo going forward -- everything else here is local
+# working state, not part of the project history.
+/legacy_fw/
+/lucu-fw/
+/.claude/
