@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "haptic_params.h"
+#include "audio_trigger.h"
+#include "boot_mode.h"
 
 // Phase 8: real configuration menu, replacing the Phase 4 mock (three static labels,
 // BTN_D toggle only). See DEVELOPMENT_PLAN.md Phase 8 for the full screen hierarchy,
@@ -54,6 +57,28 @@ bool menu_is_open(void);
 
 // Consumer side (Core 1). Thread-safe full-struct copy.
 void menu_get_render_snapshot(menu_render_snapshot_t *out);
+
+// Phase 8 step 3: live haptic settings, adjustable via the Haptic Configurator screen and
+// read directly by control_task.c's real-time haptic loop -- replaces the retired
+// button-combo live-tuning path. Safe to call from Core 0's real-time loop: each is a single
+// atomic load, no lock, same convention as the rest of this file. num_detents is always in
+// [HAPTIC_NUM_DETENTS_MIN, HAPTIC_NUM_DETENTS_MAX] (haptic_params.h) -- never 0.
+uint32_t menu_get_haptic_num_detents(void);
+float menu_get_haptic_kp(void);
+float menu_get_haptic_kd(void);
+haptic_type_t menu_get_haptic_type(void);
+
+// Phase 8 step 5: live click timbre, adjustable via the Haptic Configurator's "Haptic Sound"
+// field and read directly by i2s_task.c (Core 1) when a new detent click starts. Same
+// lock-free atomic-load convention as the getters above, just consumed by a different task.
+audio_click_timbre_t menu_get_haptic_sound(void);
+float menu_get_haptic_pitch(void);
+
+// Phase 8 step 6: live boot USB mode, read once by main.c at startup (before any task
+// starts, so no cross-core-timing concern) -- loaded from NVS in menu_init() same as
+// everything else above, combined there with the BTN_C+BTN_D hold failsafe (which always
+// takes priority regardless of this saved setting).
+boot_usb_mode_t menu_get_boot_mode(void);
 
 // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8): the earlier "laggy roller" fixes
 // (I2S/display priority equalization, roller anim-duration override, single-buffer/24-row

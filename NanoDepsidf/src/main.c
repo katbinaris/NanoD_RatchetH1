@@ -98,11 +98,25 @@ void app_main(void) {
     menu_init();
 
     // See usb_serial_mode_requested()'s comment above -- checked before any task starts.
-    bool usb_serial_mode = usb_serial_mode_requested();
-    if (usb_serial_mode) {
-        ESP_LOGW(TAG, "BTN_C+BTN_D held at boot -- USB serial mode: TinyUSB (HID) will NOT "
-                       "be installed this boot. Native USB-Serial-JTAG console/flashing "
-                       "stays on its default routing -- flash normally now.");
+    // Phase 8 step 6: the BTN_C+BTN_D hold is a hardware failsafe that ALWAYS takes priority,
+    // regardless of the saved Boot USB Mode setting below -- it exists specifically so a
+    // saved "HID" preference (which drops the native USB-Serial-JTAG console/flashing path,
+    // see that function's comment) can never make this board unrecoverable without a
+    // physical BOOT-button reflash. menu_get_boot_mode() reads the value menu_init() already
+    // restored from NVS above (defaults to HID, matching this board's prior unconditional
+    // behavior, if nothing was ever saved).
+    bool serial_forced_by_buttons = usb_serial_mode_requested();
+    bool serial_requested_by_setting = (menu_get_boot_mode() == BOOT_USB_MODE_SERIAL);
+    bool usb_serial_mode = serial_forced_by_buttons || serial_requested_by_setting;
+    if (serial_forced_by_buttons) {
+        ESP_LOGW(TAG, "BTN_C+BTN_D held at boot -- USB serial mode (failsafe, overrides the "
+                       "saved Boot USB Mode setting): TinyUSB (HID) will NOT be installed "
+                       "this boot. Native USB-Serial-JTAG console/flashing stays on its "
+                       "default routing -- flash normally now.");
+    } else if (serial_requested_by_setting) {
+        ESP_LOGI(TAG, "Boot USB Mode setting is Serial -- TinyUSB (HID) will NOT be "
+                       "installed this boot. Hold BTN_C+BTN_D at boot at any time to force "
+                       "this regardless of the saved setting.");
     }
 
     // Core 0: control loop, kept exclusive per DEVELOPMENT_PLAN.md

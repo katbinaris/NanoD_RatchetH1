@@ -72,57 +72,5 @@ CONFIG_TINYUSB_HID_COUNT=1
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_CDC_COUNT=1
 
-# Phase 8 config menu: the default LVGL font (Montserrat 14, set when Phase 4 first brought
-# the display up) is too large to fit a scrollable multi-row list or a compact button-legend
-# cheat sheet on this 240x240 round panel without overflowing the circular safe area -- a
-# smaller size for list rows/captions, alongside the existing 14 kept for the Main Screen's
-# big detent readout.
-CONFIG_LV_FONT_MONTSERRAT_12=y
-
-# NOTE: an earlier custom menu font (Sora, RLE-compressed by lv_font_conv) briefly needed
-# CONFIG_LV_USE_FONT_COMPRESSED=y here -- without it, LVGL's compressed-glyph decode branch
-# is compiled out and text silently draws as nothing. No longer needed after switching to
-# Silkscreen (src/fonts/ui_font_silkscreen_16_*.c, --no-compress). Explicitly unset rather
-# than just deleted -- sdkconfig.defaults values only fill in symbols that are still unset,
-# they don't retroactively clear one already saved as `y` in the generated per-env sdkconfig
-# from an earlier build (confirmed: deleting the line here left it =y in
-# sdkconfig.esp32-s3-devkitm-1 after a clean rebuild). Same idiom this file already uses for
-# CONFIG_BT_ENABLED above.
-# CONFIG_LV_USE_FONT_COMPRESSED is not set
-
-# Menu roller animation still felt a step slow on hardware even after the real "laggy" bug
-# (task_max_sleep_ms, see the Phase 8 log) was fixed -- confirmed by the numbers, not
-# guessed, that this is a real hidden ceiling: LV_DEF_REFR_PERIOD gates how often LVGL
-# advances any animation or redraw at all, regardless of how much rendering/SPI-transfer
-# headroom exists. Panel transfer itself isn't the bottleneck (240x240x2 bytes @ 80MHz SPI is
-# ~11.5ms for a FULL frame -- this menu only ever redraws a small dirty area, so real per-
-# frame cost is well under that), so the 33ms default (~30fps, ~4 animation steps over
-# MENU_ROLLER_ANIM_MS=120's duration) was the actual step-count limiter, not throughput.
-# Halved to double the step count per scroll animation.
-CONFIG_LV_DEF_REFR_PERIOD=16
-
-# Temporary diagnostic (Phase 8) -- prints real measured FPS/CPU-usage to the log instead of
-# guessing from feel, same evidence-first approach that found task_max_sleep_ms earlier in
-# this phase. Revert all three once the refresh-period change above is confirmed to actually
-# help. LV_USE_PERF_MONITOR is gated behind LV_USE_SYSMON (a "Debugging > System Monitoring"
-# parent option, off by default) -- confirmed by reading the Kconfig's `if LV_USE_SYSMON`
-# block directly after the first attempt at just the two lines below silently produced no
-# CONFIG_LV_USE_PERF_MONITOR line at all in the generated sdkconfig (not even as "is not
-# set" -- the symbol doesn't exist in that config tree without its parent enabled).
-CONFIG_LV_USE_SYSMON=y
-CONFIG_LV_USE_PERF_MONITOR=y
-CONFIG_LV_USE_PERF_MONITOR_LOG_MODE=y
-
-# Still printed nothing on hardware with just the three lines above -- read lv_log.c to find
-# out why rather than guess again: LV_USE_PERF_MONITOR_LOG_MODE calls the bare `LV_LOG(...)`
-# macro, which maps to `lv_log()`, and that function is a no-op unless EITHER a custom print
-# callback is registered via lv_log_register_print_cb() (this project never calls that) OR
-# CONFIG_LV_LOG_PRINTF routes it through vprintf() -- confirmed directly from lv_log.c's body
-# (`if(custom_print_cb) ... #if LV_LOG_PRINTF else vprintf(...)`). LV_USE_SYSMON/PERF_MONITOR
-# alone only compute the stats; nothing was ever going to print without this. vprintf() lands
-# on ESP-IDF's default console (same UART/USB-CDC stream as every ESP_LOGx call), so no
-# separate callback is needed here. Default LV_LOG_LEVEL_WARN is left alone -- LV_LOG() itself
-# isn't level-filtered (only LV_LOG_LEVEL_NONE fully disables it), and WARN keeps the rest of
-# LVGL's own internal logging quiet, avoiding a flood of unrelated TRACE/INFO noise.
-CONFIG_LV_USE_LOG=y
-CONFIG_LV_LOG_PRINTF=y
+# LVGL settings (CONFIG_LV_*) removed with the LovyanGFX migration -- LVGL is no longer
+# in the build, so those symbols no longer exist.

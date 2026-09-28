@@ -1,42 +1,4 @@
 dependencies:
-  espressif/cmake_utilities:
-    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.1'
-    source:
-      registry_url: https://components.espressif.com
-      type: service
-    version: 0.5.3
-  espressif/esp_lcd_gc9a01:
-    component_hash: e60bc2b5649c7679bd010797a875ae64b2a57cf9cdbd6a2bf7a0ade66913edc0
-    dependencies:
-    - name: espressif/cmake_utilities
-      registry_url: https://components.espressif.com
-      require: private
-      version: 0.*
-    - name: idf
-      require: private
-      version: '>=4.4'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 2.0.4
-  espressif/esp_lvgl_port:
-    component_hash: d3c020b45c3dfc0d1706a83b63a1c34a6eb444a6e935f9afff79f92b7b94dcef
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=5.2'
-    - name: lvgl/lvgl
-      registry_url: https://components.espressif.com
-      require: public
-      version: '>=8,<10'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 2.9.0
   espressif/esp_tinyusb:
     component_hash: 0fab24246e07bdf919c6489d17a590cffbffbbf6a9c44d6235641645c8b946b7
     dependencies:
@@ -77,41 +39,17 @@ dependencies:
     source:
       type: idf
     version: 6.1.0
-  lvgl/lvgl:
-    component_hash: 7d82410747bbfb319531449749e940f440f8414f041f9eaba13f0d1dd7f58cdd
-    dependencies:
-    - name: espressif/freetype
-      registry_url: https://components.espressif.com
-      require: private
-      rules:
-      - if: idf_version >=5.5 && $CONFIG{LV_USE_FREETYPE} == True
-      version: ^2.14.3
-    - name: espressif/libjpeg-turbo
-      registry_url: https://components.espressif.com
-      require: private
-      rules:
-      - if: idf_version >=5.5 && $CONFIG{LV_USE_LIBJPEG_TURBO} == True
-      version: ^3.1.1
-    - name: espressif/libpng
-      registry_url: https://components.espressif.com
-      require: private
-      rules:
-      - if: idf_version >=5.5 && $CONFIG{LV_USE_LIBPNG} == True
-      version: ^1.6.58
-    - name: espressif/lz4
-      registry_url: https://components.espressif.com
-      require: private
-      rules:
-      - if: idf_version >=5.5 && $CONFIG{LV_USE_LZ4} == True && $CONFIG{LV_USE_LZ4_INTERNAL} == False
-      version: ^1.10.0
+  lovyan03/lovyangfx:
+    component_hash: 7bde3c4760ecc3e3d0d5527f4402ee7a9ad99cd45a44e3d6ddf6cc1812a79697
+    dependencies: []
     source:
-      registry_url: https://components.espressif.com
-      type: service
-    version: 9.6.0~1
+      git: https://github.com/lovyan03/LovyanGFX.git
+      path: .
+      type: git
+    version: 3527e99d4635bd3ddce7c5c312e98f6e613f93ab
 direct_dependencies:
-- espressif/esp_lcd_gc9a01
-- espressif/esp_lvgl_port
 - espressif/esp_tinyusb
-manifest_hash: 2b8b95f21fd883a4029002768e013342e9fa540c1755d427a09e1c9839d44654
+- lovyan03/lovyangfx
+manifest_hash: d4da148bd249c1a776764c2674d4282c3481cc8181393f1d1326010c99e5e9ac
 target: esp32s3
 version: 3.0.0

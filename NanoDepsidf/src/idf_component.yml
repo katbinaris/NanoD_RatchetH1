@@ -2,7 +2,8 @@
 dependencies:
   espressif/esp_tinyusb:
     version: "^2.3.0"
-  espressif/esp_lcd_gc9a01:
-    version: "^2.0.4"
-  espressif/esp_lvgl_port:
-    version: "^2.9.0"
+  # Display: LovyanGFX (replaced esp_lcd_gc9a01 + esp_lvgl_port). Not on the ESP component
+  # registry -- pulled from GitHub, pinned to a release tag.
+  lovyan03/lovyangfx:
+    git: https://github.com/lovyan03/LovyanGFX.git
+    version: "1.2.30"

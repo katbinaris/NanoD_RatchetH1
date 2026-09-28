@@ -10,6 +10,7 @@
 #include "audio_trigger.h"
 #include "ui_state.h"
 #include "menu.h"
+#include "haptic_params.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -201,37 +202,15 @@ static int64_t s_pp_start_us = 0;
 // improvements landed (10kHz loop, rate-correct velocity filter, 0.5A current cap, faster
 // haptic-only slew, legacy-inspired velocity coasting) -- it was never fairly retested
 // under today's conditions, only compared against sine under the old, weaker setup.
-#define HAPTIC_NUM_DETENTS_DEFAULT 12 // 30deg spacing -- adjustable live, see below
-#define HAPTIC_NUM_DETENTS_MIN 3
-#define HAPTIC_NUM_DETENTS_MAX 36
+// HAPTIC_NUM_DETENTS_*/HAPTIC_KP_*/HAPTIC_KD_* (default/min/max) now live in haptic_params.h,
+// shared with menu.c's Haptic Configurator screen -- see that header for why. The velocity
+// damping "viscous fluid" feel noted below (Kp=HAPTIC_KP_MIN, Kd~0.055) falls straight out of
+// those same two live-tunable knobs, no separate mode needed.
+//
 // Extra margin (fraction of one detent spacing) past the midpoint before the committed
 // detent switches. Without this, sitting still exactly at a midpoint lets sensor noise
 // alone flip the nearest-detent pick every tick, chattering between two targets.
 #define HAPTIC_DETENT_HYSTERESIS_FRAC 0.15f
-#define HAPTIC_KP_DEFAULT 6.0f // V/rad -- "sharpness", adjustable live, see below -- likely
-                               // saturates against the voltage cap over much of a detent's
-                               // travel (that's capped by MOTOR_MAX_CURRENT_STATIC_A, a
-                               // separate knob, not by this gain)
-#define HAPTIC_KP_MIN 0.0f // 0 = no detents at all, pure Kd -- see the "viscous fluid"
-                           // discovery below
-#define HAPTIC_KP_MAX 20.0f
-#define HAPTIC_KP_STEP 1.0f // per BTN_A/BTN_B press
-#define HAPTIC_KD_DEFAULT 0.01f // V per (rad/s), adjustable live, see below -- LOWERED
-                                // from 0.03: velocity is highest right at a detent boundary
-                                // crossing, exactly where -Kd*velocity subtracts torque
-                                // from the snap; the hand holding the knob provides real
-                                // mechanical damping too, so less electronic Kd is needed
-                                // for settling stability than the bench-tour's hands-off
-                                // 0.05 required
-//
-// DISCOVERED on hardware: Kp=0 (HAPTIC_KP_MIN), Kd~0.055 gives a distinct "viscous
-// fluid" knob feel -- pure velocity damping, no positional spring at all. This is the
-// VISCOSE mode noted as a future TODO earlier in this session -- turns out it falls
-// straight out of the existing live-tunable Kp/Kd knobs with no new code needed, just
-// needed HAPTIC_KP_MIN lowered to actually reach it live (0.5 floor excluded it before).
-#define HAPTIC_KD_MIN 0.0f
-#define HAPTIC_KD_MAX 0.15f
-#define HAPTIC_KD_STEP 0.005f // per BTN_A+BTN_C / BTN_B+BTN_D combo press
 // Compared against legacy_fw/src/haptic.cpp (SimpleFOC): the dominant reason legacy feels
 // "clicky" while ours feels "dampened" is that legacy has real closed-loop current control
 // (up to 1.22A/5V) -- ~6x our static Ohm's-law voltage/current ceiling (~0.3A/0.79V), a hard
@@ -325,13 +304,11 @@ static bool s_haptic_mode = false;
 // BTN_A/BTN_B Kp, BTN_A+BTN_C/BTN_B+BTN_D Kd) are RETIRED -- F1/F3/F4 (BTN_A/BTN_C/BTN_D)
 // now have fixed, global menu roles (select/back/open, see DEVELOPMENT_PLAN.md Phase 8 and
 // the Architecture decisions log) that structurally conflict with the old per-combo
-// meanings. Kp/Kd/detent-count stay live-adjustable, just through the real menu
-// (`menu.c`) instead of button combos -- see Phase 8 build-order step 3. Between now and
-// step 3 landing, these three are stuck at their compile-time defaults with no live
-// adjustment path -- an expected, temporary gap, not a bug.
-static uint32_t s_haptic_num_detents = HAPTIC_NUM_DETENTS_DEFAULT;
-static float s_haptic_kp = HAPTIC_KP_DEFAULT;
-static float s_haptic_kd = HAPTIC_KD_DEFAULT;
+// meanings. Kp/Kd/detent-count are now live-adjustable through the real menu instead
+// (Phase 8 step 3): read directly from menu.c's atomics (menu_get_haptic_kp() etc., cached
+// once per tick into locals below) rather than duplicated as separate state here -- menu.c
+// is the one place that already needs cross-core-safe live values (it also persists them via
+// config_store.c/NVS and restores them at boot in menu_init(), before this task even starts).
 static float s_haptic_filtered_velocity = 0.0f;
 static int32_t s_haptic_prev_detent_index = 0;
 static bool s_haptic_prev_detent_index_valid = false;
@@ -476,9 +453,6 @@ static void control_task_fn(void *arg) {
                 } else {
                     int32_t raw = mt6701_read_angle_raw();
                     s_base_mech_rad = raw_to_rad(raw);
-                    s_haptic_num_detents = HAPTIC_NUM_DETENTS_DEFAULT;
-                    s_haptic_kp = HAPTIC_KP_DEFAULT;
-                    s_haptic_kd = HAPTIC_KD_DEFAULT;
                     s_haptic_filtered_velocity = 0.0f;
                     s_haptic_prev_detent_index_valid = false;
                     s_haptic_pulse_ticks_remaining = 0;
@@ -489,11 +463,15 @@ static void control_task_fn(void *arg) {
                     s_menu_btn_cooldown_until_iter = 0;
                     s_haptic_phase = HAPTIC_RUN;
                     s_haptic_start_us = esp_timer_get_time();
+                    // Kp/Kd/detent-count come from menu.c (live-adjustable, NVS-persisted) --
+                    // not reset to compile-time defaults here anymore, so a saved setting from
+                    // a previous session survives this arm just like calibration does.
                     ESP_LOGI(TAG, "ARMED: haptic detent demo, %lu detents (%.1f deg spacing), "
                                    "Kp=%.2f V/rad, Kd=%.3f V/(rad/s), running indefinitely -- turn the "
                                    "knob by hand, F4 opens the config menu (F3 back, F1 select)",
-                             (unsigned long)s_haptic_num_detents, 360.0f / s_haptic_num_detents, s_haptic_kp,
-                             s_haptic_kd);
+                             (unsigned long)menu_get_haptic_num_detents(),
+                             360.0f / (float)menu_get_haptic_num_detents(),
+                             (double)menu_get_haptic_kp(), (double)menu_get_haptic_kd());
                 }
             } else if (s_polepair_test_mode) {
                 s_pp_phase = PP_RAMP;
@@ -830,15 +808,25 @@ static void control_task_fn(void *arg) {
                 float mech_rad = raw_to_rad(raw);
                 float elec_rad = wrap_pi(s_cal.direction * mech_rad * MOTOR_POLE_PAIRS - s_cal.electrical_offset_rad);
 
-                // Nearest-grid-point linear ("sawtooth") detent profile: retarget every
-                // tick to whichever of the N evenly-spaced detents is nearest, then
-                // Vq = Kp*error - Kd*velocity. Force ramps up linearly moving away from a
-                // detent center, then INSTANTLY inverts sign at the midpoint between two
-                // detents -- the snap happens exactly at the boundary (max-slope moment),
-                // and the profile is gentlest exactly at rest (center) -- the opposite
-                // shape from the sine profile this replaced, and structurally correct for
-                // both symptoms that profile had (mushy transition, center oscillation).
-                float detent_spacing = 2.0f * (float)M_PI / (float)s_haptic_num_detents;
+                // Phase 8 step 3: live-tunable via the Haptic Configurator menu screen
+                // (menu.c) instead of the retired button-combo scheme -- cached once per tick
+                // (not re-read at each use site below) so detent_spacing/vq/wrapped_detent all
+                // see a consistent set of values even if a menu edit lands mid-tick.
+                // num_detents is clamped >=HAPTIC_NUM_DETENTS_MIN (3) by menu.c's
+                // rotate_detents(), same bound this file always enforced -- never 0, which
+                // would make detent_spacing below divide-by-zero.
+                uint32_t num_detents = menu_get_haptic_num_detents();
+                float kp = menu_get_haptic_kp();
+                float kd = menu_get_haptic_kd();
+                haptic_type_t haptic_type = menu_get_haptic_type();
+
+                // Nearest-grid-point selection: which of the N evenly-spaced detents is
+                // nearest, and the (hysteresis-stabilized) error/rel/velocity relative to it.
+                // Shared groundwork for all three profiles below -- it's also what drives the
+                // detent-crossing edge used for HID scroll/menu-navigation dispatch further
+                // down, which must keep working regardless of which restoring-force law
+                // (Saw/Sine/Viscose, Phase 8 step 4) is currently selected.
+                float detent_spacing = 2.0f * (float)M_PI / (float)num_detents;
                 float rel = wrap_pi(mech_rad - s_base_mech_rad);
 
                 // Hysteresis: stick with the previously committed detent until rel moves
@@ -883,13 +871,38 @@ static void control_task_fn(void *arg) {
                     // torque and let the knob spin freely on momentum rather than fighting
                     // it -- only the slow/fine-adjustment regime gets the restoring spring.
                     // is_coasting is reused below by the click-pulse arming logic -- see
-                    // that comment for why the pulse needs to know this too.
+                    // that comment for why the pulse needs to know this too. Only meaningful
+                    // for Saw/Sine, which have a real positional spring capable of injecting
+                    // energy on a fast flick -- see the switch below for why Viscose ignores it.
                     bool is_coasting = fabsf(s_haptic_filtered_velocity) > HAPTIC_COAST_VELOCITY_RAD_S;
                     float vq;
-                    if (is_coasting) {
-                        vq = 0.0f;
-                    } else {
-                        vq = s_haptic_kp * error - s_haptic_kd * s_haptic_filtered_velocity;
+                    switch (haptic_type) {
+                        case HAPTIC_TYPE_VISCOSE:
+                            // Kp forced to 0 regardless of the menu's own Kp field -- pure
+                            // velocity damping, no positional spring at all. Deliberately does
+                            // NOT apply the coast-gate above: that gate exists to stop a
+                            // positional spring from re-injecting energy during a fast flick,
+                            // which a pure damper (always opposing velocity, never adding to
+                            // it) can't do -- and cutting damping above a speed threshold would
+                            // defeat viscose's whole point (feel like syrup at ANY speed, not
+                            // just slow ones).
+                            vq = -kd * s_haptic_filtered_velocity;
+                            break;
+                        case HAPTIC_TYPE_SINE:
+                            // Continuous Vq = -Kp*sin(N*rel) - Kd*velocity -- a smooth "bump"
+                            // through each detent instead of Saw's snap. Reuses the same Kp/Kd
+                            // fields as Saw (no separate tunable exists in the menu for this).
+                            // Historically rejected as the ONLY profile (steepest slope, hence
+                            // strongest restoring push, sits at the detent CENTER -- opposite
+                            // of a crisp click, and caused persistent oscillation sitting still
+                            // there) but kept here as a deliberately different selectable feel.
+                            vq = is_coasting ? 0.0f
+                                             : (-kp * sinf((float)num_detents * rel) - kd * s_haptic_filtered_velocity);
+                            break;
+                        case HAPTIC_TYPE_SAW:
+                        default:
+                            vq = is_coasting ? 0.0f : (kp * error - kd * s_haptic_filtered_velocity);
+                            break;
                     }
                     if (vq > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                     if (vq < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
@@ -939,19 +952,37 @@ static void control_task_fn(void *arg) {
                         // gentler ~1V tail, silently dropping most clicks during any
                         // moderately fast (but non-coasting) crossing cadence like normal
                         // menu browsing. The tail was never the dangerous part.
-                        uint32_t ticks_since_arm = HAPTIC_PULSE_DURATION_ITERS - s_haptic_pulse_ticks_remaining;
-                        bool past_impact_phase = (s_haptic_pulse_ticks_remaining == 0)
-                                               || (ticks_since_arm >= HAPTIC_PULSE_IMPACT_DURATION_ITERS);
-                        if (!is_coasting && past_impact_phase) {
-                            s_haptic_pulse_ticks_remaining = HAPTIC_PULSE_DURATION_ITERS;
-                            s_haptic_pulse_sign = (vq >= 0.0f) ? 1.0f : -1.0f;
+                        // Phase 8 step 4: the electrical click pulse is a deliberately
+                        // over-driven (6V, clipped) voltage kick -- real BLDC noise, confirmed
+                        // on hardware, not just a figure of speech. Saw's crisp snap wants that;
+                        // Sine's whole point is a smooth continuous bump, so layering the same
+                        // clipped kick on top of it fights its own character and was reported
+                        // as an audible noise burst -- excluded here. Viscose excludes it too
+                        // (no positional spring at all, nothing to "click" for). The audible
+                        // (I2S) click is a separate, distinct sound source -- still fires for
+                        // Sine (a bump still benefits from a feedback cue), only Viscose
+                        // silences it (genuinely no clicks by design). The HID scroll/menu-
+                        // navigation dispatch further down is NOT gated by any of this -- that's
+                        // the knob's actual input function, unrelated to haptic feel.
+                        bool electrical_pulse_enabled = (haptic_type == HAPTIC_TYPE_SAW);
+                        bool audio_click_enabled = (haptic_type != HAPTIC_TYPE_VISCOSE);
+                        if (electrical_pulse_enabled) {
+                            uint32_t ticks_since_arm = HAPTIC_PULSE_DURATION_ITERS - s_haptic_pulse_ticks_remaining;
+                            bool past_impact_phase = (s_haptic_pulse_ticks_remaining == 0)
+                                                   || (ticks_since_arm >= HAPTIC_PULSE_IMPACT_DURATION_ITERS);
+                            if (!is_coasting && past_impact_phase) {
+                                s_haptic_pulse_ticks_remaining = HAPTIC_PULSE_DURATION_ITERS;
+                                s_haptic_pulse_sign = (vq >= 0.0f) ? 1.0f : -1.0f;
+                            }
                         }
-                        // Phase 7: same detent-index edge that triggers the electrical
-                        // click pulse above also triggers the audible one. Non-blocking,
-                        // safe from this real-time loop -- see audio_trigger.h. Fires
-                        // unconditionally, menu open or not -- same physical click either
-                        // way, only what the crossing *means* (below) changes.
-                        audio_trigger_click(AUDIO_CLICK_NORMAL);
+                        if (audio_click_enabled) {
+                            // Phase 7: same detent-index edge that triggers the electrical
+                            // click pulse above also triggers the audible one. Non-blocking,
+                            // safe from this real-time loop -- see audio_trigger.h. Fires
+                            // unconditionally, menu open or not -- same physical click either
+                            // way, only what the crossing *means* (below) changes.
+                            audio_trigger_click(AUDIO_CLICK_NORMAL);
+                        }
 
                         // Direction comes from the filtered rotation velocity's sign at
                         // this instant, NOT detent_index's own increasing/decreasing
@@ -988,8 +1019,8 @@ static void control_task_fn(void *arg) {
                     // unbounded counter from wherever the device booted, not a meaningful
                     // position on its own. Updated every tick (cheap atomic store), not
                     // just on the edge above, so it's never stale.
-                    int32_t wrapped_detent = ((detent_index % (int32_t)s_haptic_num_detents)
-                                              + (int32_t)s_haptic_num_detents) % (int32_t)s_haptic_num_detents;
+                    int32_t wrapped_detent = ((detent_index % (int32_t)num_detents)
+                                              + (int32_t)num_detents) % (int32_t)num_detents;
                     ui_state_set_detent(wrapped_detent);
 
                     // Click transient: a two-stage impact+tail added on top of the smooth

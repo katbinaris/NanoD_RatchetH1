@@ -2,6 +2,7 @@
 #include "tasks_common.h"
 #include "board_pins.h"
 #include "audio_trigger.h"
+#include "menu.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2s_std.h"
@@ -157,47 +158,45 @@ static void play_startup_chime(void) {
     }
 }
 
-// Click timbre selection -- audibility test. Both simplified from the reference project
-// (drops its click-rate/brightness modulation -- this device doesn't track either), and
-// both cranked up in amplitude/duration relative to the reference's own defaults so a
-// click is unmistakable on hardware before dialing back down.
-// Change CLICK_TIMBRE below + reflash to compare; only the active one is compiled in.
-#define CLICK_TIMBRE_WOOD_TOCK 0 // fast-decay sine with a downward pitch chirp
-#define CLICK_TIMBRE_TICK_THUD 1 // sharp high tick layered with a low body thud
-#define CLICK_TIMBRE CLICK_TIMBRE_WOOD_TOCK
-
+// Click timbre selection. Both simplified from the reference project (drops its click-rate/
+// brightness modulation -- this device doesn't track either), and both cranked up in
+// amplitude/duration relative to the reference's own defaults so a click is unmistakable on
+// hardware. Originally a compile-time CLICK_TIMBRE #define (an audibility test -- change +
+// reflash to compare, only one compiled in); Phase 8 step 5 makes this a live runtime choice
+// instead, via the Haptic Configurator's "Haptic Sound" field (menu.c/menu_get_haptic_sound(),
+// audio_click_timbre_t in audio_trigger.h) -- so both timbres' constants/state now coexist
+// unconditionally rather than one being `#if`'d out.
 #define CLICK_CLIP_LIMIT 32000.0f // headroom under int16 full scale, avoids a hard wrap
                                    // on cast while still allowing audible clipping/
                                    // saturation on the sharpest part of the transient --
-                                   // raised from 30000 alongside CLICK_AMPLITUDE below
+                                   // raised from 30000 alongside the amplitudes below
                                    // (detent click needed to be louder; pushing further
                                    // into clipping/saturation is the deliberate loudness
                                    // lever here, not a bug -- there's no separate hardware/
                                    // amp gain control in this design, see MAX98357A
                                    // SD_MODE comment above)
 
-#if CLICK_TIMBRE == CLICK_TIMBRE_WOOD_TOCK
-// Retuned again for an even higher-pitched, shorter "wood click" -- confirmed working
-// well on hardware at 900Hz/15ms, then 1200Hz/9ms, now pushed to 2400Hz/5ms. Decay and
-// chirp rates scaled up to match (same ~50%-of-duration glide completion point, same
-// ~-45dB (e^-5.4) decay by end of window as the earlier versions had).
-#define CLICK_DURATION_S 0.005f // short -- see decay/chirp rates below, both sized to fit
-#define CLICK_BASE_FREQ_HZ 2400.0f
-#define CLICK_DECAY_PER_S 1080.0f // e^(-1080*0.005) ~= 0.0045 -- fully decayed by CLICK_DURATION_S
-#define CLICK_CHIRP_RATE 400.0f // downward glide completes in ~1/400s = ~2.5ms, inside the
-                                 // 5ms window
-#define CLICK_AMPLITUDE 32000.0f // reference default was 12000, raised to 22000 then here
-                                  // to 32000 (near int16 full scale) -- the detent click
-                                  // needed to be louder
-#elif CLICK_TIMBRE == CLICK_TIMBRE_TICK_THUD
-#define CLICK_DURATION_S 0.05f // long enough for the ~150/s thud decay to fully ring out
-#define CLICK_TICK_FREQ_HZ 1800.0f
-#define CLICK_THUD_FREQ_HZ 100.0f // fixed -- reference modulates this by click rate, which
-                                   // this device doesn't track
-#define CLICK_AMPLITUDE 32000.0f // reference default was 13000, raised to 22000 then here
-                                  // to 32000 (near int16 full scale) -- the detent click
-                                  // needed to be louder
-#endif
+// AUDIO_TIMBRE_WOOD_TOCK -- retuned again for an even higher-pitched, shorter "wood click" --
+// confirmed working well on hardware at 900Hz/15ms, then 1200Hz/9ms, now pushed to
+// 2400Hz/5ms. Decay and chirp rates scaled up to match (same ~50%-of-duration glide
+// completion point, same ~-45dB (e^-5.4) decay by end of window as the earlier versions had).
+#define WOOD_TOCK_DURATION_S 0.005f // short -- see decay/chirp rates below, both sized to fit
+#define WOOD_TOCK_BASE_FREQ_HZ 2400.0f
+#define WOOD_TOCK_DECAY_PER_S 1080.0f // e^(-1080*0.005) ~= 0.0045 -- fully decayed by WOOD_TOCK_DURATION_S
+#define WOOD_TOCK_CHIRP_RATE 400.0f // downward glide completes in ~1/400s = ~2.5ms, inside the
+                                     // 5ms window
+#define WOOD_TOCK_AMPLITUDE 32000.0f // reference default was 12000, raised to 22000 then here
+                                      // to 32000 (near int16 full scale) -- the detent click
+                                      // needed to be louder
+
+// AUDIO_TIMBRE_TICK_THUD
+#define TICK_THUD_DURATION_S 0.05f // long enough for the ~150/s thud decay to fully ring out
+#define TICK_THUD_TICK_FREQ_HZ 1800.0f
+#define TICK_THUD_THUD_FREQ_HZ 100.0f // fixed -- reference modulates this by click rate, which
+                                       // this device doesn't track
+#define TICK_THUD_AMPLITUDE 32000.0f // reference default was 13000, raised to 22000 then here
+                                      // to 32000 (near int16 full scale) -- the detent click
+                                      // needed to be louder
 
 // Button-tap "thump" -- a distinct, always-available timbre (not gated by CLICK_TIMBRE
 // above, which only selects between alternate DETENT click sounds). Single low-frequency
@@ -224,16 +223,23 @@ static void i2s_task_fn(void *arg) {
     float click_phase = 1.0f; // 1.0 = idle, matches the reference project's convention
     const float dt_s = 1.0f / AUDIO_SAMPLE_RATE_HZ;
     audio_click_type_t active_click_type = AUDIO_CLICK_NORMAL;
-    float active_click_duration_s = CLICK_DURATION_S; // which of CLICK_DURATION_S/
-                                                        // THUMP_DURATION_S gates the
-                                                        // "click_phase < duration" check
-                                                        // below, set per active_click_type
-#if CLICK_TIMBRE == CLICK_TIMBRE_WOOD_TOCK
-    float click_phase_acc = 0.0f;
-#elif CLICK_TIMBRE == CLICK_TIMBRE_TICK_THUD
-    float click_phase_tick = 0.0f;
-    float click_phase_thud = 0.0f;
-#endif
+    audio_click_timbre_t active_timbre = AUDIO_TIMBRE_WOOD_TOCK; // sampled once per click-start
+                                                                  // below, not re-read mid-click
+    float active_pitch = AUDIO_CLICK_PITCH_DEFAULT; // multiplier on active_timbre's
+                                                      // frequencies -- sampled alongside
+                                                      // active_timbre, same reasoning
+    float active_click_duration_s = WOOD_TOCK_DURATION_S; // which of WOOD_TOCK/TICK_THUD/
+                                                            // THUMP _DURATION_S gates the
+                                                            // "click_phase < duration" check
+                                                            // below, set per active_click_type/
+                                                            // active_timbre
+    // Both timbres' oscillator state coexist unconditionally now (Phase 8 step 5 -- either
+    // can be selected live, not just one compiled in) -- only the active_timbre's are ever
+    // advanced, but both are reset together on every click start (cheap, avoids stale phase
+    // if the menu selection changes right as a click begins).
+    float click_phase_acc = 0.0f;   // wood-tock's single oscillator
+    float click_phase_tick = 0.0f;  // tick-thud's high partial
+    float click_phase_thud = 0.0f;  // tick-thud's low partial
     float thump_phase_acc = 0.0f; // button-thump's own oscillator phase -- separate from
                                    // the detent-click accumulator(s) above since, although
                                    // only one voice ever plays at a time, keeping them
@@ -249,14 +255,20 @@ static void i2s_task_fn(void *arg) {
                 if (audio_trigger_try_consume(&type)) {
                     click_phase = 0.0f;
                     active_click_type = type;
-                    active_click_duration_s = (type == AUDIO_CLICK_BUTTON_THUMP)
-                                             ? THUMP_DURATION_S : CLICK_DURATION_S;
-#if CLICK_TIMBRE == CLICK_TIMBRE_WOOD_TOCK
+                    if (type == AUDIO_CLICK_BUTTON_THUMP) {
+                        active_click_duration_s = THUMP_DURATION_S;
+                    } else {
+                        // Sampled once here and held for this click's whole duration (like
+                        // active_click_type above) -- a menu change mid-click shouldn't morph
+                        // an already-started click into a different timbre partway through.
+                        active_timbre = menu_get_haptic_sound();
+                        active_pitch = menu_get_haptic_pitch();
+                        active_click_duration_s = (active_timbre == AUDIO_TIMBRE_TICK_THUD)
+                                                 ? TICK_THUD_DURATION_S : WOOD_TOCK_DURATION_S;
+                    }
                     click_phase_acc = 0.0f;
-#elif CLICK_TIMBRE == CLICK_TIMBRE_TICK_THUD
                     click_phase_tick = 0.0f;
                     click_phase_thud = 0.0f;
-#endif
                     thump_phase_acc = 0.0f;
                     // Debug trigger log (Phase 7 bring-up): confirms a click was actually
                     // consumed/started here on Core 1, independent of whether it's audible
@@ -279,25 +291,23 @@ static void i2s_task_fn(void *arg) {
                     thump_phase_acc += (2.0f * (float)M_PI * THUMP_FREQ_HZ) * dt_s;
                     if (thump_phase_acc > 2.0f * (float)M_PI) thump_phase_acc -= 2.0f * (float)M_PI;
                     sample = lut_sine(thump_phase_acc) * envelope * THUMP_AMPLITUDE;
-                } else {
-#if CLICK_TIMBRE == CLICK_TIMBRE_WOOD_TOCK
-                    // Fast downward pitch glide + exponential decay.
-                    float chirp = CLICK_BASE_FREQ_HZ * (1.6f - 0.6f * fminf(1.0f, click_phase * CLICK_CHIRP_RATE));
-                    float envelope = expf(-CLICK_DECAY_PER_S * click_phase);
-                    click_phase_acc += (2.0f * (float)M_PI * chirp) * dt_s;
-                    if (click_phase_acc > 2.0f * (float)M_PI) click_phase_acc -= 2.0f * (float)M_PI;
-                    sample = lut_sine(click_phase_acc) * envelope * CLICK_AMPLITUDE;
-#elif CLICK_TIMBRE == CLICK_TIMBRE_TICK_THUD
+                } else if (active_timbre == AUDIO_TIMBRE_TICK_THUD) {
                     // Sharp high tick layered with a low body thud, independent decays.
                     float env_tick = expf(-900.0f * click_phase);
                     float env_thud = expf(-150.0f * click_phase);
-                    click_phase_tick += (2.0f * (float)M_PI * CLICK_TICK_FREQ_HZ) * dt_s;
-                    click_phase_thud += (2.0f * (float)M_PI * CLICK_THUD_FREQ_HZ) * dt_s;
+                    click_phase_tick += (2.0f * (float)M_PI * TICK_THUD_TICK_FREQ_HZ * active_pitch) * dt_s;
+                    click_phase_thud += (2.0f * (float)M_PI * TICK_THUD_THUD_FREQ_HZ * active_pitch) * dt_s;
                     if (click_phase_tick > 2.0f * (float)M_PI) click_phase_tick -= 2.0f * (float)M_PI;
                     if (click_phase_thud > 2.0f * (float)M_PI) click_phase_thud -= 2.0f * (float)M_PI;
                     sample = (lut_sine(click_phase_tick) * env_tick * 0.5f
-                            + lut_sine(click_phase_thud) * env_thud * 1.0f) * CLICK_AMPLITUDE;
-#endif
+                            + lut_sine(click_phase_thud) * env_thud * 1.0f) * TICK_THUD_AMPLITUDE;
+                } else { // AUDIO_TIMBRE_WOOD_TOCK
+                    // Fast downward pitch glide + exponential decay.
+                    float chirp = WOOD_TOCK_BASE_FREQ_HZ * active_pitch * (1.6f - 0.6f * fminf(1.0f, click_phase * WOOD_TOCK_CHIRP_RATE));
+                    float envelope = expf(-WOOD_TOCK_DECAY_PER_S * click_phase);
+                    click_phase_acc += (2.0f * (float)M_PI * chirp) * dt_s;
+                    if (click_phase_acc > 2.0f * (float)M_PI) click_phase_acc -= 2.0f * (float)M_PI;
+                    sample = lut_sine(click_phase_acc) * envelope * WOOD_TOCK_AMPLITUDE;
                 }
                 if (sample > CLICK_CLIP_LIMIT) sample = CLICK_CLIP_LIMIT;
                 if (sample < -CLICK_CLIP_LIMIT) sample = -CLICK_CLIP_LIMIT;

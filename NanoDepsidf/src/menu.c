@@ -1,12 +1,11 @@
 #include "menu.h"
+#include "config_store.h"
+#include "haptic_params.h"
 #include "freertos/FreeRTOS.h"
-#include "esp_log.h"
 #include "esp_timer.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
-
-static const char *TAG = "menu";
 
 // --- Item/screen model ---
 
@@ -46,26 +45,38 @@ struct menu_screen_s {
 // crucially nothing here can block Core 0's real-time loop (see the state-lock comment
 // below for why that matters).
 
-static _Atomic int32_t s_ph_detents = 24;
-static _Atomic float s_ph_kp = 1.50f;
-static _Atomic float s_ph_kd = 0.050f;
+// Phase 8 step 3: these three are no longer step-1 placeholders -- control_task.c's
+// real-time haptic loop reads them directly (menu_get_haptic_*() below), so their
+// defaults/bounds now come from haptic_params.h (shared with control_task.c) instead of
+// independent literals. In particular num_detents must never reach 0 -- it divides directly
+// into 2*pi in that loop -- so its clamp uses HAPTIC_NUM_DETENTS_MIN/MAX, not the old
+// unconnected 0-120 placeholder range.
+static _Atomic int32_t s_ph_detents = HAPTIC_NUM_DETENTS_DEFAULT;
+static _Atomic float s_ph_kp = HAPTIC_KP_DEFAULT;
+static _Atomic float s_ph_kd = HAPTIC_KD_DEFAULT;
 
-typedef enum { PH_HAPTIC_SAW, PH_HAPTIC_SINE, PH_HAPTIC_VISCOSE, PH_HAPTIC_TYPE_COUNT } ph_haptic_type_t;
-static _Atomic ph_haptic_type_t s_ph_haptic_type = PH_HAPTIC_SAW;
-static const char *ph_haptic_type_name(ph_haptic_type_t t) {
+// haptic_type_t itself now lives in haptic_params.h (Phase 8 step 4) -- control_task.c
+// branches on it directly to pick a restoring-force law, so it can no longer be a
+// menu.c-private enum the way it was in steps 1-3.
+static _Atomic haptic_type_t s_ph_haptic_type = HAPTIC_TYPE_SAW;
+static const char *ph_haptic_type_name(haptic_type_t t) {
     switch (t) {
-        case PH_HAPTIC_SAW: return "Saw";
-        case PH_HAPTIC_SINE: return "Sine";
-        case PH_HAPTIC_VISCOSE: return "Viscose";
+        case HAPTIC_TYPE_SAW: return "Saw";
+        case HAPTIC_TYPE_SINE: return "Sine";
+        case HAPTIC_TYPE_VISCOSE: return "Viscose";
         default: return "?";
     }
 }
 
-typedef enum { PH_SOUND_WOOD_TOCK, PH_SOUND_TICK_THUD, PH_SOUND_COUNT } ph_sound_t;
-static _Atomic ph_sound_t s_ph_sound = PH_SOUND_WOOD_TOCK;
-static const char *ph_sound_name(ph_sound_t s) {
-    return (s == PH_SOUND_WOOD_TOCK) ? "Wood Tock" : "Tick Thud";
+// audio_click_timbre_t itself now lives in audio_trigger.h (Phase 8 step 5) -- i2s_task.c
+// reads it directly to pick which detent-click renderer to run, so it can no longer be a
+// menu.c-private enum the way it was before.
+static _Atomic audio_click_timbre_t s_ph_sound = AUDIO_TIMBRE_WOOD_TOCK;
+static const char *ph_sound_name(audio_click_timbre_t s) {
+    return (s == AUDIO_TIMBRE_WOOD_TOCK) ? "Wood Tock" : "Tick Thud";
 }
+
+static _Atomic float s_ph_pitch = AUDIO_CLICK_PITCH_DEFAULT;
 
 typedef enum { PH_HID_KEYBOARD, PH_HID_MOUSE, PH_HID_MIDI, PH_HID_TYPE_COUNT } ph_hid_type_t;
 static _Atomic ph_hid_type_t s_ph_hid_type = PH_HID_MOUSE; // matches today's real default (mouse-wheel mapping)
@@ -80,10 +91,11 @@ static const char *ph_hid_type_name(ph_hid_type_t t) {
 
 static _Atomic int32_t s_ph_midi_channel = 1; // 1-16
 
-typedef enum { PH_BOOT_SERIAL, PH_BOOT_HID, PH_BOOT_MODE_COUNT } ph_boot_mode_t;
-static _Atomic ph_boot_mode_t s_ph_boot_mode = PH_BOOT_HID; // matches today's real default (normal boot = composite HID+CDC)
-static const char *ph_boot_mode_name(ph_boot_mode_t m) {
-    return (m == PH_BOOT_SERIAL) ? "Serial" : "HID";
+// boot_usb_mode_t itself now lives in boot_mode.h (Phase 8 step 6) -- main.c reads it
+// directly at startup to decide which USB personality to bring up.
+static _Atomic boot_usb_mode_t s_ph_boot_mode = BOOT_USB_MODE_HID; // matches today's real default (normal boot = composite HID+CDC)
+static const char *ph_boot_mode_name(boot_usb_mode_t m) {
+    return (m == BOOT_USB_MODE_SERIAL) ? "Serial" : "HID";
 }
 
 // --- Field callbacks ---
@@ -96,8 +108,8 @@ static void fmt_detents(char *buf, size_t n) {
 }
 static void rotate_detents(int8_t dir) {
     int32_t v = atomic_load_explicit(&s_ph_detents, memory_order_relaxed) + dir;
-    if (v < 0) v = 0;
-    if (v > 120) v = 120;
+    if (v < (int32_t)HAPTIC_NUM_DETENTS_MIN) v = (int32_t)HAPTIC_NUM_DETENTS_MIN;
+    if (v > (int32_t)HAPTIC_NUM_DETENTS_MAX) v = (int32_t)HAPTIC_NUM_DETENTS_MAX;
     atomic_store_explicit(&s_ph_detents, v, memory_order_relaxed);
 }
 
@@ -106,8 +118,8 @@ static void fmt_kp(char *buf, size_t n) {
 }
 static void rotate_kp(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_kp, memory_order_relaxed) + dir * 0.05f;
-    if (v < 0.0f) v = 0.0f;
-    if (v > 20.0f) v = 20.0f;
+    if (v < HAPTIC_KP_MIN) v = HAPTIC_KP_MIN;
+    if (v > HAPTIC_KP_MAX) v = HAPTIC_KP_MAX;
     atomic_store_explicit(&s_ph_kp, v, memory_order_relaxed);
 }
 
@@ -116,8 +128,8 @@ static void fmt_kd(char *buf, size_t n) {
 }
 static void rotate_kd(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_kd, memory_order_relaxed) + dir * 0.005f;
-    if (v < 0.0f) v = 0.0f;
-    if (v > 0.15f) v = 0.15f;
+    if (v < HAPTIC_KD_MIN) v = HAPTIC_KD_MIN;
+    if (v > HAPTIC_KD_MAX) v = HAPTIC_KD_MAX;
     atomic_store_explicit(&s_ph_kd, v, memory_order_relaxed);
 }
 
@@ -125,22 +137,40 @@ static void fmt_haptic_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_haptic_type_name(atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed)));
 }
 static void rotate_haptic_type(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed) + dir) % PH_HAPTIC_TYPE_COUNT;
-    if (v < 0) v += PH_HAPTIC_TYPE_COUNT;
-    atomic_store_explicit(&s_ph_haptic_type, (ph_haptic_type_t)v, memory_order_relaxed);
+    int v = ((int)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed) + dir) % HAPTIC_TYPE_COUNT;
+    if (v < 0) v += HAPTIC_TYPE_COUNT;
+    atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)v, memory_order_relaxed);
 }
 
 static void fmt_sound(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_sound_name(atomic_load_explicit(&s_ph_sound, memory_order_relaxed)));
 }
 static void rotate_sound(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_sound, memory_order_relaxed) + dir) % PH_SOUND_COUNT;
-    if (v < 0) v += PH_SOUND_COUNT;
-    atomic_store_explicit(&s_ph_sound, (ph_sound_t)v, memory_order_relaxed);
+    int v = ((int)atomic_load_explicit(&s_ph_sound, memory_order_relaxed) + dir) % AUDIO_TIMBRE_COUNT;
+    if (v < 0) v += AUDIO_TIMBRE_COUNT;
+    atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)v, memory_order_relaxed);
+}
+
+static void fmt_pitch(char *buf, size_t n) {
+    snprintf(buf, n, "%.2fx", (double)atomic_load_explicit(&s_ph_pitch, memory_order_relaxed));
+}
+static void rotate_pitch(int8_t dir) {
+    float v = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed) + dir * 0.05f;
+    if (v < AUDIO_CLICK_PITCH_MIN) v = AUDIO_CLICK_PITCH_MIN;
+    if (v > AUDIO_CLICK_PITCH_MAX) v = AUDIO_CLICK_PITCH_MAX;
+    atomic_store_explicit(&s_ph_pitch, v, memory_order_relaxed);
 }
 
 static void action_save_haptic(void) {
-    ESP_LOGI(TAG, "Save (Haptic Configurator) -- placeholder, NVS not wired yet (Phase 8 step 2)");
+    haptic_cfg_t cfg = {
+        .num_detents = (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed),
+        .kp = atomic_load_explicit(&s_ph_kp, memory_order_relaxed),
+        .kd = atomic_load_explicit(&s_ph_kd, memory_order_relaxed),
+        .haptic_type = (int32_t)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed),
+        .sound = (int32_t)atomic_load_explicit(&s_ph_sound, memory_order_relaxed),
+        .pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed),
+    };
+    config_store_save_haptic(&cfg);
 }
 
 static void fmt_hid_type(char *buf, size_t n) {
@@ -166,19 +196,26 @@ static void rotate_midi_mapping(int8_t dir) {
 }
 
 static void action_save_hid(void) {
-    ESP_LOGI(TAG, "Save (HID Type) -- placeholder, NVS not wired yet (Phase 8 step 2/7)");
+    hid_cfg_t cfg = {
+        .hid_type = (int32_t)atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed),
+        .midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed),
+    };
+    config_store_save_hid(&cfg);
 }
 
 static void fmt_boot_mode(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_boot_mode_name(atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed)));
 }
 static void rotate_boot_mode(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed) + dir) % PH_BOOT_MODE_COUNT;
-    if (v < 0) v += PH_BOOT_MODE_COUNT;
-    atomic_store_explicit(&s_ph_boot_mode, (ph_boot_mode_t)v, memory_order_relaxed);
+    int v = ((int)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed) + dir) % BOOT_USB_MODE_COUNT;
+    if (v < 0) v += BOOT_USB_MODE_COUNT;
+    atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)v, memory_order_relaxed);
 }
 static void action_save_boot(void) {
-    ESP_LOGI(TAG, "Save (Boot USB Mode) -- placeholder, NVS not wired yet (Phase 8 step 2/6)");
+    boot_cfg_t cfg = {
+        .boot_mode = (int32_t)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed),
+    };
+    config_store_save_boot(&cfg);
 }
 
 // --- Screens ---
@@ -189,6 +226,7 @@ static const menu_item_t s_haptic_items[] = {
     { .label = "Kd",           .kind = MENU_ITEM_VALUE,  .format_value = fmt_kd,           .on_rotate = rotate_kd },
     { .label = "Haptic Type",  .kind = MENU_ITEM_VALUE,  .format_value = fmt_haptic_type,  .on_rotate = rotate_haptic_type },
     { .label = "Haptic Sound", .kind = MENU_ITEM_VALUE,  .format_value = fmt_sound,        .on_rotate = rotate_sound },
+    { .label = "Pitch",        .kind = MENU_ITEM_VALUE,  .format_value = fmt_pitch,        .on_rotate = rotate_pitch },
     { .label = "Save",         .kind = MENU_ITEM_ACTION, .on_action = action_save_haptic },
 };
 static const menu_screen_t s_haptic_screen = {
@@ -285,6 +323,29 @@ void menu_init(void) {
     s_stack_depth = 0;
     s_editing = false;
     portEXIT_CRITICAL(&s_state_mux);
+
+    // Phase 8 step 2: restore persisted settings over the compiled-in defaults above, if a
+    // valid save exists (see config_store.c). No lock needed here -- menu_init() runs once
+    // from app_main() before control_task_start()/display_task_start(), i.e. before any other
+    // reader or writer of these atomics exists yet.
+    haptic_cfg_t hcfg;
+    if (config_store_load_haptic(&hcfg)) {
+        atomic_store_explicit(&s_ph_detents, (int32_t)hcfg.num_detents, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_kp, hcfg.kp, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_kd, hcfg.kd, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)hcfg.haptic_type, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)hcfg.sound, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_pitch, hcfg.pitch, memory_order_relaxed);
+    }
+    hid_cfg_t icfg;
+    if (config_store_load_hid(&icfg)) {
+        atomic_store_explicit(&s_ph_hid_type, (ph_hid_type_t)icfg.hid_type, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_midi_channel, icfg.midi_channel, memory_order_relaxed);
+    }
+    boot_cfg_t bcfg;
+    if (config_store_load_boot(&bcfg)) {
+        atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)bcfg.boot_mode, memory_order_relaxed);
+    }
 }
 
 // TEMPORARY DIAGNOSTIC -- see menu.h's menu_get_last_input_us() comment.
@@ -328,6 +389,8 @@ void menu_input_back(void) {
 }
 
 void menu_input_select(void) {
+    void (*action_to_run)(void) = NULL;
+
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0) {
         portEXIT_CRITICAL(&s_state_mux);
@@ -353,19 +416,27 @@ void menu_input_select(void) {
                 s_editing = true;
                 break;
             case MENU_ITEM_ACTION:
-                // on_action() (e.g. a Save placeholder's ESP_LOGI) runs here, still inside
-                // the critical section -- fine for now since these are trivial no-ops, but
-                // worth remembering once step 2/6/7 wire in real NVS writes: an NVS commit
-                // is NOT bounded/cheap and must not run under this spinlock. Move it outside
-                // (copy out the "save requested" intent, act on it after portEXIT_CRITICAL)
-                // when that lands.
-                if (it->on_action != NULL) {
-                    it->on_action();
-                }
+                // Copy the function pointer out and run it after portEXIT_CRITICAL below, per
+                // this file's own earlier warning: since Phase 8 step 2, on_action() (the
+                // Save actions) does a real NVS commit, which is NOT bounded/cheap and must
+                // never run under this spinlock (a portMUX critical section disables
+                // interrupts on this core for its duration).
+                action_to_run = it->on_action;
                 break;
         }
     }
     portEXIT_CRITICAL(&s_state_mux);
+
+    // Runs on Core 0 (control_task.c's real-time loop), outside the spinlock, but still
+    // synchronously -- an NVS blob write/commit is a few ms of flash-erase/write latency, and
+    // this stalls that tick of the control loop for the duration. Acceptable because it only
+    // ever fires on an infrequent, user-paced button press (unlike the retired per-tick
+    // string-formatting bug this file's header comment documents, which fired continuously
+    // during fast rotation) -- but worth confirming on hardware there's no audible/feel
+    // glitch when pressing Save.
+    if (action_to_run != NULL) {
+        action_to_run();
+    }
     stamp_input_time();
 }
 
@@ -445,4 +516,37 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
     }
 
     *out = snap;
+}
+
+// Phase 8 step 3 -- see menu.h's declaration comment. Called from Core 0 (control_task.c's
+// real-time haptic loop) on the same atomics rotate_kp()/rotate_kd()/rotate_detents() above
+// already write from Core 0's menu_input_rotate(), and format_value() already reads from
+// Core 1's menu_get_render_snapshot() -- one more atomic reader needs no new synchronization,
+// same lock-free convention this file already relies on for all three.
+uint32_t menu_get_haptic_num_detents(void) {
+    return (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
+}
+
+float menu_get_haptic_kp(void) {
+    return atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
+}
+
+float menu_get_haptic_kd(void) {
+    return atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
+}
+
+haptic_type_t menu_get_haptic_type(void) {
+    return atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
+}
+
+audio_click_timbre_t menu_get_haptic_sound(void) {
+    return atomic_load_explicit(&s_ph_sound, memory_order_relaxed);
+}
+
+float menu_get_haptic_pitch(void) {
+    return atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
+}
+
+boot_usb_mode_t menu_get_boot_mode(void) {
+    return atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
 }
