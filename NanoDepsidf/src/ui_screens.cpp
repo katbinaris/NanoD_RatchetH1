@@ -19,16 +19,34 @@ static const char *feel_name(haptic_type_t t) {
 }
 
 static const Sprite &mode_icon(menu_hid_type_t m) {
-    return m == MENU_HID_KEYBOARD ? SPR_KBD : m == MENU_HID_MOUSE ? SPR_MOUSE : SPR_NOTE;
+    switch (m) {
+        case MENU_HID_KEYBOARD: return SPR_KBD;
+        case MENU_HID_MOUSE: return SPR_MOUSE;
+        case MENU_HID_APP: return SPR_CUBE;
+        default: return SPR_NOTE;
+    }
 }
 
 static const Sprite &mode_icon_m(menu_hid_type_t m) {
-    return m == MENU_HID_KEYBOARD ? SPR_KBD_M : m == MENU_HID_MOUSE ? SPR_MOUSE_M : SPR_NOTE_M;
+    switch (m) {
+        case MENU_HID_KEYBOARD: return SPR_KBD_M;
+        case MENU_HID_MOUSE: return SPR_MOUSE_M;
+        case MENU_HID_APP: return SPR_CUBE_M;
+        default: return SPR_NOTE_M;
+    }
 }
 
 static const char *mode_name(menu_hid_type_t m) {
-    return m == MENU_HID_KEYBOARD ? "KEYBOARD" : m == MENU_HID_MOUSE ? "MOUSE" : "MIDI";
+    switch (m) {
+        case MENU_HID_KEYBOARD: return "KEYBOARD";
+        case MENU_HID_MOUSE: return "MOUSE";
+        case MENU_HID_APP: return "APP";
+        default: return "MIDI";
+    }
 }
+
+// The APP profile's name (hardcoded Plasticity profile, app_mode.c).
+static const char *const APP_PROFILE_NAME = "PLASTICITY";
 
 // Sprite drawn at `scale`, centered on (cx, cy).
 static void sprite_c(const Sprite &s, float cx, float cy, uint32_t c, int scale) {
@@ -86,8 +104,11 @@ void draw_main(const MainInputs &in) {
     }
 
     // Key legend on the arc of the glass; a key lights amber while its button is held.
+    // APP mode: the keys are the app's controls (app_mode.c); long-press F4 is the menu.
     static const char *const keys[4] = {"F1", "F2", "F3", "F4"};
-    static const char *const acts[4] = {"SEL", "", "BACK", "MENU"}; // F2 has no job here
+    static const char *const menu_acts[4] = {"SEL", "", "BACK", "MENU"}; // F2 has no job here
+    static const char *const app_acts[4] = {"ZOOM", "ORBIT", "UNDO", "PAN"};
+    const char *const *acts = in.mode == MENU_HID_APP ? app_acts : menu_acts;
     static const int xs[4] = {60, 100, 140, 180};
     static const int ys[4] = {146, 154, 154, 146};
     for (int i = 0; i < 4; i++) {
@@ -222,6 +243,7 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         sprite_c(SPR_TRI_R_M, 218, 80, AMBER, 1);
     }
     text(mode_name(in.type), CX, 108, type_focus ? WHITE : GREY, 2, CENTER);
+    if (in.type == MENU_HID_APP) text(APP_PROFILE_NAME, CX, 132, GREY, 1, CENTER);
     if (in.type == MENU_HID_MIDI && snap.row_count > 1) {
         bool ch_focus = snap.selected == 1;
         text("CHANNEL", CX, 132, GREY, 1, CENTER);
@@ -229,7 +251,7 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         if (ch_focus) edit_arrows(CX, 146, w, cap_height(2), AMBER);
         text(ch_focus ? "F1 TYPE" : "F1 CHANNEL", CX, 190, GREY, 1, CENTER);
     } else if (!snap.dirty) {
-        text("IN USE", CX, 134, GREY, 1, CENTER);
+        text("IN USE", CX, in.type == MENU_HID_APP ? 148 : 134, GREY, 1, CENTER);
     }
     save_hint(170, snap.dirty, in.blink_on);
 }

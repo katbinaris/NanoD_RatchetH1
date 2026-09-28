@@ -49,7 +49,9 @@ enum {
     MENU_HAPTIC_ROW_COUNT,
 };
 
-typedef enum { MENU_HID_KEYBOARD = 0, MENU_HID_MOUSE, MENU_HID_MIDI, MENU_HID_TYPE_COUNT } menu_hid_type_t;
+// APP: an application profile (for now one hardcoded Plasticity profile, control_task.c) --
+// F1-F4 become app controls (zoom/orbit/pivot/pan) and long-press F4 opens the menu.
+typedef enum { MENU_HID_KEYBOARD = 0, MENU_HID_MOUSE, MENU_HID_MIDI, MENU_HID_APP, MENU_HID_TYPE_COUNT } menu_hid_type_t;
 
 // One rendered row. `caption` is the small engineering name shown under the friendly label
 // (e.g. label "SNAP", caption "KP"); "" where there is none. `value` is "" for a submenu item

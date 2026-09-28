@@ -208,7 +208,9 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_MAIN: {
             ui::MainInputs in = {
                 ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
-                menu_get_haptic_type(), ui_state_get_buttons(), s_icon_set ? s_icon : nullptr,
+                // APP mode always runs VISCOSE (control_task.c), so that's what the feel line says.
+                menu_get_hid_type() == MENU_HID_APP ? HAPTIC_TYPE_VISCOSE : menu_get_haptic_type(),
+                ui_state_get_buttons(), s_icon_set ? s_icon : nullptr,
             };
             ui::draw_main(in);
             break;

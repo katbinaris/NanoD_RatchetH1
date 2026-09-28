@@ -10,6 +10,7 @@
 #include "tinyusb_console.h"
 #include "class/hid/hid_device.h"
 #include "icon_store.h"
+#include "app_mode.h"
 
 static const char *TAG = "usb";
 
@@ -168,6 +169,81 @@ void tud_resume_cb(void) {
     ESP_LOGI(TAG, "USB resumed");
 }
 
+// --- report sending ---
+// The host polls the HID endpoint every 10ms (bInterval above), so a report can only go out
+// once the previous one has been collected. Waits are whole ticks: at CONFIG_FREERTOS_HZ=100
+// pdMS_TO_TICKS(1) is 0, which made the first version of this wait a no-op and silently
+// dropped back-to-back reports (stuck Option / middle button in the APP-mode test).
+#define HID_SEND_TRIES 5 // x 1 tick (10ms) -- well past one host poll
+
+static bool send_mouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
+    for (int i = 0; i < HID_SEND_TRIES; i++) {
+        if (tud_hid_n_ready(HID_INSTANCE_INPUT) && tud_hid_mouse_report(REPORT_ID_MOUSE, buttons, dx, dy, wheel, 0)) {
+            return true;
+        }
+        vTaskDelay(1);
+    }
+    ESP_LOGW(TAG, "mouse report dropped (endpoint busy)");
+    return false;
+}
+
+static bool send_keys(uint8_t modifier, uint8_t keycode) {
+    uint8_t keys[6] = {keycode, 0, 0, 0, 0, 0};
+    for (int i = 0; i < HID_SEND_TRIES; i++) {
+        if (tud_hid_n_ready(HID_INSTANCE_INPUT)
+            && tud_hid_keyboard_report(REPORT_ID_KEYBOARD, modifier, keycode ? keys : NULL)) {
+            return true;
+        }
+        vTaskDelay(1);
+    }
+    ESP_LOGW(TAG, "keyboard report dropped (endpoint busy)");
+    return false;
+}
+
+// APP mode (app_mode.h): bring the host in line with the wanted state. What the host has is
+// tracked in *sent_buttons / *sent_modifier and only updated on a report that went out, so a
+// failed send is simply retried next pass. Order matters for chords like Ctrl + middle-drag:
+// a modifier goes down before the button, and comes up after it.
+static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
+    static bool keys_dirty = false; // a key report may still be held on the host
+    uint8_t modifier, keycode;
+    if (app_mode_take_shortcut(&modifier, &keycode)) {
+        // A shortcut tap (F3): press, then back to whatever modifier a drag holds.
+        if (send_keys(*sent_modifier | modifier, keycode)) keys_dirty = true;
+        if (send_keys(*sent_modifier, 0)) keys_dirty = false;
+    }
+    uint8_t want_buttons, want_modifier;
+    bool axis_y;
+    app_mode_wanted(&want_buttons, &want_modifier, &axis_y);
+
+    // Modifier added -> before the buttons.
+    if (want_modifier & ~*sent_modifier) {
+        if (send_keys(want_modifier, 0)) *sent_modifier = want_modifier;
+    }
+    int32_t move = app_mode_take_move_px();
+    if (move != 0 && want_buttons == 0) move = 0; // travel only counts during a drag
+    if (move > 127 || move < -127) {
+        int32_t clipped = move > 0 ? 127 : -127;
+        app_mode_return_move_px(move - clipped);
+        move = clipped;
+    }
+    if (want_buttons != *sent_buttons || move != 0) {
+        int8_t dx = axis_y ? 0 : (int8_t)move, dy = axis_y ? (int8_t)move : 0;
+        if (send_mouse(want_buttons, dx, dy, 0)) {
+            *sent_buttons = want_buttons;
+        } else if (move != 0) {
+            app_mode_return_move_px(move);
+        }
+    }
+    // Modifier removed (or a shortcut's release failed) -> once the buttons are in sync.
+    if ((*sent_modifier != want_modifier || keys_dirty) && *sent_buttons == want_buttons) {
+        if (send_keys(want_modifier, 0)) {
+            *sent_modifier = want_modifier;
+            keys_dirty = false;
+        }
+    }
+}
+
 static void usb_task_fn(void *arg) {
     ESP_LOGI(TAG, "usb task started on core %d, prio %d", xPortGetCoreID(), uxTaskPriorityGet(NULL));
 
@@ -203,15 +279,23 @@ static void usb_task_fn(void *arg) {
     // Blocks on the queue itself (not a fixed-interval poll) so a scroll event reaches
     // the host with minimal added latency -- the timeout just bounds how long this task
     // can sit idle, it isn't a polling period.
+    //
+    // Wakes at least once a tick (10ms, = the host's poll interval) to sync APP mode's
+    // wanted state; wheel steps arrive through the queue as before and carry whatever mouse
+    // buttons the host currently has held.
     hid_report_msg_t msg;
+    uint8_t sent_buttons = 0, sent_modifier = 0;
     while (1) {
-        if (xQueueReceive(g_hid_report_queue, &msg, pdMS_TO_TICKS(100)) == pdTRUE) {
-            switch (msg.type) {
-                case HID_EVENT_MOUSE_WHEEL:
-                    tud_hid_mouse_report(REPORT_ID_MOUSE, 0x00, 0, 0, msg.wheel_delta, 0);
-                    break;
-            }
+        bool got = xQueueReceive(g_hid_report_queue, &msg, 1) == pdTRUE;
+        if (!tud_mounted()) {
+            sent_buttons = 0; // a fresh enumeration starts with nothing held
+            sent_modifier = 0;
+            continue;
         }
+        if (got && msg.type == HID_EVENT_MOUSE_WHEEL) {
+            send_mouse(sent_buttons, 0, 0, msg.wheel_delta);
+        }
+        app_sync(&sent_buttons, &sent_modifier);
     }
 }
 

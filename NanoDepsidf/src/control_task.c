@@ -11,6 +11,7 @@
 #include "ui_state.h"
 #include "menu.h"
 #include "haptic_params.h"
+#include "app_mode.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -794,7 +795,14 @@ static void control_task_fn(void *arg) {
                 // sees the held mask above) -- it must not also open the menu.
                 bool swallow = ui_state_get_screensaver();
 
-                if (!swallow && iterations >= s_menu_btn_cooldown_until_iter) {
+                // APP mode with the menu closed: F1-F4 are app controls (app_mode.c), and
+                // long-press F4 is the way into the menu. Inside the menu they're menu keys
+                // again. Both sides keep tracking the buttons every tick, so the press that
+                // opens or closes the menu never also fires on the other side.
+                bool app_active = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
+                app_mode_update(app_active, esp_timer_get_time(), ui_state_get_buttons(), swallow);
+
+                if (!app_active && !swallow && iterations >= s_menu_btn_cooldown_until_iter) {
                     if (btn_d_pressed && !s_menu_prev_btn_d_pressed) {
                         menu_input_toggle_open(); // F4
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
@@ -834,7 +842,11 @@ static void control_task_fn(void *arg) {
                 uint32_t num_detents = menu_get_haptic_num_detents();
                 float kp = menu_get_haptic_kp();
                 float kd = menu_get_haptic_kd();
-                haptic_type_t haptic_type = menu_get_haptic_type();
+                // APP mode (menu closed) runs smooth throughout -- zoom, orbit and pan alike
+                // (by request after the first test); wheel steps still come from the detent
+                // crossings below, only the feel changes.
+                bool app_feel = app_mode_dragging() || (menu_get_hid_type() == MENU_HID_APP && !menu_is_open());
+                haptic_type_t haptic_type = app_feel ? HAPTIC_TYPE_VISCOSE : menu_get_haptic_type();
 
                 // Nearest-grid-point selection: which of the N evenly-spaced detents is
                 // nearest, and the (hysteresis-stabilized) error/rel/velocity relative to it.
@@ -866,7 +878,9 @@ static void control_task_fn(void *arg) {
 
                 float velocity = 0.0f;
                 if (s_prev_mech_rad_valid) {
-                    velocity = wrap_pi(mech_rad - s_prev_mech_rad) / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
+                    float delta = wrap_pi(mech_rad - s_prev_mech_rad);
+                    velocity = delta / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
+                    app_mode_motion(delta, esp_timer_get_time()); // no-op unless an APP drag is held
                 }
                 s_prev_mech_rad = mech_rad;
                 s_prev_mech_rad_valid = true;
@@ -1013,8 +1027,9 @@ static void control_task_fn(void *arg) {
                             // scrolling -- deliberately does NOT enqueue a HID wheel event
                             // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
                             menu_input_rotate(positive_dir ? 1 : -1);
-                        } else {
-                            // Phase 3: knob -> mouse scroll wheel mapping.
+                        } else if (!app_feel) {
+                            // Phase 3: knob -> mouse scroll wheel mapping. Not in APP mode:
+                            // there the knob drives app_mode.c's drags (zoom included).
                             int8_t wheel_delta = positive_dir ? (int8_t)HID_WHEEL_SIGN : (int8_t)(-HID_WHEEL_SIGN);
                             hid_report_msg_t hid_msg = {
                                 .type = HID_EVENT_MOUSE_WHEEL,

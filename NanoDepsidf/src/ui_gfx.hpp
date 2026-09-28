@@ -34,12 +34,12 @@ struct Sprite {
     uint8_t h;
     const char *rows;
 };
-extern const Sprite SPR_USB, SPR_SPK, SPR_KBD, SPR_MOUSE, SPR_NOTE, SPR_TERM;
+extern const Sprite SPR_USB, SPR_SPK, SPR_KBD, SPR_MOUSE, SPR_NOTE, SPR_TERM, SPR_CUBE;
 extern const Sprite SPR_TRI_L, SPR_TRI_R, SPR_TRI_U, SPR_TRI_D;
 extern const Sprite SPR_STEPS, SPR_SNAP, SPR_DAMP, SPR_PITCH;
 // The same icons hand-redrawn at 1.5x (repeating pixels can't make 1.5x): draw at 1x for
 // 1.5x, at 2x for 3x.
-extern const Sprite SPR_USB_M, SPR_SPK_M, SPR_KBD_M, SPR_MOUSE_M, SPR_NOTE_M, SPR_TERM_M;
+extern const Sprite SPR_USB_M, SPR_SPK_M, SPR_KBD_M, SPR_MOUSE_M, SPR_NOTE_M, SPR_TERM_M, SPR_CUBE_M;
 extern const Sprite SPR_TRI_L_M, SPR_TRI_R_M;
 extern const Sprite SPR_STEPS_M, SPR_SNAP_M, SPR_DAMP_M, SPR_PITCH_M;
 

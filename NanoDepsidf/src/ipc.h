@@ -9,6 +9,8 @@
 // need to know TinyUSB's API at all. Only the knob->scroll-wheel mapping exists so far;
 // extend this enum/struct as more of the mapping engine (Phase 3's still-pending "Open
 // decisions" item) gets designed -- keys, mouse move, gamepad, etc.
+// APP mode's drags and pivot don't go through this queue: they're state, polled by
+// usb_task.c from app_mode.h, so a dropped report can't leave a button stuck down.
 typedef enum {
     HID_EVENT_MOUSE_WHEEL,
 } hid_event_type_t;

@@ -54,7 +54,7 @@ int main() {
     ui::fx_init();
 
     // Hand-drawn sprites: the row string must be exactly w*h chars.
-    const ui::Sprite *all[] = {&ui::SPR_USB, &ui::SPR_SPK, &ui::SPR_KBD, &ui::SPR_MOUSE, &ui::SPR_NOTE, &ui::SPR_TERM,
+    const ui::Sprite *all[] = {&ui::SPR_USB, &ui::SPR_SPK, &ui::SPR_KBD, &ui::SPR_MOUSE, &ui::SPR_NOTE, &ui::SPR_TERM, &ui::SPR_CUBE, &ui::SPR_CUBE_M,
                                &ui::SPR_TRI_L, &ui::SPR_TRI_R, &ui::SPR_STEPS, &ui::SPR_SNAP, &ui::SPR_DAMP,
                                &ui::SPR_PITCH, &ui::SPR_USB_M, &ui::SPR_SPK_M, &ui::SPR_KBD_M, &ui::SPR_MOUSE_M,
                                &ui::SPR_NOTE_M, &ui::SPR_TERM_M, &ui::SPR_TRI_L_M, &ui::SPR_TRI_R_M,
@@ -76,6 +76,8 @@ int main() {
     keep("main mouse");
     ui::draw_main({true, AUDIO_TIMBRE_TICK_THUD, MENU_HID_KEYBOARD, HAPTIC_TYPE_VISCOSE, UI_BTN_F4, nullptr});
     keep("main keyboard, F4 held");
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F2, nullptr});
+    keep("main APP, F2 held");
     // Uploaded icon: raw RGB565 BE written by run.sh from tools/icons/figma_pixel_48.png.
     if (FILE *f = fopen(getenv("ICON_RAW") ? getenv("ICON_RAW") : "", "rb")) {
         static uint8_t icon[48 * 48 * 2];
@@ -114,6 +116,9 @@ int main() {
     hid.row_count = 1;
     ui::draw_hid(hid, {MENU_HID_KEYBOARD, 0, true});
     keep("hid keyboard");
+    hid.rows[0] = row("HID TYPE", "", "APP", true);
+    ui::draw_hid(hid, {MENU_HID_APP, 0, true});
+    keep("hid APP");
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("HID TYPE", "", "MIDI", false);

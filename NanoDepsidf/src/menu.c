@@ -88,6 +88,7 @@ static const char *ph_hid_type_name(menu_hid_type_t t) {
         case MENU_HID_KEYBOARD: return "KEYBOARD";
         case MENU_HID_MOUSE: return "MOUSE";
         case MENU_HID_MIDI: return "MIDI";
+        case MENU_HID_APP: return "APP";
         default: return "?";
     }
 }
