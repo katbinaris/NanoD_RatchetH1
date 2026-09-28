@@ -6,6 +6,7 @@
 #include "audio_trigger.h"
 #include "ui_state.h"
 #include "menu.h"
+#include "icon_store.h"
 #include "control_task.h"
 #include "usb_task.h"
 #include "i2s_task.h"
@@ -96,6 +97,7 @@ void app_main(void) {
     audio_trigger_init();
     ui_state_init();
     menu_init();
+    icon_store_init(); // before usb_task (producer) and display_task (consumer) start
 
     // See usb_serial_mode_requested()'s comment above -- checked before any task starts.
     // Phase 8 step 6: the BTN_C+BTN_D hold is a hardware failsafe that ALWAYS takes priority,
@@ -108,6 +110,7 @@ void app_main(void) {
     bool serial_forced_by_buttons = usb_serial_mode_requested();
     bool serial_requested_by_setting = (menu_get_boot_mode() == BOOT_USB_MODE_SERIAL);
     bool usb_serial_mode = serial_forced_by_buttons || serial_requested_by_setting;
+    ui_state_set_usb_serial_active(usb_serial_mode); // what the UI shows as "IN USE"
     if (serial_forced_by_buttons) {
         ESP_LOGW(TAG, "BTN_C+BTN_D held at boot -- USB serial mode (failsafe, overrides the "
                        "saved Boot USB Mode setting): TinyUSB (HID) will NOT be installed "

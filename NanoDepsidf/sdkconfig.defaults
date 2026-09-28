@@ -54,7 +54,11 @@ CONFIG_SPIRAM_SPEED_40M=y
 # mouse, gamepad; see usb_task.c). This is the only sdkconfig entry TinyUSB's HID class
 # needs -- endpoint size/polling interval/report-descriptor length are literal args in
 # TUD_HID_DESCRIPTOR in usb_task.c, not Kconfig.
-CONFIG_TINYUSB_HID_COUNT=1
+#
+# 2 HID interfaces: the keyboard/mouse/gamepad one above, plus a vendor-defined raw 64-byte
+# IN/OUT interface for host<->device data (icon upload -- see usb_task.c). Also changed
+# directly in sdkconfig.esp32-s3-devkitm-1, since defaults don't override a saved value.
+CONFIG_TINYUSB_HID_COUNT=2
 
 # CDC-ACM, composited alongside HID (not a separate device) -- required, not optional:
 # this board's upload flow (`use_1200bps_touch` in boards/nanofoc_d.json) depends on the

@@ -25,7 +25,7 @@ typedef struct {
 } haptic_cfg_t;
 
 typedef struct {
-    int32_t hid_type;     // menu.c's ph_hid_type_t
+    int32_t hid_type;     // menu.h's menu_hid_type_t
     int32_t midi_channel; // 1-16
 } hid_cfg_t;
 

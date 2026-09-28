@@ -315,11 +315,12 @@ static bool s_haptic_prev_detent_index_valid = false;
 static uint32_t s_haptic_pulse_ticks_remaining = 0;
 static float s_haptic_pulse_sign = 1.0f;
 
-// F1/F3/F4 (BTN_A/BTN_C/BTN_D) press-edge state for the real menu (`menu.c`) -- F2/BTN_B
-// is unused/reserved per the Phase 8 button-role decision, not read here. One shared
-// cooldown (not per-button) is enough now that each button fires a single, unambiguous
-// action rather than needing combo disambiguation like the retired scheme above did.
+// F1-F4 (BTN_A-BTN_D) press-edge state for the real menu (`menu.c`). F2/BTN_B was reserved
+// in Phase 8 and is Save since the Pixel UI (menu_input_save()). One shared cooldown (not
+// per-button) is enough now that each button fires a single, unambiguous action rather than
+// needing combo disambiguation like the retired scheme above did.
 static bool s_menu_prev_btn_a_pressed = false;
+static bool s_menu_prev_btn_b_pressed = false;
 static bool s_menu_prev_btn_c_pressed = false;
 static bool s_menu_prev_btn_d_pressed = false;
 static uint32_t s_menu_btn_cooldown_until_iter = 0;
@@ -458,6 +459,7 @@ static void control_task_fn(void *arg) {
                     s_haptic_pulse_ticks_remaining = 0;
                     s_haptic_pulse_sign = 1.0f;
                     s_menu_prev_btn_a_pressed = false;
+                    s_menu_prev_btn_b_pressed = false;
                     s_menu_prev_btn_c_pressed = false;
                     s_menu_prev_btn_d_pressed = false;
                     s_menu_btn_cooldown_until_iter = 0;
@@ -775,14 +777,24 @@ static void control_task_fn(void *arg) {
 
         if (s_haptic_phase != HAPTIC_DONE) {
             if (s_haptic_phase == HAPTIC_RUN) {
-                // Phase 8: F1/F3/F4 (BTN_A/BTN_C/BTN_D) drive the real config menu
-                // (`menu.c`) -- fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the
-                // Architecture decisions log. F2/BTN_B is unused/reserved, not read here.
+                // Phase 8: F1-F4 (BTN_A-BTN_D) drive the real config menu (`menu.c`) --
+                // fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the Architecture
+                // decisions log. F2 (Save) joined with the Pixel UI.
                 bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0);
+                bool btn_b_pressed = (gpio_get_level(PIN_BTN_B) == 0);
                 bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0);
                 bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0);
 
-                if (iterations >= s_menu_btn_cooldown_until_iter) {
+                // Pixel UI: held state for the Main Screen keycaps (cheap atomic store, every
+                // tick, same convention as ui_state_set_detent() below).
+                ui_state_set_buttons((btn_a_pressed ? UI_BTN_F1 : 0) | (btn_b_pressed ? UI_BTN_F2 : 0)
+                                     | (btn_c_pressed ? UI_BTN_F3 : 0) | (btn_d_pressed ? UI_BTN_F4 : 0));
+
+                // While the attract animation runs, a press only wakes the screen (the display
+                // sees the held mask above) -- it must not also open the menu.
+                bool swallow = ui_state_get_screensaver();
+
+                if (!swallow && iterations >= s_menu_btn_cooldown_until_iter) {
                     if (btn_d_pressed && !s_menu_prev_btn_d_pressed) {
                         menu_input_toggle_open(); // F4
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
@@ -792,9 +804,13 @@ static void control_task_fn(void *arg) {
                     } else if (btn_a_pressed && !s_menu_prev_btn_a_pressed) {
                         menu_input_select(); // F1
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                    } else if (btn_b_pressed && !s_menu_prev_btn_b_pressed) {
+                        menu_input_save(); // F2 -- an NVS commit when something changed, see menu.c
+                        s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
                     }
                 }
                 s_menu_prev_btn_a_pressed = btn_a_pressed;
+                s_menu_prev_btn_b_pressed = btn_b_pressed;
                 s_menu_prev_btn_c_pressed = btn_c_pressed;
                 s_menu_prev_btn_d_pressed = btn_d_pressed;
             }

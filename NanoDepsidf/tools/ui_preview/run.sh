@@ -1,0 +1,33 @@
+#!/bin/sh
+# Renders every Pixel UI screen from the firmware's own drawing code into a PNG contact sheet.
+#   tools/ui_preview/run.sh [out.png]     (default: tools/ui_preview/out/preview.png)
+# Needs a host C++ compiler and the tools venv (Pillow) for the PPM -> PNG step.
+set -e
+HERE=$(cd "$(dirname "$0")" && pwd)
+SRC="$HERE/../../src"
+OUT=${1:-"$HERE/out/preview.png"}
+BUILD="$HERE/out/build"
+mkdir -p "$BUILD/fonts" "$(dirname "$OUT")"
+
+# Copy (not include-path) the sources: a quoted #include resolves next to the including file
+# first, which would pick up the real lgfx_config.hpp from src/ instead of the stub.
+cp "$SRC"/ui_gfx.cpp "$SRC"/ui_gfx.hpp "$SRC"/ui_screens.cpp "$SRC"/ui_screens.hpp \
+   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/menu.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
+   "$SRC"/audio_trigger.h "$SRC"/boot_mode.h "$BUILD/"
+cp "$SRC"/fonts/*.cpp "$SRC"/fonts/*.h "$BUILD/fonts/"
+cp "$HERE"/stub/*.hpp "$BUILD/"
+
+# The Figma test icon, converted exactly as send_icon.py sends it, for the "uploaded icon" tile.
+"$HERE/../.venv/bin/python" -c "
+import sys; sys.path.insert(0, sys.argv[1])
+from send_icon import fit_icon, to_rgb565_be
+from PIL import Image
+open(sys.argv[3], 'wb').write(to_rgb565_be(fit_icon(Image.open(sys.argv[2]))))" \
+    "$HERE/.." "$HERE/../icons/figma_pixel_48.png" "$BUILD/icon.raw"
+
+c++ -std=c++17 -O2 -I"$BUILD" -o "$BUILD/preview" "$HERE/preview.cpp" \
+    "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_fx.cpp "$BUILD"/fonts/*.cpp
+ICON_RAW="$BUILD/icon.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
+"$HERE/../.venv/bin/python" -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" \
+    "$BUILD/preview.ppm" "$OUT"
+echo "wrote $OUT"

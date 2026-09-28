@@ -9,6 +9,7 @@
 #include "tinyusb_cdc_acm.h"
 #include "tinyusb_console.h"
 #include "class/hid/hid_device.h"
+#include "icon_store.h"
 
 static const char *TAG = "usb";
 
@@ -47,13 +48,29 @@ static const char *TAG = "usb";
 // BTN_A-D, owned by Core 0 per the architecture log in DEVELOPMENT_PLAN.md) doesn't exist
 // yet, and how much of the rest of the mapping engine survives is still open (see
 // DEVELOPMENT_PLAN.md Phase 3's "Open decisions" list).
+//
+// Second HID interface: vendor-defined (usage page 0xFF00, "raw HID" style), with its own
+// 64-byte interrupt IN+OUT endpoints, carrying host<->device data -- first user is icon
+// upload (icon_store.h has the wire protocol). Deliberately a separate interface rather
+// than a vendor report ID on the keyboard/mouse interface: full 64-byte payload with no
+// report-ID byte, interrupt-OUT throughput instead of SET_REPORT control transfers, and host
+// tools can open it by usage page without touching a keyboard interface (which macOS gates
+// behind Input Monitoring permission). Endpoint budget: now 4 IN + 2 OUT, still inside the
+// S3's 5 usable IN.
 
 enum {
     ITF_NUM_CDC = 0,      // CDC control interface (CDC data is ITF_NUM_CDC + 1, implicit
                           // in TUD_CDC_DESCRIPTOR's own Interface Association Descriptor)
     ITF_NUM_CDC_DATA = 1,
     ITF_NUM_HID = 2,
-    ITF_NUM_TOTAL = 3,
+    ITF_NUM_HID_VENDOR = 3,
+    ITF_NUM_TOTAL = 4,
+};
+
+// TinyUSB numbers HID instances in configuration-descriptor order.
+enum {
+    HID_INSTANCE_INPUT = 0,  // keyboard / mouse / gamepad
+    HID_INSTANCE_VENDOR = 1, // raw 64-byte host<->device data
 };
 
 enum {
@@ -66,8 +83,10 @@ enum {
 #define EPNUM_CDC_OUT   0x02 // EP2 OUT
 #define EPNUM_CDC_IN    0x82 // EP2 IN
 #define EPNUM_HID_IN    0x83 // EP3 IN
+#define EPNUM_VENDOR_OUT 0x04 // EP4 OUT
+#define EPNUM_VENDOR_IN  0x84 // EP4 IN
 
-#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + CFG_TUD_HID * TUD_HID_DESC_LEN)
+#define TUSB_DESC_TOTAL_LEN (TUD_CONFIG_DESC_LEN + TUD_CDC_DESC_LEN + TUD_HID_DESC_LEN + TUD_HID_INOUT_DESC_LEN)
 
 static const uint8_t s_hid_report_descriptor[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(REPORT_ID_KEYBOARD)),
@@ -75,7 +94,13 @@ static const uint8_t s_hid_report_descriptor[] = {
     TUD_HID_REPORT_DESC_GAMEPAD(HID_REPORT_ID(REPORT_ID_GAMEPAD)),
 };
 
-static const char *s_usb_string_descriptor[6] = {
+// Usage page 0xFF00 / usage 0x01, one 64-byte input + one 64-byte output report, no report
+// ID -- what host tools match on (tools/send_icon.py).
+static const uint8_t s_vendor_report_descriptor[] = {
+    TUD_HID_REPORT_DESC_GENERIC_INOUT(ICON_HID_REPORT_SIZE),
+};
+
+static const char *s_usb_string_descriptor[7] = {
     (char[]){0x09, 0x04}, // 0: supported language -- English (0x0409)
     "Binaris Circuitry",  // 1: Manufacturer
     "Nano D++",           // 2: Product
@@ -83,6 +108,7 @@ static const char *s_usb_string_descriptor[6] = {
                            //    efuse MAC) is follow-on work, not needed for this slice
     "NanoD Console",       // 4: CDC interface name
     "NanoD HID",           // 5: HID interface name
+    "NanoD Data",          // 6: vendor HID interface name
 };
 
 // device descriptor deliberately left NULL in tinyusb_config_t below: esp_tinyusb's own
@@ -97,13 +123,15 @@ static const uint8_t s_usb_configuration_descriptor[] = {
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 4, EPNUM_CDC_NOTIF, 16, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval
     TUD_HID_DESCRIPTOR(ITF_NUM_HID, 5, false, sizeof(s_hid_report_descriptor), EPNUM_HID_IN, 16, 10),
+    // Interface number, string index, boot protocol, report descriptor len, EP Out & In address, size & polling interval
+    TUD_HID_INOUT_DESCRIPTOR(ITF_NUM_HID_VENDOR, 6, HID_ITF_PROTOCOL_NONE, sizeof(s_vendor_report_descriptor),
+                             EPNUM_VENDOR_OUT, EPNUM_VENDOR_IN, ICON_HID_REPORT_SIZE, 1),
 };
 
 // --- Required TinyUSB HID callbacks (no weak default -- must be defined) ---
 
 uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
-    (void)instance; // single HID interface -- nothing to select on
-    return s_hid_report_descriptor;
+    return (instance == HID_INSTANCE_VENDOR) ? s_vendor_report_descriptor : s_hid_report_descriptor;
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
@@ -112,9 +140,23 @@ uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id, hid_report_t
     return 0;
 }
 
+// Runs in the TinyUSB task. For the vendor interface, TinyUSB re-arms the OUT endpoint right
+// after this returns, so handling must stay synchronous and short -- icon_store only copies
+// the chunk into its staging buffer (and CRCs ~4.6KB once, at END).
 void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_t report_type,
                             uint8_t const *buffer, uint16_t bufsize) {
-    (void)instance; (void)report_id; (void)report_type; (void)buffer; (void)bufsize;
+    (void)report_id; (void)report_type;
+    if (instance != HID_INSTANCE_VENDOR) {
+        return; // keyboard LED output reports etc. -- unused
+    }
+    static uint8_t reply[ICON_HID_REPORT_SIZE];
+    if (icon_store_handle_report(buffer, bufsize, reply)) {
+        // Replies only follow BEGIN/END/CLEAR or a failure; the host waits for each one, so
+        // the IN endpoint is idle here in the normal flow.
+        if (!tud_hid_n_report(HID_INSTANCE_VENDOR, 0, reply, sizeof(reply))) {
+            ESP_LOGW(TAG, "vendor HID reply dropped (IN endpoint busy)");
+        }
+    }
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
@@ -156,7 +198,7 @@ static void usb_task_fn(void *arg) {
     // via its own separate pins.
     ESP_ERROR_CHECK(tinyusb_console_init(TINYUSB_CDC_ACM_0));
 
-    ESP_LOGI(TAG, "USB composite device installed (CDC console + HID keyboard+mouse+gamepad)");
+    ESP_LOGI(TAG, "USB composite device installed (CDC console + HID keyboard+mouse+gamepad + vendor HID)");
 
     // Blocks on the queue itself (not a fixed-interval poll) so a scroll event reaches
     // the host with minimal added latency -- the timeout just bounds how long this task

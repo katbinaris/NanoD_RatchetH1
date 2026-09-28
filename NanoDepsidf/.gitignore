@@ -8,3 +8,9 @@ managed_components
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Host-tool virtualenv (tools/requirements.txt)
+tools/.venv
+
+# Host UI preview build output
+tools/ui_preview/out

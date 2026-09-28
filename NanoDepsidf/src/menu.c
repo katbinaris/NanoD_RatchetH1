@@ -12,25 +12,28 @@
 typedef enum {
     MENU_ITEM_SUBMENU, // enters a child screen
     MENU_ITEM_VALUE,   // enters edit mode; rendered as "label  value"
-    MENU_ITEM_ACTION,  // fires immediately on select (e.g. Save), stays on the same screen
 } menu_item_kind_t;
+// (A MENU_ITEM_ACTION kind existed for the "Save" rows; saving is F2 now -- menu_input_save().)
 
 typedef struct menu_screen_s menu_screen_t;
 
 typedef struct {
     const char *label;
+    const char *caption;                               // small engineering name, NULL = none
     menu_item_kind_t kind;
     const menu_screen_t *submenu;                      // MENU_ITEM_SUBMENU
     void (*format_value)(char *buf, size_t buf_size);  // MENU_ITEM_VALUE
     void (*on_rotate)(int8_t direction);               // MENU_ITEM_VALUE, called while editing
-    void (*on_action)(void);                           // MENU_ITEM_ACTION
     bool (*is_enabled)(void);                          // NULL = always enabled
 } menu_item_t;
 
 struct menu_screen_s {
+    menu_screen_id_t id;
     const char *title;
     const menu_item_t *items;
     int item_count;
+    bool direct_edit;          // turn edits the focused value directly -- see menu.h
+    void (*save)(void);        // F2; NULL = nothing to save on this screen
 };
 
 // --- Placeholder settings state (step 1 only) ---
@@ -61,9 +64,9 @@ static _Atomic float s_ph_kd = HAPTIC_KD_DEFAULT;
 static _Atomic haptic_type_t s_ph_haptic_type = HAPTIC_TYPE_SAW;
 static const char *ph_haptic_type_name(haptic_type_t t) {
     switch (t) {
-        case HAPTIC_TYPE_SAW: return "Saw";
-        case HAPTIC_TYPE_SINE: return "Sine";
-        case HAPTIC_TYPE_VISCOSE: return "Viscose";
+        case HAPTIC_TYPE_SAW: return "SAW";
+        case HAPTIC_TYPE_SINE: return "SINE";
+        case HAPTIC_TYPE_VISCOSE: return "VISCOSE";
         default: return "?";
     }
 }
@@ -73,18 +76,18 @@ static const char *ph_haptic_type_name(haptic_type_t t) {
 // menu.c-private enum the way it was before.
 static _Atomic audio_click_timbre_t s_ph_sound = AUDIO_TIMBRE_WOOD_TOCK;
 static const char *ph_sound_name(audio_click_timbre_t s) {
-    return (s == AUDIO_TIMBRE_WOOD_TOCK) ? "Wood Tock" : "Tick Thud";
+    return (s == AUDIO_TIMBRE_WOOD_TOCK) ? "WOOD" : "THUD"; // short: shares the Main Screen status strip
 }
 
 static _Atomic float s_ph_pitch = AUDIO_CLICK_PITCH_DEFAULT;
 
-typedef enum { PH_HID_KEYBOARD, PH_HID_MOUSE, PH_HID_MIDI, PH_HID_TYPE_COUNT } ph_hid_type_t;
-static _Atomic ph_hid_type_t s_ph_hid_type = PH_HID_MOUSE; // matches today's real default (mouse-wheel mapping)
-static const char *ph_hid_type_name(ph_hid_type_t t) {
+// menu_hid_type_t lives in menu.h -- display_task.cpp reads it for the mode icon.
+static _Atomic menu_hid_type_t s_ph_hid_type = MENU_HID_MOUSE; // matches today's real default (mouse-wheel mapping)
+static const char *ph_hid_type_name(menu_hid_type_t t) {
     switch (t) {
-        case PH_HID_KEYBOARD: return "Keyboard";
-        case PH_HID_MOUSE: return "Mouse";
-        case PH_HID_MIDI: return "MIDI";
+        case MENU_HID_KEYBOARD: return "KEYBOARD";
+        case MENU_HID_MOUSE: return "MOUSE";
+        case MENU_HID_MIDI: return "MIDI";
         default: return "?";
     }
 }
@@ -95,7 +98,7 @@ static _Atomic int32_t s_ph_midi_channel = 1; // 1-16
 // directly at startup to decide which USB personality to bring up.
 static _Atomic boot_usb_mode_t s_ph_boot_mode = BOOT_USB_MODE_HID; // matches today's real default (normal boot = composite HID+CDC)
 static const char *ph_boot_mode_name(boot_usb_mode_t m) {
-    return (m == BOOT_USB_MODE_SERIAL) ? "Serial" : "HID";
+    return (m == BOOT_USB_MODE_SERIAL) ? "SERIAL" : "HID";
 }
 
 // --- Field callbacks ---
@@ -124,7 +127,10 @@ static void rotate_kp(int8_t dir) {
 }
 
 static void fmt_kd(char *buf, size_t n) {
-    snprintf(buf, n, "%.3f", (double)atomic_load_explicit(&s_ph_kd, memory_order_relaxed));
+    // ".010" rather than "0.010" -- the leading zero costs a character on the Orbit ring
+    char tmp[16];
+    snprintf(tmp, sizeof(tmp), "%.3f", (double)atomic_load_explicit(&s_ph_kd, memory_order_relaxed));
+    snprintf(buf, n, "%s", (tmp[0] == '0') ? tmp + 1 : tmp);
 }
 static void rotate_kd(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_kd, memory_order_relaxed) + dir * 0.005f;
@@ -152,7 +158,7 @@ static void rotate_sound(int8_t dir) {
 }
 
 static void fmt_pitch(char *buf, size_t n) {
-    snprintf(buf, n, "%.2fx", (double)atomic_load_explicit(&s_ph_pitch, memory_order_relaxed));
+    snprintf(buf, n, "%.2fX", (double)atomic_load_explicit(&s_ph_pitch, memory_order_relaxed));
 }
 static void rotate_pitch(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed) + dir * 0.05f;
@@ -177,16 +183,16 @@ static void fmt_hid_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_hid_type_name(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)));
 }
 static void rotate_hid_type(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) + dir) % PH_HID_TYPE_COUNT;
-    if (v < 0) v += PH_HID_TYPE_COUNT;
-    atomic_store_explicit(&s_ph_hid_type, (ph_hid_type_t)v, memory_order_relaxed);
+    int v = ((int)atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) + dir) % MENU_HID_TYPE_COUNT;
+    if (v < 0) v += MENU_HID_TYPE_COUNT;
+    atomic_store_explicit(&s_ph_hid_type, (menu_hid_type_t)v, memory_order_relaxed);
 }
 static bool midi_mapping_enabled(void) {
-    return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) == PH_HID_MIDI;
+    return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) == MENU_HID_MIDI;
 }
 
 static void fmt_midi_mapping(char *buf, size_t n) {
-    snprintf(buf, n, "Ch %ld", (long)atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed));
+    snprintf(buf, n, "%02ld", (long)atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed));
 }
 static void rotate_midi_mapping(int8_t dir) {
     int32_t v = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed) + dir;
@@ -219,44 +225,44 @@ static void action_save_boot(void) {
 }
 
 // --- Screens ---
+// Labels are the Pixel UI's display names (DEVELOPMENT_PLAN.md "Pixel UI"); captions keep the
+// engineering names visible in small type. Detents are "STEPS" for now -- they're due for a
+// proper rename later.
 
-static const menu_item_t s_haptic_items[] = {
-    { .label = "Detents",      .kind = MENU_ITEM_VALUE,  .format_value = fmt_detents,      .on_rotate = rotate_detents },
-    { .label = "Kp",           .kind = MENU_ITEM_VALUE,  .format_value = fmt_kp,           .on_rotate = rotate_kp },
-    { .label = "Kd",           .kind = MENU_ITEM_VALUE,  .format_value = fmt_kd,           .on_rotate = rotate_kd },
-    { .label = "Haptic Type",  .kind = MENU_ITEM_VALUE,  .format_value = fmt_haptic_type,  .on_rotate = rotate_haptic_type },
-    { .label = "Haptic Sound", .kind = MENU_ITEM_VALUE,  .format_value = fmt_sound,        .on_rotate = rotate_sound },
-    { .label = "Pitch",        .kind = MENU_ITEM_VALUE,  .format_value = fmt_pitch,        .on_rotate = rotate_pitch },
-    { .label = "Save",         .kind = MENU_ITEM_ACTION, .on_action = action_save_haptic },
+static const menu_item_t s_haptic_items[MENU_HAPTIC_ROW_COUNT] = {
+    [MENU_HAPTIC_ROW_STEPS] = { .label = "STEPS", .caption = "DETENTS", .kind = MENU_ITEM_VALUE, .format_value = fmt_detents,     .on_rotate = rotate_detents },
+    [MENU_HAPTIC_ROW_SNAP]  = { .label = "SNAP",  .caption = "KP",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kp,          .on_rotate = rotate_kp },
+    [MENU_HAPTIC_ROW_DAMP]  = { .label = "DAMP",  .caption = "KD",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kd,          .on_rotate = rotate_kd },
+    [MENU_HAPTIC_ROW_FEEL]  = { .label = "FEEL",  .caption = "TYPE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_haptic_type, .on_rotate = rotate_haptic_type },
+    [MENU_HAPTIC_ROW_TONE]  = { .label = "TONE",  .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_sound,       .on_rotate = rotate_sound },
+    [MENU_HAPTIC_ROW_PITCH] = { .label = "PITCH", .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_pitch,       .on_rotate = rotate_pitch },
 };
 static const menu_screen_t s_haptic_screen = {
-    "Haptic Configurator", s_haptic_items, sizeof(s_haptic_items) / sizeof(s_haptic_items[0])
+    MENU_SCREEN_HAPTIC, "Haptic Configurator", s_haptic_items, MENU_HAPTIC_ROW_COUNT, false, action_save_haptic
 };
 
 static const menu_item_t s_hid_items[] = {
-    { .label = "HID Type",     .kind = MENU_ITEM_VALUE,  .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
-    { .label = "MIDI Mapping", .kind = MENU_ITEM_VALUE,  .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
-    { .label = "Save",         .kind = MENU_ITEM_ACTION, .on_action = action_save_hid },
+    { .label = "HID TYPE", .kind = MENU_ITEM_VALUE, .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
+    { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE, .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
 };
 static const menu_screen_t s_hid_screen = {
-    "HID Type", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0])
+    MENU_SCREEN_HID, "HID Type", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0]), true, action_save_hid
 };
 
 static const menu_item_t s_boot_items[] = {
-    { .label = "USB Mode", .kind = MENU_ITEM_VALUE,  .format_value = fmt_boot_mode, .on_rotate = rotate_boot_mode },
-    { .label = "Save",     .kind = MENU_ITEM_ACTION, .on_action = action_save_boot },
+    { .label = "USB MODE", .kind = MENU_ITEM_VALUE, .format_value = fmt_boot_mode, .on_rotate = rotate_boot_mode },
 };
 static const menu_screen_t s_boot_screen = {
-    "Boot USB Mode", s_boot_items, sizeof(s_boot_items) / sizeof(s_boot_items[0])
+    MENU_SCREEN_BOOT, "Boot USB Mode", s_boot_items, sizeof(s_boot_items) / sizeof(s_boot_items[0]), true, action_save_boot
 };
 
 static const menu_item_t s_root_items[] = {
-    { .label = "Haptic Configurator", .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
-    { .label = "HID Type",            .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
-    { .label = "Boot USB Mode",       .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
+    { .label = "HAPTICS",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
+    { .label = "HID TYPE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
+    { .label = "BOOT MODE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
 };
 static const menu_screen_t s_root_screen = {
-    "", s_root_items, sizeof(s_root_items) / sizeof(s_root_items[0])
+    MENU_SCREEN_ROOT, "", s_root_items, sizeof(s_root_items) / sizeof(s_root_items[0]), false, NULL
 };
 
 // --- Navigation state ---
@@ -318,6 +324,101 @@ static int step_index(const menu_screen_t *screen, int current, int8_t dir) {
     return current;
 }
 
+// --- Settings snapshots (Pixel UI) ---
+// One plain copy of every setting atomic. Used three ways:
+//   - s_saved: what NVS holds -- compared against the live atomics for the "unsaved" (dirty)
+//     cue, and restored from when a direct screen (HID / Boot mode) is left without saving.
+//   - s_undo: taken when a Haptic edit starts, restored by F3 (cancel).
+// All capture/restore work is a handful of atomic loads/stores -- bounded and cheap, safe on
+// Core 0's real-time loop. s_saved is read from Core 1 (snapshot) and written from Core 0
+// (save), so it's only ever copied under s_state_mux.
+
+typedef struct {
+    int32_t detents;
+    float kp;
+    float kd;
+    haptic_type_t haptic_type;
+    audio_click_timbre_t sound;
+    float pitch;
+    menu_hid_type_t hid_type;
+    int32_t midi_channel;
+    boot_usb_mode_t boot_mode;
+} settings_t;
+
+static settings_t s_saved;
+static settings_t s_undo;
+static _Atomic uint32_t s_save_count = 0;
+
+static void settings_capture(settings_t *s) {
+    s->detents = atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
+    s->kp = atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
+    s->kd = atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
+    s->haptic_type = atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
+    s->sound = atomic_load_explicit(&s_ph_sound, memory_order_relaxed);
+    s->pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
+    s->hid_type = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
+    s->midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed);
+    s->boot_mode = atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
+}
+
+static void settings_restore(const settings_t *s) {
+    atomic_store_explicit(&s_ph_detents, s->detents, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_kp, s->kp, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_kd, s->kd, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_haptic_type, s->haptic_type, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_sound, s->sound, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_pitch, s->pitch, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_hid_type, s->hid_type, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_midi_channel, s->midi_channel, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_boot_mode, s->boot_mode, memory_order_relaxed);
+}
+
+// Copies only the fields a screen owns (what that screen's save writes to NVS).
+static void settings_copy_group(settings_t *dst, const settings_t *src, menu_screen_id_t group) {
+    switch (group) {
+        case MENU_SCREEN_HAPTIC:
+            dst->detents = src->detents;
+            dst->kp = src->kp;
+            dst->kd = src->kd;
+            dst->haptic_type = src->haptic_type;
+            dst->sound = src->sound;
+            dst->pitch = src->pitch;
+            break;
+        case MENU_SCREEN_HID:
+            dst->hid_type = src->hid_type;
+            dst->midi_channel = src->midi_channel;
+            break;
+        case MENU_SCREEN_BOOT:
+            dst->boot_mode = src->boot_mode;
+            break;
+        default:
+            break;
+    }
+}
+
+static bool settings_group_differs(const settings_t *a, const settings_t *b, menu_screen_id_t group) {
+    switch (group) {
+        case MENU_SCREEN_HAPTIC:
+            return a->detents != b->detents || a->kp != b->kp || a->kd != b->kd
+                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch;
+        case MENU_SCREEN_HID:
+            return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel;
+        case MENU_SCREEN_BOOT:
+            return a->boot_mode != b->boot_mode;
+        default:
+            return false;
+    }
+}
+
+// Puts a direct screen's fields back to their saved values (leaving without F2). Core 0,
+// caller holds s_state_mux (s_saved is read here).
+static void revert_group_locked(menu_screen_id_t group) {
+    settings_t cur;
+    settings_capture(&cur);
+    settings_copy_group(&cur, &s_saved, group);
+    settings_restore(&cur);
+}
+
 void menu_init(void) {
     portENTER_CRITICAL(&s_state_mux);
     s_stack_depth = 0;
@@ -339,13 +440,17 @@ void menu_init(void) {
     }
     hid_cfg_t icfg;
     if (config_store_load_hid(&icfg)) {
-        atomic_store_explicit(&s_ph_hid_type, (ph_hid_type_t)icfg.hid_type, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_hid_type, (menu_hid_type_t)icfg.hid_type, memory_order_relaxed);
         atomic_store_explicit(&s_ph_midi_channel, icfg.midi_channel, memory_order_relaxed);
     }
     boot_cfg_t bcfg;
     if (config_store_load_boot(&bcfg)) {
         atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)bcfg.boot_mode, memory_order_relaxed);
     }
+
+    // Whatever is live now is, by definition, what's saved (or the defaults, if nothing was)
+    // -- the baseline for the dirty cue.
+    settings_capture(&s_saved);
 }
 
 // TEMPORARY DIAGNOSTIC -- see menu.h's menu_get_last_input_us() comment.
@@ -362,6 +467,12 @@ void menu_input_toggle_open(void) {
         s_stack[0].selected_index = (idx < 0) ? 0 : idx;
         s_stack_depth = 1;
     } else {
+        // Closing from a direct screen discards its unsaved choice; a Haptic edit in
+        // progress is kept as-is (live, unsaved), same as confirming it.
+        const menu_screen_t *top = s_stack[s_stack_depth - 1].screen;
+        if (top->direct_edit) {
+            revert_group_locked(top->id);
+        }
         s_stack_depth = 0;
         s_editing = false;
     }
@@ -374,23 +485,21 @@ void menu_input_back(void) {
     if (s_stack_depth == 0) {
         // no-op
     } else if (s_editing) {
-        // Cancel. Step 1's placeholder items apply changes immediately via on_rotate with
-        // no snapshot taken on edit-enter, so there's nothing to revert yet -- a real
-        // revert-on-cancel (on_edit_enter/on_edit_cancel hooks) is a natural addition once
-        // step 3 wires in fields that actually need it.
+        // Cancel: put back what the value was when the edit started.
+        settings_restore(&s_undo);
         s_editing = false;
-    } else if (s_stack_depth > 1) {
-        s_stack_depth--;
     } else {
-        s_stack_depth = 0; // at the top-level screen -- back behaves like close
+        const menu_screen_t *top = s_stack[s_stack_depth - 1].screen;
+        if (top->direct_edit) {
+            revert_group_locked(top->id);
+        }
+        s_stack_depth = (s_stack_depth > 1) ? s_stack_depth - 1 : 0; // at the top level, back = close
     }
     portEXIT_CRITICAL(&s_state_mux);
     stamp_input_time();
 }
 
 void menu_input_select(void) {
-    void (*action_to_run)(void) = NULL;
-
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0) {
         portEXIT_CRITICAL(&s_state_mux);
@@ -400,42 +509,56 @@ void menu_input_select(void) {
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
     const menu_item_t *it = &top->screen->items[top->selected_index];
 
-    if (s_editing) {
-        s_editing = false; // commit -- see menu_input_back()'s comment on why this is a no-op today
-    } else {
-        switch (it->kind) {
-            case MENU_ITEM_SUBMENU:
-                if (s_stack_depth < MENU_MAX_DEPTH && it->submenu != NULL) {
-                    int idx = first_enabled_index(it->submenu);
-                    s_stack[s_stack_depth].screen = it->submenu;
-                    s_stack[s_stack_depth].selected_index = (idx < 0) ? 0 : idx;
-                    s_stack_depth++;
-                }
-                break;
-            case MENU_ITEM_VALUE:
-                s_editing = true;
-                break;
-            case MENU_ITEM_ACTION:
-                // Copy the function pointer out and run it after portEXIT_CRITICAL below, per
-                // this file's own earlier warning: since Phase 8 step 2, on_action() (the
-                // Save actions) does a real NVS commit, which is NOT bounded/cheap and must
-                // never run under this spinlock (a portMUX critical section disables
-                // interrupts on this core for its duration).
-                action_to_run = it->on_action;
-                break;
+    if (top->screen->direct_edit) {
+        // Direct screens: F1 just moves to the next field (HID type <-> MIDI channel).
+        top->selected_index = step_index(top->screen, top->selected_index, 1);
+    } else if (s_editing) {
+        s_editing = false; // confirm -- the value is already live
+    } else if (it->kind == MENU_ITEM_SUBMENU) {
+        if (s_stack_depth < MENU_MAX_DEPTH && it->submenu != NULL) {
+            int idx = first_enabled_index(it->submenu);
+            s_stack[s_stack_depth].screen = it->submenu;
+            s_stack[s_stack_depth].selected_index = (idx < 0) ? 0 : idx;
+            s_stack_depth++;
         }
+    } else if (it->kind == MENU_ITEM_VALUE) {
+        settings_capture(&s_undo);
+        s_editing = true;
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+    stamp_input_time();
+}
+
+void menu_input_save(void) {
+    void (*save)(void) = NULL;
+    menu_screen_id_t group = MENU_SCREEN_NONE;
+
+    portENTER_CRITICAL(&s_state_mux);
+    if (s_stack_depth > 0) {
+        const menu_screen_t *screen = s_stack[s_stack_depth - 1].screen;
+        settings_t cur;
+        settings_capture(&cur);
+        if (screen->save != NULL && settings_group_differs(&cur, &s_saved, screen->id)) {
+            save = screen->save;
+            group = screen->id;
+        }
+        s_editing = false; // saving also confirms an edit in progress
     }
     portEXIT_CRITICAL(&s_state_mux);
 
-    // Runs on Core 0 (control_task.c's real-time loop), outside the spinlock, but still
-    // synchronously -- an NVS blob write/commit is a few ms of flash-erase/write latency, and
-    // this stalls that tick of the control loop for the duration. Acceptable because it only
-    // ever fires on an infrequent, user-paced button press (unlike the retired per-tick
-    // string-formatting bug this file's header comment documents, which fired continuously
-    // during fast rotation) -- but worth confirming on hardware there's no audible/feel
-    // glitch when pressing Save.
-    if (action_to_run != NULL) {
-        action_to_run();
+    // The NVS commit (a few ms of flash erase/write) runs outside the spinlock -- a portMUX
+    // critical section disables interrupts on this core for its duration. This still stalls
+    // one tick of control_task.c's loop, as the old "Save" row did; acceptable for an
+    // infrequent, user-paced press. Skipped entirely when nothing changed, so an idle F2
+    // costs no flash wear.
+    if (save != NULL) {
+        settings_t cur;
+        settings_capture(&cur);
+        save();
+        portENTER_CRITICAL(&s_state_mux);
+        settings_copy_group(&s_saved, &cur, group);
+        portEXIT_CRITICAL(&s_state_mux);
+        atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed);
     }
     stamp_input_time();
 }
@@ -448,7 +571,7 @@ void menu_input_rotate(int8_t direction) {
         return;
     }
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
-    if (s_editing) {
+    if (s_editing || top->screen->direct_edit) {
         const menu_item_t *it = &top->screen->items[top->selected_index];
         if (it->on_rotate != NULL) {
             it->on_rotate(direction); // atomic store(s) only -- see field callbacks above
@@ -476,9 +599,10 @@ bool menu_is_open(void) {
 // formatting outside any lock -- safe to be as slow as it likes here, this task has no
 // real-time deadline to violate.
 void menu_get_render_snapshot(menu_render_snapshot_t *out) {
-    menu_stack_frame_t top_copy;
+    menu_stack_frame_t top_copy = { 0 };
     int depth_copy;
     bool editing_copy;
+    settings_t saved_copy;
 
     portENTER_CRITICAL(&s_state_mux);
     depth_copy = s_stack_depth;
@@ -486,15 +610,24 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
     if (depth_copy > 0) {
         top_copy = s_stack[depth_copy - 1];
     }
+    saved_copy = s_saved;
     portEXIT_CRITICAL(&s_state_mux);
 
     menu_render_snapshot_t snap = { 0 };
     snap.open = (depth_copy > 0);
     snap.editing = editing_copy;
+    snap.selected = -1;
+    snap.screen = MENU_SCREEN_NONE;
+    snap.save_count = atomic_load_explicit(&s_save_count, memory_order_relaxed);
 
     if (snap.open) {
         const menu_screen_t *screen = top_copy.screen;
+        snap.screen = screen->id;
         snprintf(snap.title, sizeof(snap.title), "%s", screen->title);
+
+        settings_t cur;
+        settings_capture(&cur);
+        snap.dirty = settings_group_differs(&cur, &saved_copy, screen->id);
 
         int row = 0;
         for (int i = 0; i < screen->item_count && row < MENU_MAX_VISIBLE_ITEMS; i++) {
@@ -504,12 +637,16 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
             const menu_item_t *it = &screen->items[i];
             menu_render_row_t *r = &snap.rows[row];
             snprintf(r->label, sizeof(r->label), "%s", it->label);
+            snprintf(r->caption, sizeof(r->caption), "%s", it->caption ? it->caption : "");
             if (it->kind == MENU_ITEM_VALUE && it->format_value != NULL) {
                 it->format_value(r->value, sizeof(r->value));
             } else {
-                r->value[0] = '\0'; // submenu/action rows have nothing to show on the right
+                r->value[0] = '\0'; // submenu rows have nothing to show on the right
             }
             r->selected = (i == top_copy.selected_index);
+            if (r->selected) {
+                snap.selected = row;
+            }
             row++;
         }
         snap.row_count = row;
@@ -549,4 +686,8 @@ float menu_get_haptic_pitch(void) {
 
 boot_usb_mode_t menu_get_boot_mode(void) {
     return atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
+}
+
+menu_hid_type_t menu_get_hid_type(void) {
+    return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
 }

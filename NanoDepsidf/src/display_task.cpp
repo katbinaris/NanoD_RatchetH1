@@ -2,14 +2,14 @@
 #include "tasks_common.h"
 #include "board_pins.h"
 #include "lgfx_config.hpp"
-#include "fonts/ui_font_silkscreen.h"
+#include "ui_gfx.hpp"
+#include "ui_fx.hpp"
+#include "ui_screens.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/ledc.h"
-#include <inttypes.h>
-#include <stdio.h>
 #include <string.h>
 
 // Plain-C model layer -- linkage fixed here at the include site so menu.h/ui_state.h
@@ -17,78 +17,47 @@
 extern "C" {
 #include "menu.h"
 #include "ui_state.h"
+#include "icon_store.h"
 }
 
 static const char *TAG = "display";
 
-// LovyanGFX display task: Main Screen + animated menu list (migrated from LVGL -- see
-// DEVELOPMENT_PLAN.md "Display stack migration"). Every layout constant below is carried over
-// from the LVGL implementation (git history: src/display_task.c).
+// --- Pixel UI (DEVELOPMENT_PLAN.md "Pixel UI") ---
+// This file owns *when* things are drawn; ui_screens / ui_fx own *what* (ported from the
+// approved browser mockups), ui_gfx the pixel primitives.
 //
-// Rendering model: one full-screen 240x240 RGB565 LGFX_Sprite in internal RAM. A frame is
-// always drawn in full (fillScreen + everything) and sent with one pushSprite() -- no
-// dirty-rect tracking. A frame is only produced when something a viewer would see changed
-// (menu snapshot / detent diff, same as the LVGL version's update_ui() skip) or while a
-// scroll animation is in flight. Measured on hardware (checkpoint 2): draw ~1.1ms, push
-// ~11.8ms -- so while animating the loop only yields instead of sleeping (see
-// display_task_fn()), otherwise a 60ms animation would get just 2 frames at the 30ms poll.
+// Rendering model (unchanged from the LovyanGFX migration): one full-screen 240x240 RGB565
+// LGFX_Sprite in internal RAM, fully redrawn and sent with one pushSprite() per frame
+// (measured: draw ~1ms, push ~11.8ms). Frames are only produced when needed:
+//   - on any change a viewer would see (menu snapshot, held buttons, view change, blink edge,
+//     SAVED! on/off);
+//   - continuously at ~30fps while something loops (loading screen, attract animation, the
+//     FEEL curve when FEEL has focus);
+//   - back-to-back (yield only) during short transitions (iris wipe, list scroll, FEEL morph,
+//     HID carousel slide) so a 60-320ms move gets every frame it can.
+// Everything else stays event-driven at the 30ms poll, as before.
 //
-// Orientation/colors: lgfx_config.hpp (offset_rotation=3, BGR, invert) -- confirmed on
-// hardware at checkpoint 1.
+// Views: one per menu screen, plus the loading screen and the attract animation. Every view
+// change goes through the iris wipe. Attract starts after ATTRACT_IDLE_MS with no knob
+// movement or button change on the Main Screen; any input ends it (control_task.c swallows
+// the waking button press via ui_state_set_screensaver()).
 
 #define LCD_LEDC_TIMER LEDC_TIMER_0
 #define LCD_LEDC_CHANNEL LEDC_CHANNEL_0
 #define LCD_LEDC_FREQ_HZ 5000
 #define LCD_BACKLIGHT_DUTY_PERCENT 80 // starting point, not tuned against ambient light yet
 
-#define UI_REDRAW_PERIOD_MS 30
+#define UI_REDRAW_PERIOD_MS 30 // idle poll
+#define UI_ANIM_DELAY_MS 20    // between frames of a looping animation (+~13ms frame = ~30fps)
 
-#define SCREEN_CX (LCD_WIDTH / 2)
-#define SCREEN_CY (LCD_HEIGHT / 2)
-
-// Main Screen layout (LVGL: detent label LV_ALIGN_CENTER 0,-10; cheat tags LV_ALIGN_CENTER
-// (i-1)*72, 24 with pad_hor 7 / pad_ver 3 / radius 6 / 1px border).
-#define MAIN_DETENT_Y_OFS -10
-#define CHEAT_X_SPACING 72
-#define CHEAT_Y_OFS 24
-#define CHEAT_PAD_HOR 7
-#define CHEAT_PAD_VER 3
-#define CHEAT_RADIUS 6
-
-// Menu list -- text scrolls past one FIXED highlight (never the other way round). Every row
-// idx sits at slot idx*MENU_LIST_ROW_PITCH_PX in an imaginary vertical list and is drawn at
-// slot - scroll relative to the screen center; `scroll` is one animated value that centers
-// the selected row (target = selected*PITCH -- at idx 0 that's 0, so item 0 centers with
-// nothing above it, like a real picker). Values carried over from the LVGL version, all
-// tuned on hardware there.
-#define MENU_LIST_VISIBLE_ROWS 5   // what fits the round panel's safe area at this font size
-#define MENU_LIST_WIDTH 200
-#define MENU_LIST_ROW_PITCH_PX 32  // Silkscreen 16 line height (18) + 14 inter-row spacing
-#define MENU_LIST_ROW_HEIGHT_PX 28 // highlight height, a little under the pitch
-#define MENU_LIST_ANIM_MS 60       // tuned on hardware under LVGL
-#define MENU_LIST_ROW_RADIUS 8
-// Visible band = the LVGL version's clipping container (MENU_LIST_VISIBLE_ROWS rows tall,
-// MENU_LIST_WIDTH wide, centered). A sprite has no implicit clip container, so this is
-// applied explicitly with setClipRect() while drawing rows.
-#define MENU_LIST_BAND_H (MENU_LIST_VISIBLE_ROWS * MENU_LIST_ROW_PITCH_PX)
-
-// Colors as uint32_t RGB888 -- LovyanGFX reads a uint32_t color argument as RGB888, but a
-// plain int literal as RGB565, so these must stay explicitly typed.
-static constexpr uint32_t COLOR_BLACK = 0x000000u;
-static constexpr uint32_t COLOR_WHITE = 0xFFFFFFu;
-static constexpr uint32_t MENU_SELECTED_BG_COLOR = 0xFFC94Du; // amber, UI preview mockup
-static constexpr uint32_t MENU_CHEAT_TEXT_COLOR = 0xCFCFCFu;
-
-// LVGL drew the cheat-tag pills as translucent white (bg opa 20/255 ~8%, border opa 46/255
-// ~18%). LovyanGFX has no alpha compositing against a live background, but the background
-// here is always solid black, and white-over-black at opacity a is exactly grey level a --
-// so these flat colors are the same pixels LVGL produced, not an approximation.
-static constexpr uint32_t grey(uint8_t level) { return ((uint32_t)level << 16) | ((uint32_t)level << 8) | level; }
-static constexpr uint32_t MENU_CHEAT_BG_COLOR = grey(20);
-static constexpr uint32_t MENU_CHEAT_BORDER_COLOR = grey(46);
-// Rows exactly MENU_LIST_VISIBLE_ROWS/2 ranks from the selected one: white text at LVGL opa
-// 100/255 (~40%) over black -- same exact-flattening reasoning as the pills.
-static constexpr uint32_t MENU_LIST_DIM_TEXT_COLOR = grey(100);
+#define IRIS_MS 320
+#define ATTRACT_IDLE_MS 5000 // by request: 5s without touching the knob or buttons
+#define TOAST_MS 1300
+#define FEEL_MORPH_MS 250
+#define HID_SLIDE_MS 160
+#define HID_SLIDE_PX 70
+#define MENU_LIST_ROW_PITCH_PX 32
+#define MENU_LIST_ANIM_MS 60 // hardware-tuned (LVGL era), unchanged
 
 static LGFX s_lcd;
 static LGFX_Sprite s_frame(&s_lcd);
@@ -134,190 +103,279 @@ static bool frame_init(void) {
     return s_frame.createSprite(LCD_WIDTH, LCD_HEIGHT) != nullptr;
 }
 
-static void draw_main_screen(int32_t detent) {
-    char buf[24];
-    snprintf(buf, sizeof(buf), "Detent: %" PRId32, detent);
-    s_frame.setFont(&ui_font_silkscreen_16_regular);
-    s_frame.setTextDatum(textdatum_t::middle_center);
-    s_frame.setTextColor(COLOR_WHITE);
-    s_frame.drawString(buf, SCREEN_CX, SCREEN_CY + MAIN_DETENT_Y_OFS);
+// --- view state ---
 
-    // Button-legend cheat sheet (F4/F3/F1 per the fixed menu button roles).
-    static const char *cheat_text[3] = { "F4:Menu", "F3:Back", "F1:Select" };
-    s_frame.setFont(&ui_font_silkscreen_8_regular);
-    const int32_t pill_h = s_frame.fontHeight() + 2 * CHEAT_PAD_VER;
-    for (int i = 0; i < 3; i++) {
-        const int32_t cx = SCREEN_CX + (i - 1) * CHEAT_X_SPACING;
-        const int32_t cy = SCREEN_CY + CHEAT_Y_OFS;
-        const int32_t pill_w = s_frame.textWidth(cheat_text[i]) + 2 * CHEAT_PAD_HOR;
-        const int32_t x = cx - pill_w / 2;
-        const int32_t y = cy - pill_h / 2;
-        s_frame.fillRoundRect(x, y, pill_w, pill_h, CHEAT_RADIUS, MENU_CHEAT_BG_COLOR);
-        s_frame.drawRoundRect(x, y, pill_w, pill_h, CHEAT_RADIUS, MENU_CHEAT_BORDER_COLOR);
-        s_frame.setTextColor(MENU_CHEAT_TEXT_COLOR);
-        s_frame.drawString(cheat_text[i], cx, cy);
+enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_ATTRACT };
+
+static View view_for(const menu_render_snapshot_t &s) {
+    switch (s.screen) {
+        case MENU_SCREEN_ROOT: return V_ROOT;
+        case MENU_SCREEN_HAPTIC: return V_HAPTIC;
+        case MENU_SCREEN_HID: return V_HID;
+        case MENU_SCREEN_BOOT: return V_BOOTMODE;
+        default: return V_MAIN;
     }
 }
 
-// Scroll animation state. Timing is absolute wall-clock interpolation, not a per-tick step:
-// progress = (now - start) / duration, recomputed from esp_timer every frame, so frame rate
-// and task scheduling jitter change only how many frames are shown, never the duration.
-// Linear, matching lv_anim's default path the LVGL version used.
-static int32_t s_scroll_from = 0;
-static int32_t s_scroll_to = 0; // committed target -- selected*PITCH
-static int64_t s_anim_start_us = 0;
-static bool s_anim_active = false;
-static int s_menu_selected = 0;
-static bool s_menu_content_valid = false; // false until the menu has been opened -- forces
-                                           // the first open to jump, not animate
-static char s_last_menu_title[MENU_TITLE_LEN] = ""; // screen-change detector: menu.c gives
-                                                      // every screen a distinct title
+static inline bool is_settings_view(View v) { return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE; }
 
-// Current scroll position; also retires the animation once it has run its full duration.
-static int32_t menu_scroll_now(int64_t now_us) {
-    if (!s_anim_active) {
-        return s_scroll_to;
+static View s_view = V_BOOT;
+static int64_t s_boot_start_us = 0;
+static bool s_booting = true;
+
+// Iris wipe: the first half closes on the old view (drawn from the snapshot it was showing),
+// the second half opens on the new one.
+static bool s_iris_active = false;
+static View s_iris_from = V_BOOT;
+static int64_t s_iris_start_us = 0;
+static menu_render_snapshot_t s_iris_from_snap;
+
+static bool s_attract_on = false;
+static int64_t s_attract_start_us = 0;
+static int64_t s_last_activity_us = 0;
+
+static menu_render_snapshot_t s_last_snap;
+static bool s_have_last = false;
+static uint8_t s_last_buttons = 0;
+static int32_t s_last_detent = 0;
+
+static uint32_t s_last_save_count = 0;
+static int64_t s_toast_until_us = 0;
+
+static haptic_type_t s_last_feel = HAPTIC_TYPE_SAW;
+static int s_morph_from = -1;
+static int64_t s_morph_start_us = -(1LL << 40);
+
+static menu_hid_type_t s_last_hid = MENU_HID_MOUSE;
+static int s_slide_dir = 0;
+static int64_t s_slide_start_us = -(1LL << 40);
+
+// Top-level list scroll -- same model as before: one animated scroll value that centers the
+// selected row, jumping (not sliding) whenever the list is (re)entered.
+static float s_list_from = 0, s_list_to = 0;
+static int64_t s_list_start_us = 0;
+static bool s_list_anim = false;
+static menu_screen_id_t s_list_prev_screen = MENU_SCREEN_NONE;
+
+// HID-uploaded icon (RAM only): copied out of icon_store whenever its version moves, so the
+// draw path never touches the USB side's buffer.
+static uint8_t s_icon[ICON_BYTES];
+static bool s_icon_set = false;
+static uint32_t s_icon_version = 0;
+
+static bool s_drawn_blink = false;
+static bool s_drawn_toast = false;
+
+static float list_scroll_now(int64_t now) {
+    if (!s_list_anim) return s_list_to;
+    int64_t el = now - s_list_start_us;
+    if (el >= MENU_LIST_ANIM_MS * 1000LL) {
+        s_list_anim = false;
+        return s_list_to;
     }
-    int64_t elapsed = now_us - s_anim_start_us;
-    int64_t duration = (int64_t)MENU_LIST_ANIM_MS * 1000;
-    if (elapsed >= duration) {
-        s_anim_active = false;
-        return s_scroll_to;
-    }
-    if (elapsed < 0) {
-        elapsed = 0;
-    }
-    return s_scroll_from + (int32_t)(((int64_t)(s_scroll_to - s_scroll_from) * elapsed) / duration);
+    return s_list_from + (s_list_to - s_list_from) * (float)el / (MENU_LIST_ANIM_MS * 1000.0f);
 }
 
-// Called only when the snapshot changed while the menu is open.
-static void menu_list_retarget(const menu_render_snapshot_t *snap, int64_t now_us) {
-    int selected = 0;
-    for (int i = 0; i < snap->row_count; i++) {
-        if (snap->rows[i].selected) {
-            selected = i;
+static void list_retarget(const menu_render_snapshot_t &snap, int64_t now) {
+    float target = (snap.selected < 0 ? 0 : snap.selected) * (float)MENU_LIST_ROW_PITCH_PX;
+    if (s_list_prev_screen != MENU_SCREEN_ROOT) {
+        // Unconditional jump on (re)entry -- never nested under a "target changed" check;
+        // that exact guard caused the first-open pile-up bug under LVGL.
+        s_list_to = target;
+        s_list_anim = false;
+    } else if (target != s_list_to) {
+        s_list_from = list_scroll_now(now);
+        s_list_to = target;
+        s_list_start_us = now;
+        s_list_anim = true;
+    }
+}
+
+static float ease_out3(float k) {
+    if (k < 0) k = 0;
+    if (k > 1) k = 1;
+    return 1 - (1 - k) * (1 - k) * (1 - k);
+}
+
+static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
+    bool blink_on = ((now / 1000) % 900) < 600;
+    switch (v) {
+        case V_BOOT: {
+            int64_t e = (now - s_boot_start_us) / 1000;
+            ui::fx_boot((uint32_t)(e < ui::BOOT_ANIM_MS ? e : ui::BOOT_ANIM_MS));
             break;
         }
+        case V_MAIN: {
+            ui::MainInputs in = {
+                ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
+                menu_get_haptic_type(), ui_state_get_buttons(), s_icon_set ? s_icon : nullptr,
+            };
+            ui::draw_main(in);
+            break;
+        }
+        case V_ROOT:
+            ui::draw_menu_list(snap, list_scroll_now(now));
+            break;
+        case V_HAPTIC: {
+            int64_t m = now - s_morph_start_us;
+            bool morphing = m < FEEL_MORPH_MS * 1000LL;
+            ui::OrbitInputs in = {
+                menu_get_haptic_type(), (uint32_t)(now / 1000),
+                morphing ? s_morph_from : -1, morphing ? ease_out3(m / (FEEL_MORPH_MS * 1000.0f)) : 1.0f, blink_on,
+            };
+            ui::draw_orbit(snap, in);
+            break;
+        }
+        case V_HID: {
+            float k = ease_out3((now - s_slide_start_us) / (HID_SLIDE_MS * 1000.0f));
+            ui::HidInputs in = {menu_get_hid_type(), (1 - k) * s_slide_dir * HID_SLIDE_PX, blink_on};
+            ui::draw_hid(snap, in);
+            break;
+        }
+        case V_BOOTMODE:
+            ui::draw_boot_mode(snap, menu_get_boot_mode(), ui_state_get_usb_serial_active(), blink_on);
+            break;
+        case V_ATTRACT:
+            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000));
+            break;
     }
-    s_menu_selected = selected;
-    int32_t target = selected * MENU_LIST_ROW_PITCH_PX;
-
-    bool screen_changed = !s_menu_content_valid || strcmp(snap->title, s_last_menu_title) != 0;
-    snprintf(s_last_menu_title, sizeof(s_last_menu_title), "%s", snap->title);
-    s_menu_content_valid = true;
-
-    if (screen_changed) {
-        // Unconditional jump -- deliberately NOT nested under a `target != current` check:
-        // under LVGL exactly that guard made the first open (target 0 == stale 0) skip the
-        // layout and pile every row on top of each other (DEVELOPMENT_PLAN.md Phase 8).
-        s_scroll_to = target;
-        s_anim_active = false;
-    } else if (target != s_scroll_to) {
-        // Starts from where the list currently IS (mid-animation included), not from the
-        // previous target -- under LVGL a re-target mid-slide snapped to the old target first.
-        s_scroll_from = menu_scroll_now(now_us);
-        s_scroll_to = target;
-        s_anim_start_us = now_us;
-        s_anim_active = true;
+    if (is_settings_view(v) && now < s_toast_until_us) {
+        ui::draw_saved_toast();
     }
 }
 
-static void draw_menu_list(const menu_render_snapshot_t *snap, int32_t scroll) {
-    // Fixed highlight first, so it sits behind the row text. Never moves.
-    s_frame.fillRoundRect(SCREEN_CX - MENU_LIST_WIDTH / 2, SCREEN_CY - MENU_LIST_ROW_HEIGHT_PX / 2,
-                          MENU_LIST_WIDTH, MENU_LIST_ROW_HEIGHT_PX, MENU_LIST_ROW_RADIUS,
-                          MENU_SELECTED_BG_COLOR);
+// Runs one tick. Returns how soon the next one should come.
+enum Pace { PACE_IDLE, PACE_LOOP, PACE_FAST };
 
-    const int32_t band_top = SCREEN_CY - MENU_LIST_BAND_H / 2;
-    s_frame.setClipRect(SCREEN_CX - MENU_LIST_WIDTH / 2, band_top, MENU_LIST_WIDTH, MENU_LIST_BAND_H);
-    s_frame.setFont(&ui_font_silkscreen_16_regular); // regular for every row, selected
-                                                     // included -- bold-selected was tried
-                                                     // twice and rejected on hardware
-    s_frame.setTextDatum(textdatum_t::middle_center);
-    const int32_t half_line = s_frame.fontHeight() / 2;
-
-    // Fixed rank-distance dim: the two rows exactly VISIBLE_ROWS/2 from the selected one are
-    // grey regardless of whether more content exists past that edge (the conditional
-    // version was rejected on hardware) -> grey/white/black-on-amber/white/grey.
-    const int top_idx = s_menu_selected - MENU_LIST_VISIBLE_ROWS / 2;
-    const int bottom_idx = s_menu_selected + MENU_LIST_VISIBLE_ROWS / 2;
-
-    char buf[MENU_LABEL_TEXT_LEN + MENU_VALUE_TEXT_LEN + 4];
-    for (int i = 0; i < snap->row_count; i++) {
-        const int32_t row_cy = SCREEN_CY + i * MENU_LIST_ROW_PITCH_PX - scroll;
-        if (row_cy + half_line < band_top || row_cy - half_line >= band_top + MENU_LIST_BAND_H) {
-            continue; // fully outside the visible band
-        }
-        const menu_render_row_t *r = &snap->rows[i];
-        if (r->value[0] != '\0') {
-            snprintf(buf, sizeof(buf), "%s  %s", r->label, r->value);
-        } else {
-            snprintf(buf, sizeof(buf), "%s", r->label);
-        }
-        uint32_t color = COLOR_WHITE;
-        if (r->selected) {
-            color = COLOR_BLACK;
-        } else if (i == top_idx || i == bottom_idx) {
-            color = MENU_LIST_DIM_TEXT_COLOR;
-        }
-        s_frame.setTextColor(color);
-        s_frame.drawString(buf, SCREEN_CX, row_cy);
-    }
-    s_frame.clearClipRect();
-}
-
-// Last-rendered state -- an unchanged tick with no animation running skips drawing and
-// pushing entirely.
-static menu_render_snapshot_t s_last_snapshot;
-static bool s_last_snapshot_valid = false;
-static int32_t s_last_detent = INT32_MIN;
-
-// Returns true while a scroll animation still needs more frames.
-static bool update_ui(void) {
+static Pace update_ui(void) {
+    int64_t now = esp_timer_get_time();
     menu_render_snapshot_t snap;
     menu_get_render_snapshot(&snap);
+    uint8_t buttons = ui_state_get_buttons();
     int32_t detent = ui_state_get_detent();
-    int64_t now_us = esp_timer_get_time();
+    haptic_type_t feel = menu_get_haptic_type();
+    menu_hid_type_t hid = menu_get_hid_type();
 
-    bool snapshot_changed = !s_last_snapshot_valid || memcmp(&snap, &s_last_snapshot, sizeof(snap)) != 0;
-    bool detent_changed = (detent != s_last_detent);
-    bool was_animating = s_anim_active;
-    if (!snapshot_changed && !(detent_changed && !snap.open) && !was_animating) {
-        return false;
+    bool first = !s_have_last;
+    if (first) {
+        s_last_snap = snap;
+        s_last_save_count = snap.save_count;
+        s_last_feel = feel;
+        s_last_hid = hid;
+        s_last_buttons = buttons;
+        s_last_detent = detent;
+        s_last_activity_us = now;
+        s_have_last = true;
     }
+
+    bool icon_changed = icon_store_version() != s_icon_version;
+    if (icon_changed) {
+        s_icon_version = icon_store_version();
+        s_icon_set = icon_store_copy(s_icon, sizeof(s_icon));
+    }
+
+    bool snapshot_changed = memcmp(&snap, &s_last_snap, sizeof(snap)) != 0;
+    bool buttons_changed = buttons != s_last_buttons;
+    // A new icon counts as activity so an upload wakes the screen and shows it.
+    bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed;
+    if (activity) s_last_activity_us = now;
 
     // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8) -- see menu.h's
     // menu_get_last_input_us() comment.
     if (snapshot_changed) {
         int64_t input_us = menu_get_last_input_us();
         if (input_us > 0) {
-            ESP_LOGI(TAG, "menu render latency: %lld ms", (long long)((esp_timer_get_time() - input_us) / 1000));
+            ESP_LOGI(TAG, "menu render latency: %lld ms", (long long)((now - input_us) / 1000));
         }
     }
 
-    s_last_snapshot = snap;
-    s_last_snapshot_valid = true;
+    if (snap.save_count != s_last_save_count) {
+        s_last_save_count = snap.save_count;
+        s_toast_until_us = now + TOAST_MS * 1000LL;
+    }
+    if (feel != s_last_feel) {
+        s_morph_from = s_last_feel;
+        s_morph_start_us = now;
+        s_last_feel = feel;
+    }
+    if (hid != s_last_hid) {
+        s_slide_dir = (((int)hid - (int)s_last_hid + MENU_HID_TYPE_COUNT) % MENU_HID_TYPE_COUNT == 1) ? 1 : -1;
+        s_slide_start_us = now;
+        s_last_hid = hid;
+    }
+    if (snap.screen == MENU_SCREEN_ROOT && (snapshot_changed || first || s_list_prev_screen != MENU_SCREEN_ROOT)) {
+        list_retarget(snap, now);
+    }
+    s_list_prev_screen = snap.screen;
+
+    // --- which view should be up ---
+    if (s_booting && now - s_boot_start_us >= ui::BOOT_ANIM_MS * 1000LL) {
+        s_booting = false;
+        s_last_activity_us = now; // idle timer starts once the Main Screen is actually up
+    }
+    View target;
+    if (s_booting) {
+        target = V_BOOT;
+    } else {
+        target = view_for(snap);
+        if (target != V_MAIN) {
+            s_attract_on = false;
+        } else if (s_attract_on) {
+            if (activity) s_attract_on = false;
+        } else if (now - s_last_activity_us >= ATTRACT_IDLE_MS * 1000LL) {
+            s_attract_on = true;
+            s_attract_start_us = now;
+        }
+        if (s_attract_on) target = V_ATTRACT;
+    }
+    ui_state_set_screensaver(s_attract_on);
+
+    bool redraw = first || snapshot_changed || buttons_changed || icon_changed;
+    if (target != s_view) {
+        s_iris_from = s_view;
+        s_iris_from_snap = s_last_snap;
+        s_iris_start_us = now;
+        s_iris_active = true;
+        s_view = target;
+        redraw = true;
+    }
+
+    // --- does this tick need a frame? ---
+    float iris_p = 1.0f;
+    if (s_iris_active) {
+        iris_p = (now - s_iris_start_us) / (IRIS_MS * 1000.0f);
+        if (iris_p >= 1.0f) s_iris_active = false; // this frame shows the finished view
+        redraw = true;
+    }
+    bool fast = s_iris_active
+             || (s_view == V_ROOT && s_list_anim)
+             || (s_view == V_HAPTIC && now - s_morph_start_us < FEEL_MORPH_MS * 1000LL)
+             || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL);
+    bool looping = s_booting || s_view == V_ATTRACT
+                || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
+    bool blink_on = ((now / 1000) % 900) < 600;
+    bool blink_edge = is_settings_view(s_view) && snap.dirty && blink_on != s_drawn_blink;
+    bool toast_on = is_settings_view(s_view) && now < s_toast_until_us;
+    redraw = redraw || fast || looping || blink_edge || toast_on != s_drawn_toast;
+
+    if (redraw) {
+        s_frame.fillScreen(ui::BLACK);
+        if (s_iris_active) {
+            bool closing = iris_p < 0.5f;
+            draw_view(closing ? s_iris_from : s_view, closing ? s_iris_from_snap : snap, now);
+            ui::iris_mask(closing ? 126.0f * (1 - 2 * iris_p) : 126.0f * (2 * iris_p - 1));
+        } else {
+            draw_view(s_view, snap, now);
+        }
+        s_frame.pushSprite(0, 0);
+        s_drawn_blink = blink_on;
+        s_drawn_toast = toast_on;
+    }
+
+    s_last_snap = snap;
+    s_last_buttons = buttons;
     s_last_detent = detent;
-
-    if (snap.open) {
-        if (snapshot_changed) {
-            menu_list_retarget(&snap, now_us);
-        }
-    } else {
-        s_menu_content_valid = false; // next open jumps fresh instead of sliding from a
-        s_anim_active = false;        // stale scroll position
-    }
-    int32_t scroll = menu_scroll_now(now_us);
-
-    s_frame.fillScreen(COLOR_BLACK);
-    if (snap.open) {
-        draw_menu_list(&snap, scroll);
-    } else {
-        draw_main_screen(detent);
-    }
-    s_frame.pushSprite(0, 0);
-
-    return s_anim_active;
+    return fast ? PACE_FAST : looping ? PACE_LOOP : PACE_IDLE;
 }
 
 static void display_task_fn(void *arg) {
@@ -336,23 +394,35 @@ static void display_task_fn(void *arg) {
         vTaskDelete(NULL);
         return;
     }
-    update_ui(); // first real frame before the backlight comes up
+    ui::bind(&s_frame);
+    ui::fx_init();
+
+    s_boot_start_us = esp_timer_get_time();
+    update_ui(); // first (black) frame of the loading screen before the backlight comes up
     backlight_set_percent(LCD_BACKLIGHT_DUTY_PERCENT);
     ESP_LOGI(TAG, "display init done");
 
     while (1) {
-        if (update_ui()) {
-            // Animation in flight: next frame right away. The 100Hz tick makes even
-            // vTaskDelay(1) cost up to 10ms/frame; a yield still round-robins with the
-            // same-priority I2S task, and lower-priority tasks wait at most one animation
-            // (MENU_LIST_ANIM_MS).
-            taskYIELD();
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(UI_REDRAW_PERIOD_MS));
+        switch (update_ui()) {
+            case PACE_FAST:
+                // Short transition in flight: next frame right away. The 100Hz tick makes
+                // even vTaskDelay(1) cost up to 10ms/frame; a yield still round-robins with
+                // the same-priority I2S task, and lower-priority tasks wait at most one
+                // transition (IRIS_MS).
+                taskYIELD();
+                break;
+            case PACE_LOOP:
+                vTaskDelay(pdMS_TO_TICKS(UI_ANIM_DELAY_MS));
+                break;
+            default:
+                vTaskDelay(pdMS_TO_TICKS(UI_REDRAW_PERIOD_MS));
+                break;
         }
     }
 }
 
 void display_task_start(void) {
-    xTaskCreatePinnedToCore(display_task_fn, "display", 4096, NULL, PRIO_DISPLAY, NULL, CORE_IO);
+    // 6KB (was 4KB): the Pixel UI draw path is deeper (screen -> toolkit -> text lambdas) and
+    // the last measured high-water mark at 4KB was ~2.2KB free before it existed.
+    xTaskCreatePinnedToCore(display_task_fn, "display", 6144, NULL, PRIO_DISPLAY, NULL, CORE_IO);
 }

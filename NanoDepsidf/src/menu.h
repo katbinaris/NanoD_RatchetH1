@@ -22,24 +22,54 @@
 
 #define MENU_MAX_VISIBLE_ITEMS 8
 #define MENU_LABEL_TEXT_LEN 20
+#define MENU_CAPTION_TEXT_LEN 12
 #define MENU_VALUE_TEXT_LEN 12
 #define MENU_TITLE_LEN 24
 
-// One rendered row, label and value kept separate (not one concatenated string) so
-// display_task.c can lay them out label-left/value-right, matching the UI preview mockup's
-// justified row layout. `value` is "" for a submenu/action item (e.g. "Haptic Configurator",
-// "Save") that has nothing to show on the right. Disabled items (MIDI Mapping when HID Type
-// != MIDI) are never included here at all -- skipped during navigation -- so the renderer
-// never needs a disabled/greyed style.
+// Pixel UI (DEVELOPMENT_PLAN.md "Pixel UI"): every screen has its own layout on the display
+// side (text list, Orbit dashboard, HID carousel, Boot mode cards), so the snapshot names the
+// screen explicitly instead of the renderer guessing from the title.
+typedef enum {
+    MENU_SCREEN_NONE = 0, // menu closed -- Main Screen
+    MENU_SCREEN_ROOT,
+    MENU_SCREEN_HAPTIC,
+    MENU_SCREEN_HID,
+    MENU_SCREEN_BOOT,
+} menu_screen_id_t;
+
+// Row indices of the Haptic screen -- display_task.cpp keys its per-setting icons and the
+// FEEL animation off these.
+enum {
+    MENU_HAPTIC_ROW_STEPS = 0,
+    MENU_HAPTIC_ROW_SNAP,
+    MENU_HAPTIC_ROW_DAMP,
+    MENU_HAPTIC_ROW_FEEL,
+    MENU_HAPTIC_ROW_TONE,
+    MENU_HAPTIC_ROW_PITCH,
+    MENU_HAPTIC_ROW_COUNT,
+};
+
+typedef enum { MENU_HID_KEYBOARD = 0, MENU_HID_MOUSE, MENU_HID_MIDI, MENU_HID_TYPE_COUNT } menu_hid_type_t;
+
+// One rendered row. `caption` is the small engineering name shown under the friendly label
+// (e.g. label "SNAP", caption "KP"); "" where there is none. `value` is "" for a submenu item
+// that has nothing to show. Disabled items (MIDI channel when HID type != MIDI) are never
+// included here at all -- skipped during navigation -- so the renderer never needs a
+// disabled/greyed style.
 typedef struct {
     char label[MENU_LABEL_TEXT_LEN];
+    char caption[MENU_CAPTION_TEXT_LEN];
     char value[MENU_VALUE_TEXT_LEN];
     bool selected;
 } menu_render_row_t;
 
 typedef struct {
-    bool open;    // false = menu closed entirely; display_task.c shows the Main Screen instead
+    bool open;    // false = menu closed entirely; display_task.cpp shows the Main Screen instead
     bool editing; // true = the selected row's value is being live-adjusted by knob rotation
+    bool dirty;   // the current screen has changes F2 hasn't saved yet
+    menu_screen_id_t screen;
+    int selected;        // index into rows[] of the selected row, -1 if none
+    uint32_t save_count; // bumps on every successful F2 save -- the display's SAVED! cue
     char title[MENU_TITLE_LEN]; // "" at the top-level screen (no title row there)
     int row_count;
     menu_render_row_t rows[MENU_MAX_VISIBLE_ITEMS];
@@ -48,9 +78,18 @@ typedef struct {
 void menu_init(void);
 
 // Producer side (Core 0) -- call on each button's press edge / each detent-crossing tick.
+//
+// Two kinds of settings screen:
+//   - Haptic (Orbit): turn moves focus; F1 enters edit, turn changes the value live, F1
+//     confirms; F3 cancels the edit and restores the value from before it. Unsaved changes
+//     stay live after leaving the screen (tune by feel, save when it's right).
+//   - HID / Boot mode ("direct"): turn changes the focused value immediately; F1 moves focus
+//     to the next field (HID type <-> MIDI channel). Leaving with F3 or F4 discards unsaved
+//     changes -- these aren't live-tunable, only a saved choice means anything.
 void menu_input_toggle_open(void);        // F4: closed->open, or open at any depth->closed
 void menu_input_back(void);               // F3: cancel edit, else back one level, else close
-void menu_input_select(void);             // F1: enter submenu / enter edit / fire action / commit edit
+void menu_input_select(void);             // F1: enter submenu / enter or confirm edit / next field
+void menu_input_save(void);               // F2: save the current settings screen (if changed)
 void menu_input_rotate(int8_t direction); // knob tick, +1/-1: navigate list, or adjust value while editing
 
 bool menu_is_open(void);
@@ -79,6 +118,9 @@ float menu_get_haptic_pitch(void);
 // everything else above, combined there with the BTN_C+BTN_D hold failsafe (which always
 // takes priority regardless of this saved setting).
 boot_usb_mode_t menu_get_boot_mode(void);
+
+// Pixel UI: read by display_task.cpp for the Main Screen mode icon and the HID carousel.
+menu_hid_type_t menu_get_hid_type(void);
 
 // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8): the earlier "laggy roller" fixes
 // (I2S/display priority equalization, roller anim-duration override, single-buffer/24-row
