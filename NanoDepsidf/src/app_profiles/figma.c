@@ -238,6 +238,9 @@ const app_profile_t app_profile_figma = {
     .icon24 = app_icon_figma_24,
     .icon48 = app_icon_figma_48,
     .legend = {"UNDO", "DEPTH", "WHEEL", "FRAME"},
+    // Figma's purple -> blue -> green: neighbouring hues, brighter toward the icon (red
+    // against blue clashed on hardware).
+    .plasma_heat = {0xA259FF, 0x1ABCFE, 0x0ACF83},
     .slot = {
         // Wheel up with Cmd = zoom in. Flip `sign` if the knob zooms the wrong way.
         [APP_SLOT_KNOB] = {

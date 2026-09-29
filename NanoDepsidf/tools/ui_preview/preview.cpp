@@ -254,8 +254,10 @@ int main() {
     keep("plasma 3s");
     ui::fx_attract(9000);
     keep("plasma 9s");
-    ui::fx_attract(3000, app_icon_figma_48);
-    keep("plasma figma 3s");
+    for (uint32_t ms : {1000u, 3000u, 5500u}) {
+        ui::fx_attract(ms, app_icon_figma_48, app_profile_figma.plasma_heat);
+        keep("plasma figma");
+    }
     ui::fx_attract(6000, app_icon_plasticity_48);
     keep("plasma plasticity 6s");
 

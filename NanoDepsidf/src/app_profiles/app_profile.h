@@ -191,6 +191,9 @@ typedef struct {
     app_shape_t shape;         // APP_VISUAL_SHAPE: which shape
     app_shape_style_t shape_style; // ...and how it's drawn
     bool shape_stepped;        // show only clean poses: 32 per turn, zoom in 1/8 doublings, pan in 2px
+    // Attract screen: the plasma's three hottest steps (RGB888, cool body -> hottest). All 0 =
+    // sampled from icon48.
+    uint32_t plasma_heat[3];
     app_action_t slot[APP_SLOT_COUNT];
     // Command wheel (a slot with APP_ACT_COMMANDS)
     uint8_t ring_count;

@@ -16,6 +16,8 @@ void fx_boot(uint32_t elapsed_ms);
 // Attract animation: dark plasma rippling out of the QUADRA lettering in the middle -- or, in
 // APP mode, out of the active profile's 48x48 icon (drawn at 2x). (Warp was dropped by
 // request; Plasma is the only one.)
-void fx_attract(uint32_t t_ms, const uint8_t *icon48 = nullptr);
+// `heat`: 3 colours (RGB888) for the plasma's hottest steps with an icon, nullptr = sampled
+// from the icon. Without an icon (QUADRA) the plasma is the UI palette, as always.
+void fx_attract(uint32_t t_ms, const uint8_t *icon48 = nullptr, const uint32_t *heat = nullptr);
 
 } // namespace ui

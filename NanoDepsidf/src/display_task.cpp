@@ -520,8 +520,13 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_ATTRACT: {
             // APP mode: the plasma emits from the active profile's icon instead of QUADRA.
             const uint8_t *icon = nullptr;
-            if (menu_get_hid_type() == MENU_HID_APP) icon = app_profiles_get(menu_get_app_profile())->icon48;
-            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000), icon);
+            const uint32_t *heat = nullptr;
+            if (menu_get_hid_type() == MENU_HID_APP) {
+                const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+                icon = p->icon48;
+                if (p->plasma_heat[0] | p->plasma_heat[1] | p->plasma_heat[2]) heat = p->plasma_heat;
+            }
+            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000), icon, heat);
             break;
         }
     }

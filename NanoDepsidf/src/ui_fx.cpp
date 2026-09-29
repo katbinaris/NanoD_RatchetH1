@@ -100,8 +100,16 @@ static float s_glow[256];                         // emission falloff by that di
 static inline float lut(float rad_as_units) { return s_sin[((int)rad_as_units) & (SIN_LUT - 1)]; }
 static const float TO_UNITS = SIN_LUT / (2.0f * (float)M_PI);
 
-static void plasma(uint32_t t, const uint8_t *dist) {
-    static const uint32_t levels[5] = {BLACK, DARK, GREY, WHITE, AMBER};
+// The plasma body is always the UI's greys (dithered DARK / GREY / WHITE). Its hottest spots
+// are AMBER (QUADRA), or -- in APP mode -- a three-step heat ramp in the app's colours: the
+// profile's own plasma_heat, or colours sampled from its icon. Thresholds on the emission
+// value v; it runs past 1 near the shape (s_glow), so the later steps sit closest to it.
+static const uint32_t BODY[4] = {BLACK, DARK, GREY, WHITE};
+static const float HEAT_AT[3] = {0.54f, 0.62f, 0.71f};
+static const float HEAT_BODY_GAIN = 6.0f; // APP: the grey ramp reaches white sooner, so white dominates
+static uint32_t s_icon_heat[3]; // sampled from the icon
+
+static void plasma(uint32_t t, const uint8_t *dist, const uint32_t *heat) {
     static const uint8_t bayer[4] = {0, 2, 3, 1};
     float T = t / 1000.0f;
     float p1 = T * 0.6f * TO_UNITS, p2 = -T * 0.8f * TO_UNITS, p4 = -T * 2.4f * TO_UNITS;
@@ -120,12 +128,17 @@ static void plasma(uint32_t t, const uint8_t *dist) {
             float v = (ripple + drift + 2.0f) / 4.0f; // 0..1
             v = v * v;
             v = v * v * s_glow[d];
-            float f = v * 3.999f;
+            float f = v * (heat ? HEAT_BODY_GAIN : 3.999f);
             int li = (int)f;
             if (f - li > (bayer[(gx & 1) + 2 * (gy & 1)] + 0.5f) / 4.0f) li++;
             if (li > 3) li = 3;
-            if (v >= 0.85f) li = 4;
-            if (li > 0) rect(gx * PLASMA_CELL, gy * PLASMA_CELL, PLASMA_CELL, PLASMA_CELL, levels[li]);
+            uint32_t c = BODY[li];
+            if (heat == nullptr) {
+                if (v >= 0.85f) c = AMBER;
+            } else {
+                for (int h = 0; h < 3; h++) if (v >= HEAT_AT[h]) c = heat[h];
+            }
+            if (c != BLACK) rect(gx * PLASMA_CELL, gy * PLASMA_CELL, PLASMA_CELL, PLASMA_CELL, c);
         }
     }
 }
@@ -167,7 +180,64 @@ static void build_field(uint8_t *dist) {
     }
 }
 
+// The icon's heat ramp, for profiles that don't name their own: its three most common
+// colours, dark to bright (hotter = brighter), exactly as sampled -- dimming them muddied
+// them on hardware. Pixels are binned coarsely (3 bits per channel) so the shading of one
+// colour counts as one; near-black (outlines) is skipped.
+static float luma(uint32_t c) {
+    return 0.30f * ((c >> 16) & 0xFF) + 0.59f * ((c >> 8) & 0xFF) + 0.11f * (c & 0xFF);
+}
+static void build_icon_palette(const uint8_t *icon) {
+    struct Bin { uint16_t key; uint16_t n; uint32_t r, g, b; };
+    static Bin bins[32]; // pixel art has few colours; overflow pixels are simply not counted
+    int nb = 0;
+    for (int i = 0; i < ATTRACT_ICON * ATTRACT_ICON; i++) {
+        uint16_t v = (uint16_t)(icon[i * 2] << 8 | icon[i * 2 + 1]);
+        uint32_t r = ((v >> 11) & 31) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
+        if (r + g + b < 90) continue; // black / outline
+        uint16_t key = (uint16_t)((r >> 5) << 6 | (g >> 5) << 3 | (b >> 5));
+        int k = 0;
+        while (k < nb && bins[k].key != key) k++;
+        if (k == nb) {
+            if (nb == 32) continue;
+            bins[nb++] = {key, 0, 0, 0, 0};
+        }
+        bins[k].n++;
+        bins[k].r += r;
+        bins[k].g += g;
+        bins[k].b += b;
+    }
+    // Top four by count (average colour of each bin).
+    uint32_t pick[3];
+    int np = 0;
+    for (; np < 3; np++) {
+        int best = -1;
+        for (int k = 0; k < nb; k++) {
+            if (bins[k].n && (best < 0 || bins[k].n > bins[best].n)) best = k;
+        }
+        if (best < 0) break;
+        const Bin &b = bins[best];
+        pick[np] = (b.r / b.n) << 16 | (b.g / b.n) << 8 | (b.b / b.n);
+        bins[best].n = 0;
+    }
+    if (np == 0) {
+        for (int i = 0; i < 3; i++) s_icon_heat[i] = AMBER;
+        return;
+    }
+    for (; np < 3; np++) pick[np] = pick[np - 1]; // fewer colours: repeat the last
+    // Dark to bright.
+    for (int i = 1; i < 3; i++) {
+        for (int j = i; j > 0 && luma(pick[j]) < luma(pick[j - 1]); j--) {
+            uint32_t tmp = pick[j];
+            pick[j] = pick[j - 1];
+            pick[j - 1] = tmp;
+        }
+    }
+    for (int i = 0; i < 3; i++) s_icon_heat[i] = pick[i];
+}
+
 static void build_icon_field(const uint8_t *icon) {
+    build_icon_palette(icon);
     memset(s_seed_bits, 0, sizeof(s_seed_bits));
     for (int j = 0; j < ATTRACT_ICON; j++) {
         for (int i = 0; i < ATTRACT_ICON; i++) {
@@ -182,13 +252,13 @@ static void build_icon_field(const uint8_t *icon) {
     s_dist_icon_for = icon;
 }
 
-void fx_attract(uint32_t t_ms, const uint8_t *icon48) {
+void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat) {
     if (icon48 != nullptr) {
         if (icon48 != s_dist_icon_for) build_icon_field(icon48);
-        plasma(t_ms, s_dist_icon);
+        plasma(t_ms, s_dist_icon, heat ? heat : s_icon_heat);
         image565(ATTRACT_ICON_X, ATTRACT_ICON_Y, ATTRACT_ICON, ATTRACT_ICON, icon48, 1.0f, ATTRACT_ICON_SCALE);
     } else {
-        plasma(t_ms, s_dist_word);
+        plasma(t_ms, s_dist_word, nullptr);
         text(ATTRACT_WORD, CX, ATTRACT_WORD_Y, WHITE, ATTRACT_WORD_SCALE, CENTER);
     }
 }
