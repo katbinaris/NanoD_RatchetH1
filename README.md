@@ -25,6 +25,7 @@ shows, at 2× scale.
 ## Contents
 
 - [Features](#features)
+- [First calibration](#first-calibration) ⚠️ read before first use
 - [Using Quadra](#using-quadra)
   - [Keys and knob](#keys-and-knob)
   - [The settings menu](#the-settings-menu)
@@ -57,7 +58,8 @@ shows, at 2× scale.
   Detent count, stiffness (Kp) and damping (Kd) are adjustable live. Lists end in a
   **haptic wall**: the knob pushes back instead of clicking past the end.
 - **Audible clicks.** Every detent plays a synthesised click through an I²S amplifier and
-  transducer. There are two timbres (WOOD, THUD) and an adjustable pitch. Fine-adjustment
+  transducer, with adjustable pitch and amplitude. Two timbres exist (WOOD, THUD); choosing
+  one is hidden from the menu for now, and the saved one plays. Fine-adjustment
   clicks sound an octave higher so you can hear which mode you are in.
 - **USB composite device:**
   - a keyboard, mouse and gamepad HID interface;
@@ -84,6 +86,60 @@ shows, at 2× scale.
 
 ---
 
+## First calibration
+
+> ⚠️ **Before using a new or erased device.** The motor has to learn how the magnetic
+> sensor lines up with its coils. Until it has, the knob has no haptics. Calibration runs
+> once, by itself, and takes about two seconds, but **the knob must be free to turn while it
+> runs.**
+
+### How to run it
+
+1. **Place the device on the desk with nothing touching the knob.** Don't hold, press or
+   rest a finger on it.
+2. **Plug in USB.** Keep your hands off the keys; some key combinations held at power-on
+   start other modes (see below).
+3. **Wait about 8 seconds.** The firmware waits 3 s, then watches the keys for 3 s, then
+   calibrates. During calibration:
+   - the knob **snaps to a position** and holds it for about 1 s (alignment);
+   - then it **makes a small, visible step** (direction check).
+4. **Turn the knob.** Crisp detents mean it worked. The result is saved in flash (NVS,
+   namespace `foc_cal`) and reused on every later boot, so it never runs again on its own.
+
+If the knob stays limp with no detents, calibration was rejected, usually because the knob
+was held and didn't move during the step. Nothing is saved in that case. Unplug, keep your
+hands off, and plug in again to retry.
+
+With a serial monitor attached (`pio device monitor`), a good run logs
+`calibration OK: direction=±1, offset=…` then `calibration saved to NVS`. A failed one logs
+`rotor didn't move during step`.
+
+### When to calibrate again
+
+Only after a **hardware change**: the magnet, the sensor, the motor or its wiring was
+removed, moved or replaced. Firmware updates don't need it; the saved calibration survives
+reflashing. The knob-direction setting (`KNOB_DIRECTION`) is unrelated to calibration.
+
+### How to force a new calibration
+
+- **F1 + F2 at power-on (diagnostic mode).**
+  1. Hold **F1 and F2**, plug in USB, and keep holding for at least 6 s.
+  2. The device calibrates afresh, ignoring the saved result, and saves the new one.
+  3. It then runs a **bench test**: the knob moves by itself through 30 positions, about
+     1.5 s each (about 45 s in all). Keep your hands off.
+  4. **Unplug and plug in again** to return to normal use with the new calibration.
+- **Erase the flash** (`pio run -t erase`, then flash again). The next boot is a first boot
+  and calibrates as above. This also **resets every saved setting** (haptics, profiles,
+  display, boot mode).
+
+Other key combinations held at power-on:
+- **F3 + F4** is the USB recovery mode (see [Building and flashing](#building-and-flashing)).
+- **F1 alone** runs the same bench test with the saved calibration. **F1 + F3** and
+  **F1 + F4** start further motor diagnostics. None of these are needed
+  for normal use; if you start one by mistake, unplug and plug in again.
+
+---
+
 ## Using Quadra
 
 ### Keys and knob
@@ -107,26 +163,26 @@ opens the menu** instead.
 <p>
   <img src="NanoDepsidf/docs/images/menu.png" width="180" alt="Top-level menu list">
   <img src="NanoDepsidf/docs/images/haptics-feel.png" width="180" alt="Haptics screen editing FEEL">
-  <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="HID TYPE carousel on APP">
+  <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="PROFILES carousel on APP">
   <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
 </p>
 
 | Screen | Settings |
 |---|---|
-| **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), TONE (WOOD / THUD click), PITCH (click pitch). Changes are live while you tune; F2 saves. |
-| **HID TYPE** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
+| **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
+| **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), AMP (click amplitude, 0–100% in 5% steps), PITCH (click pitch). Changes are live while you tune; F2 saves. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
 
-Screens with a single choice (HID TYPE, DISPLAY, BOOT MODE) change the value directly as you
+Screens with a single choice (PROFILES, DISPLAY, BOOT MODE) change the value directly as you
 turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
 survive power cycles.
 
 ### APP mode and profiles
 
 APP is the default HID type. The status bar shows the active app's icon and name, and the
-keys and knob drive that application. Profiles are chosen in **HID TYPE → PROFILE**.
+keys and knob drive that application. Profiles are chosen in **PROFILES → PROFILE**.
 
 The knob's feel follows what it is doing. Smooth drags (orbit, pan, zoom) run VISCOSE.
 Stepped actions (undo history, layers, frames) click once per step.
@@ -379,6 +435,11 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | `display` | 1 | 9 | Renders frames into a full-screen sprite and pushes them over SPI |
 | `led` | 1 | 3 | Reserved for the LED rings |
 
+**Knob direction.** Which way counts as forward is one constant, `KNOB_DIRECTION` in
+`control_task.c` (currently inverted, -1). It flips what a turn means everywhere (menu, APP
+mode, the scroll wheel, end stops) while the motor and haptic maths stay in sensor
+coordinates.
+
 **Haptics.** Each tick reads the encoder and finds the nearest detent, with hysteresis. It
 then applies the selected law: a SAW spring with a click pulse, a SINE bump, or VISCOSE
 damping. Fast flicks coast torque-free. End stops refuse the next detent and pull back with a
@@ -432,7 +493,8 @@ the CDC port's 1200-baud reset. If an upload can't find the device:
 
 The board definition is `NanoDepsidf/boards/nanofoc_d.json`, and the partition table
 `boards/nano_partitions.csv` has two OTA slots of 1.25 MB each, NVS and a spare 1.4 MB data
-partition. Motor calibration runs on first boot and is cached in NVS.
+partition. Motor calibration runs on first boot and is cached in NVS; see
+[First calibration](#first-calibration) before the first use of a new or erased board.
 
 ---
 

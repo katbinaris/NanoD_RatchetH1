@@ -46,6 +46,12 @@ typedef enum {
 #define AUDIO_CLICK_PITCH_DEFAULT 1.0f
 #define AUDIO_CLICK_PITCH_MIN 0.5f
 #define AUDIO_CLICK_PITCH_MAX 2.0f
+// Click amplitude (Haptics -> AMP), percent of each timbre's full level, in 5% steps. Scales
+// every click the I2S task renders, button thump included.
+#define AUDIO_CLICK_AMP_DEFAULT 100
+#define AUDIO_CLICK_AMP_MIN 0
+#define AUDIO_CLICK_AMP_MAX 100
+#define AUDIO_CLICK_AMP_STEP 5
 
 void audio_trigger_init(void);
 

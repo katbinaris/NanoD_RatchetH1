@@ -81,6 +81,7 @@ static const char *ph_sound_name(audio_click_timbre_t s) {
 }
 
 static _Atomic float s_ph_pitch = AUDIO_CLICK_PITCH_DEFAULT;
+static _Atomic int32_t s_ph_amp = AUDIO_CLICK_AMP_DEFAULT; // percent
 
 // menu_hid_type_t lives in menu.h -- display_task.cpp reads it for the mode icon.
 static _Atomic menu_hid_type_t s_ph_hid_type = MENU_HID_APP; // default until something is saved
@@ -154,10 +155,13 @@ static void rotate_haptic_type(int8_t dir) {
     atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)v, memory_order_relaxed);
 }
 
-static void fmt_sound(char *buf, size_t n) {
+// TONE is hidden from the Haptics screen for now (AMP took its place in the ring, which holds
+// six); the setting itself is still saved, restored and used by the I2S task. To bring it
+// back, give it a row again.
+__attribute__((unused)) static void fmt_sound(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_sound_name(atomic_load_explicit(&s_ph_sound, memory_order_relaxed)));
 }
-static void rotate_sound(int8_t dir) {
+__attribute__((unused)) static void rotate_sound(int8_t dir) {
     int v = ((int)atomic_load_explicit(&s_ph_sound, memory_order_relaxed) + dir) % AUDIO_TIMBRE_COUNT;
     if (v < 0) v += AUDIO_TIMBRE_COUNT;
     atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)v, memory_order_relaxed);
@@ -173,6 +177,16 @@ static void rotate_pitch(int8_t dir) {
     atomic_store_explicit(&s_ph_pitch, v, memory_order_relaxed);
 }
 
+static void fmt_amp(char *buf, size_t n) {
+    snprintf(buf, n, "%ld%%", (long)atomic_load_explicit(&s_ph_amp, memory_order_relaxed));
+}
+static void rotate_amp(int8_t dir) {
+    int32_t v = atomic_load_explicit(&s_ph_amp, memory_order_relaxed) + dir * AUDIO_CLICK_AMP_STEP;
+    if (v < AUDIO_CLICK_AMP_MIN) v = AUDIO_CLICK_AMP_MIN;
+    if (v > AUDIO_CLICK_AMP_MAX) v = AUDIO_CLICK_AMP_MAX;
+    atomic_store_explicit(&s_ph_amp, v, memory_order_relaxed);
+}
+
 static void action_save_haptic(void) {
     haptic_cfg_t cfg = {
         .num_detents = (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed),
@@ -181,6 +195,7 @@ static void action_save_haptic(void) {
         .haptic_type = (int32_t)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed),
         .sound = (int32_t)atomic_load_explicit(&s_ph_sound, memory_order_relaxed),
         .pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed),
+        .amplitude = atomic_load_explicit(&s_ph_amp, memory_order_relaxed),
     };
     config_store_save_haptic(&cfg);
 }
@@ -272,7 +287,7 @@ static const menu_item_t s_haptic_items[MENU_HAPTIC_ROW_COUNT] = {
     [MENU_HAPTIC_ROW_SNAP]  = { .label = "SNAP",  .caption = "KP",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kp,          .on_rotate = rotate_kp },
     [MENU_HAPTIC_ROW_DAMP]  = { .label = "DAMP",  .caption = "KD",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kd,          .on_rotate = rotate_kd },
     [MENU_HAPTIC_ROW_FEEL]  = { .label = "FEEL",  .caption = "TYPE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_haptic_type, .on_rotate = rotate_haptic_type },
-    [MENU_HAPTIC_ROW_TONE]  = { .label = "TONE",  .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_sound,       .on_rotate = rotate_sound },
+    [MENU_HAPTIC_ROW_AMP]   = { .label = "AMP",   .caption = "AMPLITUDE", .kind = MENU_ITEM_VALUE, .format_value = fmt_amp,       .on_rotate = rotate_amp },
     [MENU_HAPTIC_ROW_PITCH] = { .label = "PITCH", .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_pitch,       .on_rotate = rotate_pitch },
 };
 static const menu_screen_t s_haptic_screen = {
@@ -289,12 +304,12 @@ static const menu_screen_t s_app_profile_screen = {
 };
 
 static const menu_item_t s_hid_items[] = {
-    { .label = "HID TYPE", .kind = MENU_ITEM_VALUE,   .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
+    { .label = "PROFILES", .kind = MENU_ITEM_VALUE,   .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
     { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE,   .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
     { .label = "PROFILE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_app_profile_screen, .format_value = fmt_app_profile, .is_enabled = app_profile_enabled },
 };
 static const menu_screen_t s_hid_screen = {
-    MENU_SCREEN_HID, "HID Type", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0]), true, action_save_hid
+    MENU_SCREEN_HID, "Profiles", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0]), true, action_save_hid
 };
 
 static const menu_item_t s_boot_items[] = {
@@ -312,8 +327,8 @@ static const menu_screen_t s_display_screen = {
 };
 
 static const menu_item_t s_root_items[] = {
+    { .label = "PROFILES",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
     { .label = "HAPTICS",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
-    { .label = "HID TYPE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
     { .label = "DISPLAY",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_display_screen },
     { .label = "BOOT MODE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
 };
@@ -396,6 +411,7 @@ typedef struct {
     haptic_type_t haptic_type;
     audio_click_timbre_t sound;
     float pitch;
+    int32_t amp;
     menu_hid_type_t hid_type;
     int32_t midi_channel;
     int32_t app_profile;
@@ -414,6 +430,7 @@ static void settings_capture(settings_t *s) {
     s->haptic_type = atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
     s->sound = atomic_load_explicit(&s_ph_sound, memory_order_relaxed);
     s->pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
+    s->amp = atomic_load_explicit(&s_ph_amp, memory_order_relaxed);
     s->hid_type = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
     s->midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed);
     s->app_profile = atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
@@ -428,6 +445,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_haptic_type, s->haptic_type, memory_order_relaxed);
     atomic_store_explicit(&s_ph_sound, s->sound, memory_order_relaxed);
     atomic_store_explicit(&s_ph_pitch, s->pitch, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_amp, s->amp, memory_order_relaxed);
     atomic_store_explicit(&s_ph_hid_type, s->hid_type, memory_order_relaxed);
     atomic_store_explicit(&s_ph_midi_channel, s->midi_channel, memory_order_relaxed);
     atomic_store_explicit(&s_ph_app_profile, s->app_profile, memory_order_relaxed);
@@ -445,6 +463,7 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
             dst->haptic_type = src->haptic_type;
             dst->sound = src->sound;
             dst->pitch = src->pitch;
+            dst->amp = src->amp;
             break;
         case MENU_SCREEN_HID:
             dst->hid_type = src->hid_type;
@@ -469,7 +488,7 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
     switch (group) {
         case MENU_SCREEN_HAPTIC:
             return a->detents != b->detents || a->kp != b->kp || a->kd != b->kd
-                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch;
+                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch || a->amp != b->amp;
         case MENU_SCREEN_HID:
             return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel
                 || a->app_profile != b->app_profile;
@@ -518,6 +537,7 @@ void menu_init(void) {
         atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)hcfg.haptic_type, memory_order_relaxed);
         atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)hcfg.sound, memory_order_relaxed);
         atomic_store_explicit(&s_ph_pitch, hcfg.pitch, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_amp, hcfg.amplitude, memory_order_relaxed);
     }
     hid_cfg_t icfg;
     if (config_store_load_hid(&icfg)) {
@@ -782,6 +802,10 @@ audio_click_timbre_t menu_get_haptic_sound(void) {
 
 float menu_get_haptic_pitch(void) {
     return atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
+}
+
+float menu_get_click_amplitude(void) {
+    return atomic_load_explicit(&s_ph_amp, memory_order_relaxed) / 100.0f;
 }
 
 boot_usb_mode_t menu_get_boot_mode(void) {

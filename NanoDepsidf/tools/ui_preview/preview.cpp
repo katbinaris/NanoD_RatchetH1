@@ -49,7 +49,7 @@ static menu_render_snapshot_t haptic_snap(int selected, bool editing, bool dirty
     s.dirty = dirty;
     s.selected = selected;
     const char *L[6][3] = {{"STEPS", "DETENTS", "12"}, {"SNAP", "KP", "6.00"}, {"DAMP", "KD", ".010"},
-                           {"FEEL", "TYPE", "VISCOSE"}, {"TONE", "CLICK", "WOOD"}, {"PITCH", "CLICK", "1.00X"}};
+                           {"FEEL", "TYPE", "VISCOSE"}, {"AMP", "AMPLITUDE", "80%"}, {"PITCH", "CLICK", "1.00X"}};
     for (int i = 0; i < 6; i++) s.rows[i] = row(L[i][0], L[i][1], L[i][2], i == selected);
     s.row_count = 6;
     return s;
@@ -124,18 +124,21 @@ int main() {
     menu_render_snapshot_t root = {};
     root.open = true;
     root.screen = MENU_SCREEN_ROOT;
-    root.selected = 1;
-    root.rows[0] = row("HAPTICS", "", "", false);
-    root.rows[1] = row("HID TYPE", "", "", true);
-    root.rows[2] = row("BOOT MODE", "", "", false);
-    root.row_count = 3;
-    ui::draw_menu_list(root, 32);
+    root.selected = 0;
+    root.rows[0] = row("PROFILES", "", "", true);
+    root.rows[1] = row("HAPTICS", "", "", false);
+    root.rows[2] = row("DISPLAY", "", "", false);
+    root.rows[3] = row("BOOT MODE", "", "", false);
+    root.row_count = 4;
+    ui::draw_menu_list(root, 0);
     keep("menu");
 
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_FEEL, true, true), {HAPTIC_TYPE_SINE, 700, -1, 1, true});
     keep("orbit FEEL editing");
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SNAP, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
     keep("orbit SNAP editing");
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_AMP, true, true), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    keep("orbit AMP editing");
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_STEPS, false, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
     ui::draw_saved_toast();
     keep("orbit + SAVED!");
@@ -144,11 +147,11 @@ int main() {
     hid.open = true;
     hid.screen = MENU_SCREEN_HID;
     hid.selected = 0;
-    hid.rows[0] = row("HID TYPE", "", "KEYBOARD", true);
+    hid.rows[0] = row("PROFILES", "", "KEYBOARD", true);
     hid.row_count = 1;
     ui::draw_hid(hid, {MENU_HID_KEYBOARD, 0, true});
     keep("hid keyboard");
-    hid.rows[0] = row("HID TYPE", "", "APP", true);
+    hid.rows[0] = row("PROFILES", "", "APP", true);
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
     keep("hid APP");
 
@@ -180,7 +183,7 @@ int main() {
     keep("profile AUTOCAD (empty template), unsaved");
     hid.selected = 1;
     hid.dirty = true;
-    hid.rows[0] = row("HID TYPE", "", "MIDI", false);
+    hid.rows[0] = row("PROFILES", "", "MIDI", false);
     hid.rows[1] = row("CHANNEL", "", "01", true);
     hid.row_count = 2;
     ui::draw_hid(hid, {MENU_HID_MIDI, 0, true});

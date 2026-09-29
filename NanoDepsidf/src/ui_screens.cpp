@@ -201,7 +201,7 @@ static void orbit_icon(int row, haptic_type_t feel, float cx, float cy, uint32_t
         case MENU_HAPTIC_ROW_STEPS: s = &SPR_STEPS_M; break;
         case MENU_HAPTIC_ROW_SNAP: s = &SPR_SNAP_M; break;
         case MENU_HAPTIC_ROW_DAMP: s = &SPR_DAMP_M; break;
-        case MENU_HAPTIC_ROW_TONE: s = &SPR_SPK_M; break;
+        case MENU_HAPTIC_ROW_AMP: s = &SPR_SPK_M; break;
         case MENU_HAPTIC_ROW_PITCH: s = &SPR_PITCH_M; break;
         default: break;
     }
@@ -282,7 +282,7 @@ void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
 // --- HID type: carousel ---
 
 void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
-    header("HID TYPE");
+    header("PROFILES");
     bool type_focus = (snap.selected <= 0);
     int pos = menu_hid_type_pos(in.type); // display order: APP first (menu.h)
     for (int j = -2; j <= 2; j++) {

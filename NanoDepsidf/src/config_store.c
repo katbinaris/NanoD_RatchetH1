@@ -56,7 +56,11 @@ static void nvs_save_blob(const char *ns, const void *data, size_t size, const c
 bool config_store_load_haptic(haptic_cfg_t *out) {
     haptic_cfg_t stored;
     if (!nvs_load_blob(NS_HAPTIC, &stored, sizeof(stored))) {
-        return false;
+        // Saved before `amplitude` existed: keep those settings, amplitude at its default.
+        if (!nvs_load_blob(NS_HAPTIC, &stored, HAPTIC_CFG_V1_SIZE)) {
+            return false;
+        }
+        stored.amplitude = AUDIO_CLICK_AMP_DEFAULT;
     }
     // Bounds match haptic_params.h exactly (shared with menu.c/control_task.c) rather than
     // generic sanity limits -- since Phase 8 step 3, num_detents feeds a direct division in
@@ -67,14 +71,15 @@ bool config_store_load_haptic(haptic_cfg_t *out) {
         !isfinite(stored.kd) || stored.kd < HAPTIC_KD_MIN || stored.kd > HAPTIC_KD_MAX ||
         stored.haptic_type < 0 || stored.haptic_type >= HAPTIC_TYPE_COUNT ||
         stored.sound < 0 || stored.sound >= AUDIO_TIMBRE_COUNT ||
-        !isfinite(stored.pitch) || stored.pitch < AUDIO_CLICK_PITCH_MIN || stored.pitch > AUDIO_CLICK_PITCH_MAX) {
+        !isfinite(stored.pitch) || stored.pitch < AUDIO_CLICK_PITCH_MIN || stored.pitch > AUDIO_CLICK_PITCH_MAX ||
+        stored.amplitude < AUDIO_CLICK_AMP_MIN || stored.amplitude > AUDIO_CLICK_AMP_MAX) {
         ESP_LOGW(TAG, "stored haptic_cfg failed sanity check, ignoring");
         return false;
     }
     *out = stored;
-    ESP_LOGI(TAG, "loaded haptic_cfg from NVS: detents=%lu kp=%.2f kd=%.3f type=%ld sound=%ld pitch=%.2f",
+    ESP_LOGI(TAG, "loaded haptic_cfg from NVS: detents=%lu kp=%.2f kd=%.3f type=%ld sound=%ld pitch=%.2f amp=%ld",
              (unsigned long)stored.num_detents, (double)stored.kp, (double)stored.kd,
-             (long)stored.haptic_type, (long)stored.sound, (double)stored.pitch);
+             (long)stored.haptic_type, (long)stored.sound, (double)stored.pitch, (long)stored.amplitude);
     return true;
 }
 

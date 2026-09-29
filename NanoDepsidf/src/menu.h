@@ -35,7 +35,7 @@ typedef enum {
     MENU_SCREEN_HAPTIC,
     MENU_SCREEN_HID,
     MENU_SCREEN_BOOT,
-    MENU_SCREEN_APP_PROFILE, // HID TYPE = APP -> F1: choose the app profile
+    MENU_SCREEN_APP_PROFILE, // PROFILES = APP -> F1: choose the app profile
     MENU_SCREEN_DISPLAY,     // screen rotation
 } menu_screen_id_t;
 
@@ -50,7 +50,7 @@ enum {
     MENU_HAPTIC_ROW_SNAP,
     MENU_HAPTIC_ROW_DAMP,
     MENU_HAPTIC_ROW_FEEL,
-    MENU_HAPTIC_ROW_TONE,
+    MENU_HAPTIC_ROW_AMP,   // click amplitude; TONE (timbre) is hidden for now, see menu.c
     MENU_HAPTIC_ROW_PITCH,
     MENU_HAPTIC_ROW_COUNT,
 };
@@ -142,6 +142,7 @@ haptic_type_t menu_get_haptic_type(void);
 // lock-free atomic-load convention as the getters above, just consumed by a different task.
 audio_click_timbre_t menu_get_haptic_sound(void);
 float menu_get_haptic_pitch(void);
+float menu_get_click_amplitude(void); // 0..1, the Haptics AMP setting
 
 // Phase 8 step 6: live boot USB mode, read once by main.c at startup (before any task
 // starts, so no cross-core-timing concern) -- loaded from NVS in menu_init() same as

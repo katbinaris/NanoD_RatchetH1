@@ -304,6 +304,11 @@ static int64_t s_pp_start_us = 0;
 // hardware yet -- flip this single constant if scrolling comes out backwards, same
 // pattern as MOTOR_POLE_PAIRS/s_cal.direction elsewhere in this file.
 #define HID_WHEEL_SIGN 1
+// Which physical turn counts as "positive" everywhere the knob means something -- menu, APP
+// mode (detents, drags, end stops), the scroll wheel, the display's shape. -1 = inverted
+// (user, 2026-09-30: the device now sits horizontally). Only the meaning flips: the motor,
+// haptics and detent physics stay in sensor coordinates.
+#define KNOB_DIRECTION (-1)
 
 typedef enum { HAPTIC_RUN, HAPTIC_DONE } haptic_phase_t;
 static haptic_phase_t s_haptic_phase = HAPTIC_DONE;
@@ -895,7 +900,7 @@ static void control_task_fn(void *arg) {
                 bool at_wall = false;
                 if (s_haptic_prev_detent_index_valid && detent_index != s_haptic_prev_detent_index) {
                     float past = wrap_pi(rel - (float)s_haptic_prev_detent_index * detent_spacing);
-                    int8_t dir = past > 0 ? 1 : -1; // same sense as the dispatch's velocity sign below
+                    int8_t dir = (past > 0 ? 1 : -1) * KNOB_DIRECTION; // same sense as the dispatch below
                     bool end = menu_is_open() ? menu_at_end(dir) : (app_on && app_mode_at_end(dir));
                     if (end) {
                         detent_index = s_haptic_prev_detent_index;
@@ -909,12 +914,12 @@ static void control_task_fn(void *arg) {
                 if (s_prev_mech_rad_valid) {
                     float delta = wrap_pi(mech_rad - s_prev_mech_rad);
                     velocity = delta / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
-                    app_mode_motion(delta, esp_timer_get_time()); // no-op outside APP mode
+                    app_mode_motion(delta * KNOB_DIRECTION, esp_timer_get_time()); // no-op outside APP mode
                     // Unwrapped knob travel for the display's 3D shape, in 1e-4 rad: an integer
                     // total plus a float remainder, so it never loses precision over many turns.
                     static int32_t s_knob_total = 0;
                     static float s_knob_frac = 0.0f;
-                    s_knob_frac += delta * 10000.0f;
+                    s_knob_frac += delta * KNOB_DIRECTION * 10000.0f;
                     int32_t whole = (int32_t)s_knob_frac;
                     s_knob_frac -= (float)whole;
                     s_knob_total += whole;
@@ -1064,19 +1069,19 @@ static void control_task_fn(void *arg) {
                         // value -- detent_index is derived from a wrap_pi'd angle, so its
                         // raw integer value jumps once per full revolution at the +-pi
                         // wrap boundary; velocity has no such discontinuity.
-                        bool positive_dir = (s_haptic_filtered_velocity >= 0.0f);
+                        int8_t dir = (s_haptic_filtered_velocity >= 0.0f ? 1 : -1) * KNOB_DIRECTION;
 
                         if (menu_is_open()) {
                             // Phase 8: this crossing drives the real menu (list navigation,
                             // or value adjustment while editing a field) instead of
                             // scrolling -- deliberately does NOT enqueue a HID wheel event
                             // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
-                            menu_input_rotate(positive_dir ? 1 : -1);
+                            menu_input_rotate(dir);
                         } else if (app_on) {
-                            app_mode_detent(positive_dir ? 1 : -1, esp_timer_get_time());
+                            app_mode_detent(dir, esp_timer_get_time());
                         } else {
                             // Phase 3: knob -> mouse scroll wheel mapping.
-                            int8_t wheel_delta = positive_dir ? (int8_t)HID_WHEEL_SIGN : (int8_t)(-HID_WHEEL_SIGN);
+                            int8_t wheel_delta = (int8_t)(dir * HID_WHEEL_SIGN);
                             hid_report_msg_t hid_msg = {
                                 .type = HID_EVENT_MOUSE_WHEEL,
                                 .wheel_delta = wheel_delta,

@@ -225,6 +225,7 @@ static void i2s_task_fn(void *arg) {
     audio_click_type_t active_click_type = AUDIO_CLICK_NORMAL;
     audio_click_timbre_t active_timbre = AUDIO_TIMBRE_WOOD_TOCK; // sampled once per click-start
                                                                   // below, not re-read mid-click
+    float active_amp = 1.0f; // the AMP setting, sampled per click like the pitch
     float active_pitch = AUDIO_CLICK_PITCH_DEFAULT; // multiplier on active_timbre's
                                                       // frequencies -- sampled alongside
                                                       // active_timbre, same reasoning
@@ -255,6 +256,7 @@ static void i2s_task_fn(void *arg) {
                 if (audio_trigger_try_consume(&type)) {
                     click_phase = 0.0f;
                     active_click_type = type;
+                    active_amp = menu_get_click_amplitude();
                     if (type == AUDIO_CLICK_BUTTON_THUMP) {
                         active_click_duration_s = THUMP_DURATION_S;
                     } else {
@@ -315,6 +317,7 @@ static void i2s_task_fn(void *arg) {
                 }
                 if (sample > CLICK_CLIP_LIMIT) sample = CLICK_CLIP_LIMIT;
                 if (sample < -CLICK_CLIP_LIMIT) sample = -CLICK_CLIP_LIMIT;
+                sample *= active_amp;
                 click_phase += dt_s;
             }
             chunk[i] = (int16_t)sample;

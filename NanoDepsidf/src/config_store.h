@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 // Phase 8 step 2: NVS-backed persistence for the three settings groups exposed by menu.c,
 // following foc_calibration.c's existing load/save pattern (one blob per namespace, sanity-
@@ -22,7 +23,10 @@ typedef struct {
                           // rejects it as wrong-size and the caller's defaults apply instead
                           // of a silent garbage read -- no explicit versioning needed, this
                           // is exactly the failure mode the exact-size check already handles.
+    int32_t amplitude;   // click amplitude, AUDIO_CLICK_AMP_* percent. Added later still: a blob
+                         // saved without it (HAPTIC_CFG_V1_SIZE) still loads, at the default.
 } haptic_cfg_t;
+#define HAPTIC_CFG_V1_SIZE offsetof(haptic_cfg_t, amplitude)
 
 typedef struct {
     int32_t hid_type;     // menu.h's menu_hid_type_t
