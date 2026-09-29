@@ -53,8 +53,9 @@ void frame_box(int x, int y, int w, int h, uint32_t c); // 1px outline, corners 
 void disc(float cx, float cy, float r, uint32_t c);
 void sprite(const Sprite &s, float x, float y, uint32_t c, int scale = 1);
 // Full-color w x h image, RGB565 big-endian (the HID icon upload format), drawn 1:1; black
-// pixels are left alone.
-void image565(int x, int y, int w, int h, const uint8_t *be);
+// pixels are left alone. `brightness` < 1 dims it (still pixel-exact): full-colour icons
+// can't take the palette's GREY the way 1-bit sprites do, so "inactive" is a dimmed copy.
+void image565(int x, int y, int w, int h, const uint8_t *be, float brightness = 1.0f);
 
 // Silkscreen, drawn pixel by pixel. `scale` 1 = the 10px font (small text, caps 7px); 2, 3, 4
 // = the 8px font doubled/tripled/quadrupled (caps 10/15/20px) -- whole-pixel scaling keeps it

@@ -83,7 +83,7 @@ static const char *ph_sound_name(audio_click_timbre_t s) {
 static _Atomic float s_ph_pitch = AUDIO_CLICK_PITCH_DEFAULT;
 
 // menu_hid_type_t lives in menu.h -- display_task.cpp reads it for the mode icon.
-static _Atomic menu_hid_type_t s_ph_hid_type = MENU_HID_MOUSE; // matches today's real default (mouse-wheel mapping)
+static _Atomic menu_hid_type_t s_ph_hid_type = MENU_HID_APP; // default until something is saved
 static const char *ph_hid_type_name(menu_hid_type_t t) {
     switch (t) {
         case MENU_HID_KEYBOARD: return "KEYBOARD";
@@ -186,9 +186,8 @@ static void fmt_hid_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_hid_type_name(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)));
 }
 static void rotate_hid_type(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) + dir) % MENU_HID_TYPE_COUNT;
-    if (v < 0) v += MENU_HID_TYPE_COUNT;
-    atomic_store_explicit(&s_ph_hid_type, (menu_hid_type_t)v, memory_order_relaxed);
+    int pos = menu_hid_type_pos(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)) + dir;
+    atomic_store_explicit(&s_ph_hid_type, menu_hid_type_at(pos), memory_order_relaxed);
 }
 static bool midi_mapping_enabled(void) {
     return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) == MENU_HID_MIDI;
@@ -210,10 +209,12 @@ static bool app_profile_enabled(void) {
 static void fmt_app_profile(char *buf, size_t n) {
     snprintf(buf, n, "%s", app_profiles_get(atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed))->name);
 }
+// The profile list stops at both ends instead of wrapping: with only a few apps, a
+// wrapping carousel would show the same app on both sides.
 static void rotate_app_profile(int8_t dir) {
-    int count = app_profiles_count();
-    int v = ((int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed) + dir) % count;
-    if (v < 0) v += count;
+    int v = (int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed) + dir;
+    if (v < 0) v = 0;
+    if (v >= app_profiles_count()) v = app_profiles_count() - 1;
     atomic_store_explicit(&s_ph_app_profile, v, memory_order_relaxed);
 }
 
@@ -258,10 +259,19 @@ static const menu_screen_t s_haptic_screen = {
     MENU_SCREEN_HAPTIC, "Haptic Configurator", s_haptic_items, MENU_HAPTIC_ROW_COUNT, false, action_save_haptic
 };
 
+// APP -> F1 opens a screen of its own for choosing the app profile (a carousel of app
+// icons), rather than an inline row -- it scales past a handful of apps.
+static const menu_item_t s_app_profile_items[] = {
+    { .label = "PROFILE", .kind = MENU_ITEM_VALUE, .format_value = fmt_app_profile, .on_rotate = rotate_app_profile },
+};
+static const menu_screen_t s_app_profile_screen = {
+    MENU_SCREEN_APP_PROFILE, "App Profile", s_app_profile_items, 1, true, action_save_hid
+};
+
 static const menu_item_t s_hid_items[] = {
-    { .label = "HID TYPE", .kind = MENU_ITEM_VALUE, .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
-    { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE, .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
-    { .label = "PROFILE",  .kind = MENU_ITEM_VALUE, .format_value = fmt_app_profile,  .on_rotate = rotate_app_profile,  .is_enabled = app_profile_enabled },
+    { .label = "HID TYPE", .kind = MENU_ITEM_VALUE,   .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
+    { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE,   .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
+    { .label = "PROFILE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_app_profile_screen, .format_value = fmt_app_profile, .is_enabled = app_profile_enabled },
 };
 static const menu_screen_t s_hid_screen = {
     MENU_SCREEN_HID, "HID Type", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0]), true, action_save_hid
@@ -410,6 +420,9 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
             dst->midi_channel = src->midi_channel;
             dst->app_profile = src->app_profile;
             break;
+        case MENU_SCREEN_APP_PROFILE:
+            dst->app_profile = src->app_profile;
+            break;
         case MENU_SCREEN_BOOT:
             dst->boot_mode = src->boot_mode;
             break;
@@ -426,11 +439,20 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
         case MENU_SCREEN_HID:
             return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel
                 || a->app_profile != b->app_profile;
+        case MENU_SCREEN_APP_PROFILE:
+            return a->app_profile != b->app_profile;
         case MENU_SCREEN_BOOT:
             return a->boot_mode != b->boot_mode;
         default:
             return false;
     }
+}
+
+// What F2 on a screen saves (and what its "F2 SAVE" hint tracks). The profile screen saves
+// the whole HID group -- choosing a profile there commits the APP choice with it -- while its
+// F3 only reverts the profile itself (settings_copy_group by the screen's own id).
+static menu_screen_id_t save_group(menu_screen_id_t id) {
+    return id == MENU_SCREEN_APP_PROFILE ? MENU_SCREEN_HID : id;
 }
 
 // Puts a direct screen's fields back to their saved values (leaving without F2). Core 0,
@@ -497,9 +519,10 @@ void menu_input_toggle_open(void) {
     } else {
         // Closing from a direct screen discards its unsaved choice; a Haptic edit in
         // progress is kept as-is (live, unsaved), same as confirming it.
-        const menu_screen_t *top = s_stack[s_stack_depth - 1].screen;
-        if (top->direct_edit) {
-            revert_group_locked(top->id);
+        for (int i = s_stack_depth - 1; i >= 0; i--) {
+            if (s_stack[i].screen->direct_edit) {
+                revert_group_locked(s_stack[i].screen->id);
+            }
         }
         s_stack_depth = 0;
         s_editing = false;
@@ -538,8 +561,21 @@ void menu_input_select(void) {
     const menu_item_t *it = &top->screen->items[top->selected_index];
 
     if (top->screen->direct_edit) {
-        // Direct screens: F1 just moves to the next field (HID type <-> MIDI channel).
-        top->selected_index = step_index(top->screen, top->selected_index, 1);
+        // Direct screens: F1 moves to the next field (HID type <-> MIDI channel) -- or, when
+        // that field is a submenu (APP -> PROFILE), opens it; focus stays on this screen's
+        // own field.
+        int next = step_index(top->screen, top->selected_index, 1);
+        const menu_item_t *nit = &top->screen->items[next];
+        if (nit->kind == MENU_ITEM_SUBMENU) {
+            if (s_stack_depth < MENU_MAX_DEPTH && nit->submenu != NULL) {
+                int idx = first_enabled_index(nit->submenu);
+                s_stack[s_stack_depth].screen = nit->submenu;
+                s_stack[s_stack_depth].selected_index = (idx < 0) ? 0 : idx;
+                s_stack_depth++;
+            }
+        } else {
+            top->selected_index = next;
+        }
     } else if (s_editing) {
         s_editing = false; // confirm -- the value is already live
     } else if (it->kind == MENU_ITEM_SUBMENU) {
@@ -566,9 +602,9 @@ void menu_input_save(void) {
         const menu_screen_t *screen = s_stack[s_stack_depth - 1].screen;
         settings_t cur;
         settings_capture(&cur);
-        if (screen->save != NULL && settings_group_differs(&cur, &s_saved, screen->id)) {
+        if (screen->save != NULL && settings_group_differs(&cur, &s_saved, save_group(screen->id))) {
             save = screen->save;
-            group = screen->id;
+            group = save_group(screen->id);
         }
         s_editing = false; // saving also confirms an edit in progress
     }
@@ -655,7 +691,7 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
 
         settings_t cur;
         settings_capture(&cur);
-        snap.dirty = settings_group_differs(&cur, &saved_copy, screen->id);
+        snap.dirty = settings_group_differs(&cur, &saved_copy, save_group(screen->id));
 
         int row = 0;
         for (int i = 0; i < screen->item_count && row < MENU_MAX_VISIBLE_ITEMS; i++) {

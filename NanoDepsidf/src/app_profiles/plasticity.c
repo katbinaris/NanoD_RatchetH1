@@ -24,6 +24,7 @@ const app_profile_t app_profile_plasticity = {
     .id = "plasticity",
     .name = "PLASTICITY",
     .icon24 = app_icon_plasticity_24,
+    .icon48 = app_icon_plasticity_48,
     .legend = {"ZOOM", "ORBIT", "UNDO", "PAN"},
     .slot = {
         [APP_SLOT_KNOB] = ZOOM,

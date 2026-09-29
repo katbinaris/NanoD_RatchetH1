@@ -258,8 +258,9 @@ void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
 void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
     header("HID TYPE");
     bool type_focus = (snap.selected <= 0);
+    int pos = menu_hid_type_pos(in.type); // display order: APP first (menu.h)
     for (int j = -2; j <= 2; j++) {
-        int idx = (((int)in.type + j) % MENU_HID_TYPE_COUNT + MENU_HID_TYPE_COUNT) % MENU_HID_TYPE_COUNT;
+        int idx = (int)menu_hid_type_at(pos + j);
         float x = CX + j * 72 + in.slide_px;
         if (fabsf(x - CX) > 104) continue;
         bool center = fabsf(x - CX) < 36;
@@ -272,13 +273,10 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         sprite_c(SPR_TRI_R_M, 218, 80, AMBER, 1);
     }
     text(mode_name(in.type), CX, 108, type_focus ? WHITE : GREY, 2, CENTER);
-    if (in.type == MENU_HID_APP && snap.row_count > 1) {
-        bool pf_focus = snap.selected == 1;
-        text("PROFILE", CX, 132, GREY, 1, CENTER);
-        const char *name = in.profile_name ? in.profile_name : snap.rows[1].value;
-        int w = app_badge(name, in.profile_icon, CX, 154, pf_focus ? AMBER : WHITE);
-        if (pf_focus) edit_arrows(CX, 147, w, 14, AMBER);
-        text(pf_focus ? "F1 TYPE" : "F1 PROFILE", CX, 190, GREY, 1, CENTER);
+    if (in.type == MENU_HID_APP && in.profile_name != nullptr) {
+        // The chosen profile, for reference; F1 opens the PROFILE screen to change it.
+        app_badge(in.profile_name, in.profile_icon, CX, 146, WHITE);
+        text("F1 PROFILE", CX, 190, GREY, 1, CENTER);
     } else if (in.type == MENU_HID_MIDI && snap.row_count > 1) {
         bool ch_focus = snap.selected == 1;
         text("CHANNEL", CX, 132, GREY, 1, CENTER);
@@ -289,6 +287,48 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         text("IN USE", CX, 134, GREY, 1, CENTER);
     }
     save_hint(170, snap.dirty, in.blink_on);
+}
+
+// --- App profile: carousel of app icons ---
+
+#define PROFILE_SPACING 80
+
+void draw_app_profile(const menu_render_snapshot_t &snap, const ProfileInputs &in) {
+    header("APP PROFILE");
+    for (int j = -2; j <= 2; j++) {
+        int idx = in.index + j;
+        if (idx < 0 || idx >= in.count) continue; // no wrap: the list has ends
+        float x = CX + j * PROFILE_SPACING + in.slide_px;
+        if (fabsf(x - CX) > 104) continue;
+        const ProfileItem &it = in.items[idx];
+        if (fabsf(x - CX) < PROFILE_SPACING / 2) {
+            if (it.icon48) image565((int)lroundf(x) - 24, 60, 48, 48, it.icon48);
+            else sprite_c(SPR_CUBE_M, x, 84, WHITE, 2);
+        } else {
+            if (it.icon24) image565((int)lroundf(x) - 12, 72, 24, 24, it.icon24, 0.4f);
+            else sprite_c(SPR_CUBE, x, 84, GREY, 2);
+        }
+    }
+    // Arrows only where there's somewhere to go.
+    if (in.index > 0) sprite_c(SPR_TRI_L_M, 22, 84, AMBER, 1);
+    if (in.index < in.count - 1) sprite_c(SPR_TRI_R_M, 218, 84, AMBER, 1);
+
+    const ProfileItem &cur = in.items[in.index];
+    text(cur.name, CX, 118, WHITE, fit_scale(cur.name, 170, 2), CENTER);
+    // What F1-F4 will do with this profile.
+    char line[40];
+    snprintf(line, sizeof(line), "F1 %s  F2 %s", cur.legend[0], cur.legend[1]);
+    text(line, CX, 140, GREY, 1, CENTER);
+    snprintf(line, sizeof(line), "F3 %s  F4 %s", cur.legend[2], cur.legend[3]);
+    text(line, CX, 154, GREY, 1, CENTER);
+
+    if (snap.dirty) save_hint(174, true, in.blink_on);
+    else text("IN USE", CX, 174, GREY, 1, CENTER);
+    // Position in the list: one dot per profile, the chosen one amber.
+    int dots_w = in.count * 8 - 4;
+    for (int i = 0; i < in.count; i++) {
+        rect(CX - dots_w / 2.0f + i * 8, 194, 4, 4, i == in.index ? AMBER : DARK);
+    }
 }
 
 // --- Boot mode: two cards ---

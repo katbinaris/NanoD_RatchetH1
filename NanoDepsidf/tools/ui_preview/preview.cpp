@@ -126,16 +126,24 @@ int main() {
     hid.row_count = 1;
     ui::draw_hid(hid, {MENU_HID_KEYBOARD, 0, true});
     keep("hid keyboard");
-    hid.rows[0] = row("HID TYPE", "", "APP", false);
-    hid.rows[1] = row("PROFILE", "", "FIGMA", true);
-    hid.row_count = 2;
-    hid.selected = 1;
-    hid.dirty = true;
+    hid.rows[0] = row("HID TYPE", "", "APP", true);
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
-    keep("hid APP profile");
-    hid.row_count = 1;
-    hid.selected = 0;
-    hid.dirty = false;
+    keep("hid APP");
+
+    static const ui::ProfileItem profiles[2] = {
+        {"PLASTICITY", app_icon_plasticity_24, app_icon_plasticity_48, {"ZOOM", "ORBIT", "UNDO", "PAN"}},
+        {"FIGMA", app_icon_figma_24, app_icon_figma_48, {"UNDO", "LAYER", "FOCUS", "NUDGE"}},
+    };
+    menu_render_snapshot_t prof = {};
+    prof.open = true;
+    prof.screen = MENU_SCREEN_APP_PROFILE;
+    prof.rows[0] = row("PROFILE", "", "FIGMA", true);
+    prof.row_count = 1;
+    ui::draw_app_profile(prof, {profiles, 2, 0, 0, true});
+    keep("profile PLASTICITY, saved");
+    prof.dirty = true;
+    ui::draw_app_profile(prof, {profiles, 2, 1, 0, true});
+    keep("profile FIGMA, unsaved");
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("HID TYPE", "", "MIDI", false);

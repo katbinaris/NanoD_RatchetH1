@@ -71,6 +71,7 @@ typedef struct {
     const char *id;            // stable id, stored in NVS ("figma")
     const char *name;          // shown in the status bar and the PROFILE row ("FIGMA")
     const uint8_t *icon24;     // 24x24 RGB565 BE status-bar icon (app_icons.h), or NULL
+    const uint8_t *icon48;     // 48x48 RGB565 BE icon for the PROFILE screen, or NULL
     const char *legend[4];     // under the F1-F4 keycaps, <= 5 chars
     app_action_t slot[APP_SLOT_COUNT];
 } app_profile_t;

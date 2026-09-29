@@ -35,6 +35,7 @@ typedef enum {
     MENU_SCREEN_HAPTIC,
     MENU_SCREEN_HID,
     MENU_SCREEN_BOOT,
+    MENU_SCREEN_APP_PROFILE, // HID TYPE = APP -> F1: choose the app profile
 } menu_screen_id_t;
 
 // Row indices of the Haptic screen -- display_task.cpp keys its per-setting icons and the
@@ -49,9 +50,27 @@ enum {
     MENU_HAPTIC_ROW_COUNT,
 };
 
-// APP: an application profile (for now one hardcoded Plasticity profile, control_task.c) --
-// F1-F4 become app controls (zoom/orbit/pivot/pan) and long-press F4 opens the menu.
+// APP: an application profile (src/app_profiles/) -- F1-F4 become app controls and
+// long-press F4 opens the menu. The enum values are what NVS stores, so never reorder them;
+// the order people see (APP first) is MENU_HID_ORDER below.
 typedef enum { MENU_HID_KEYBOARD = 0, MENU_HID_MOUSE, MENU_HID_MIDI, MENU_HID_APP, MENU_HID_TYPE_COUNT } menu_hid_type_t;
+
+// Display / rotation order of the HID types. Header-inline so the screens (and the host UI
+// preview, which doesn't link menu.c) can use it.
+static const menu_hid_type_t MENU_HID_ORDER[MENU_HID_TYPE_COUNT] = {
+    MENU_HID_APP, MENU_HID_KEYBOARD, MENU_HID_MOUSE, MENU_HID_MIDI,
+};
+static inline int menu_hid_type_pos(menu_hid_type_t t) {
+    for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) {
+        if (MENU_HID_ORDER[i] == t) return i;
+    }
+    return 0;
+}
+static inline menu_hid_type_t menu_hid_type_at(int pos) {
+    pos %= MENU_HID_TYPE_COUNT;
+    if (pos < 0) pos += MENU_HID_TYPE_COUNT;
+    return MENU_HID_ORDER[pos];
+}
 
 // One rendered row. `caption` is the small engineering name shown under the friendly label
 // (e.g. label "SNAP", caption "KP"); "" where there is none. `value` is "" for a submenu item

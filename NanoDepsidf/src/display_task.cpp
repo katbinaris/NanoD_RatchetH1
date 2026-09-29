@@ -107,7 +107,7 @@ static bool frame_init(void) {
 
 // --- view state ---
 
-enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_ATTRACT };
+enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_ATTRACT };
 
 static View view_for(const menu_render_snapshot_t &s) {
     switch (s.screen) {
@@ -115,11 +115,14 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_HAPTIC: return V_HAPTIC;
         case MENU_SCREEN_HID: return V_HID;
         case MENU_SCREEN_BOOT: return V_BOOTMODE;
+        case MENU_SCREEN_APP_PROFILE: return V_APP_PROFILE;
         default: return V_MAIN;
     }
 }
 
-static inline bool is_settings_view(View v) { return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE; }
+static inline bool is_settings_view(View v) {
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE;
+}
 
 static View s_view = V_BOOT;
 static int64_t s_boot_start_us = 0;
@@ -148,9 +151,15 @@ static haptic_type_t s_last_feel = HAPTIC_TYPE_SAW;
 static int s_morph_from = -1;
 static int64_t s_morph_start_us = -(1LL << 40);
 
-static menu_hid_type_t s_last_hid = MENU_HID_MOUSE;
+static menu_hid_type_t s_last_hid = MENU_HID_APP;
 static int s_slide_dir = 0;
 static int64_t s_slide_start_us = -(1LL << 40);
+
+// PROFILE screen carousel slide (same timing as the HID one).
+#define PROFILE_SLIDE_PX 80
+static int32_t s_last_profile = 0;
+static int s_profile_slide_dir = 0;
+static int64_t s_profile_slide_start_us = -(1LL << 40);
 
 // Top-level list scroll -- same model as before: one animated scroll value that centers the
 // selected row, jumping (not sliding) whenever the list is (re)entered.
@@ -254,6 +263,24 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             ui::draw_hid(snap, in);
             break;
         }
+        case V_APP_PROFILE: {
+            // The registry's profiles as the screen sees them (built once; they're const).
+            static ui::ProfileItem items[8];
+            static int count = 0;
+            if (count == 0) {
+                count = app_profiles_count() < 8 ? app_profiles_count() : 8;
+                for (int i = 0; i < count; i++) {
+                    const app_profile_t *p = app_profiles_get(i);
+                    items[i] = {p->name, p->icon24, p->icon48, {p->legend[0], p->legend[1], p->legend[2], p->legend[3]}};
+                }
+            }
+            int index = menu_get_app_profile();
+            if (index >= count) index = count - 1;
+            float k = ease_out3((now - s_profile_slide_start_us) / (HID_SLIDE_MS * 1000.0f));
+            ui::ProfileInputs in = {items, count, index, (1 - k) * s_profile_slide_dir * PROFILE_SLIDE_PX, blink_on};
+            ui::draw_app_profile(snap, in);
+            break;
+        }
         case V_BOOTMODE:
             ui::draw_boot_mode(snap, menu_get_boot_mode(), ui_state_get_usb_serial_active(), blink_on);
             break;
@@ -284,6 +311,7 @@ static Pace update_ui(void) {
         s_last_save_count = snap.save_count;
         s_last_feel = feel;
         s_last_hid = hid;
+        s_last_profile = menu_get_app_profile();
         s_last_buttons = buttons;
         s_last_detent = detent;
         s_last_activity_us = now;
@@ -321,9 +349,16 @@ static Pace update_ui(void) {
         s_last_feel = feel;
     }
     if (hid != s_last_hid) {
-        s_slide_dir = (((int)hid - (int)s_last_hid + MENU_HID_TYPE_COUNT) % MENU_HID_TYPE_COUNT == 1) ? 1 : -1;
+        int step = (menu_hid_type_pos(hid) - menu_hid_type_pos(s_last_hid) + MENU_HID_TYPE_COUNT) % MENU_HID_TYPE_COUNT;
+        s_slide_dir = (step == 1) ? 1 : -1; // by display order (APP first)
         s_slide_start_us = now;
         s_last_hid = hid;
+    }
+    int32_t profile = menu_get_app_profile();
+    if (profile != s_last_profile) {
+        s_profile_slide_dir = profile > s_last_profile ? 1 : -1;
+        s_profile_slide_start_us = now;
+        s_last_profile = profile;
     }
     if (snap.screen == MENU_SCREEN_ROOT && (snapshot_changed || first || s_list_prev_screen != MENU_SCREEN_ROOT)) {
         list_retarget(snap, now);
@@ -378,7 +413,8 @@ static Pace update_ui(void) {
     bool fast = s_iris_active
              || (s_view == V_ROOT && s_list_anim)
              || (s_view == V_HAPTIC && now - s_morph_start_us < FEEL_MORPH_MS * 1000LL)
-             || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL);
+             || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL)
+             || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT
                 || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
     bool blink_on = ((now / 1000) % 900) < 600;

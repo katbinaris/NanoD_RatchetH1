@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #define APP_ICON_24_BYTES (24 * 24 * 2)
+#define APP_ICON_48_BYTES (48 * 48 * 2)
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +14,8 @@ extern "C" {
 
 extern const uint8_t app_icon_figma_24[APP_ICON_24_BYTES];
 extern const uint8_t app_icon_plasticity_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_figma_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_plasticity_48[APP_ICON_48_BYTES];
 
 #ifdef __cplusplus
 }

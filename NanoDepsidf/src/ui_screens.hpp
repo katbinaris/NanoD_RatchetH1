@@ -55,6 +55,23 @@ struct HidInputs {
 };
 void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in);
 
+// APP -> F1: choose the app profile. A non-wrapping carousel: the chosen app's 48px icon in
+// the middle, its neighbours' 24px icons dimmed at the sides, the name, and a preview of what
+// F1-F4 will do.
+struct ProfileItem {
+    const char *name;
+    const uint8_t *icon24, *icon48; // RGB565 BE, either may be nullptr
+    const char *legend[4];
+};
+struct ProfileInputs {
+    const ProfileItem *items;
+    int count;
+    int index;         // the chosen profile
+    float slide_px;    // carousel offset while sliding to `index`, 0 at rest
+    bool blink_on;
+};
+void draw_app_profile(const menu_render_snapshot_t &snap, const ProfileInputs &in);
+
 void draw_boot_mode(const menu_render_snapshot_t &snap, boot_usb_mode_t selected, bool serial_in_use, bool blink_on);
 
 void draw_saved_toast();

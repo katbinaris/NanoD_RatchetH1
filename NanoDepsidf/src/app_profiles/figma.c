@@ -18,6 +18,7 @@ const app_profile_t app_profile_figma = {
     .id = "figma",
     .name = "FIGMA",
     .icon24 = app_icon_figma_24,
+    .icon48 = app_icon_figma_48,
     .legend = {"UNDO", "LAYER", "FOCUS", "NUDGE"},
     .slot = {
         // Wheel up with Cmd = zoom in. Flip `sign` if the knob zooms the wrong way.
