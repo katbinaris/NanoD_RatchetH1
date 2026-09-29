@@ -842,11 +842,20 @@ static void control_task_fn(void *arg) {
                 uint32_t num_detents = menu_get_haptic_num_detents();
                 float kp = menu_get_haptic_kp();
                 float kd = menu_get_haptic_kd();
-                // APP mode (menu closed) runs smooth throughout -- zoom, orbit and pan alike
-                // (by request after the first test); wheel steps still come from the detent
-                // crossings below, only the feel changes.
-                bool app_feel = app_mode_dragging() || (menu_get_hid_type() == MENU_HID_APP && !menu_is_open());
-                haptic_type_t haptic_type = app_feel ? HAPTIC_TYPE_VISCOSE : menu_get_haptic_type();
+                haptic_type_t haptic_type = menu_get_haptic_type();
+                // APP mode (menu closed): the live profile slot sets the feel and the detent
+                // count (app_profiles/ -- e.g. Plasticity drags smooth, Figma steps with
+                // detents, 36 per turn for 1px nudges). The detent crossings below then drive
+                // app_mode_detent() instead of the scroll wheel.
+                bool app_on = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
+                if (app_on) app_mode_haptics(&haptic_type, &num_detents);
+                // A detent-count change (a key picking a different slot) re-bases the detent
+                // grid: without this the index would jump and fire a spurious step.
+                static uint32_t s_last_num_detents = 0;
+                if (num_detents != s_last_num_detents) {
+                    s_haptic_prev_detent_index_valid = false;
+                    s_last_num_detents = num_detents;
+                }
 
                 // Nearest-grid-point selection: which of the N evenly-spaced detents is
                 // nearest, and the (hysteresis-stabilized) error/rel/velocity relative to it.
@@ -880,7 +889,7 @@ static void control_task_fn(void *arg) {
                 if (s_prev_mech_rad_valid) {
                     float delta = wrap_pi(mech_rad - s_prev_mech_rad);
                     velocity = delta / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
-                    app_mode_motion(delta, esp_timer_get_time()); // no-op unless an APP drag is held
+                    app_mode_motion(delta, esp_timer_get_time()); // no-op outside APP mode
                 }
                 s_prev_mech_rad = mech_rad;
                 s_prev_mech_rad_valid = true;
@@ -1027,9 +1036,10 @@ static void control_task_fn(void *arg) {
                             // scrolling -- deliberately does NOT enqueue a HID wheel event
                             // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
                             menu_input_rotate(positive_dir ? 1 : -1);
-                        } else if (!app_feel) {
-                            // Phase 3: knob -> mouse scroll wheel mapping. Not in APP mode:
-                            // there the knob drives app_mode.c's drags (zoom included).
+                        } else if (app_on) {
+                            app_mode_detent(positive_dir ? 1 : -1, esp_timer_get_time());
+                        } else {
+                            // Phase 3: knob -> mouse scroll wheel mapping.
                             int8_t wheel_delta = positive_dir ? (int8_t)HID_WHEEL_SIGN : (int8_t)(-HID_WHEEL_SIGN);
                             hid_report_msg_t hid_msg = {
                                 .type = HID_EVENT_MOUSE_WHEEL,

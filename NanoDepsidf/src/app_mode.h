@@ -2,25 +2,28 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "haptic_params.h"
+#include "app_profiles/app_profile.h"
 
-// APP mode (HID type "APP"): F1-F4 become application controls instead of menu keys, for
-// one hardcoded profile -- Plasticity for this first test (DEVELOPMENT_PLAN.md "APP mode").
+// APP mode (HID type "APP"): the knob and F1-F4 drive an application, as described by the
+// active app profile (src/app_profiles/, chosen in the menu's PROFILE row). This file is the
+// engine; it knows nothing about any particular app.
 //
-//   knob alone / F1 held + turn  zoom   (Ctrl + middle-button drag, vertical: continuous)
-//   F2 held + turn               orbit  (orbit mouse button held + horizontal mouse move)
-//   F3 press                     undo   (Cmd+Z -- one keyboard shortcut, see app_mode.c)
-//   F4 held + turn               pan    (pan mouse button held + horizontal mouse move)
-//   F4 held ~0.7s, knob still    opens the menu (F3/F1/F4 work as usual inside it)
-//
-// A drag's mouse button only goes down once the knob actually moves, so holding F4 without
-// turning never sends anything -- that's what lets the long press mean "menu". Turning with
-// no key held starts a zoom drag by itself, which lets go once the knob rests (250ms).
+// Slots (app_profile.h): turning with no key held = the KNOB slot; holding F1/F2/F4 and
+// turning = that key's slot; a TAP slot fires on press. Holding F4 ~0.7s without turning
+// opens the menu in every profile. Output only starts once the knob actually moves, so a
+// held key that never turns sends nothing -- that's what lets the long press mean "menu".
+// The knob-alone slot starts by itself on the first movement and lets go once the knob
+// rests (250ms).
 //
 // State, not events: the control task (Core 0) only records what the host *should* see --
-// held mouse buttons, pending pointer travel, pivot requests -- and usb_task.c keeps sending
-// until the host matches. A report lost to a busy endpoint therefore can't leave a button
-// or modifier stuck down (the first hardware test did exactly that with queued edge events).
-// Buttons are debounced here (raw GPIO bounce fired several F3 actions per press).
+// held mouse buttons + modifier, pending pointer travel and wheel steps, queued key taps --
+// and usb_task.c keeps sending until the host matches. A report lost to a busy endpoint
+// therefore can't leave a button or modifier stuck down (the first hardware test did exactly
+// that with queued edge events). Buttons are debounced here (raw GPIO bounce fired several
+// actions per press).
+
+// --- control task side (Core 0) ---
 
 // Every control tick. `active` = APP mode selected and the menu closed; when false this just
 // lets go of anything held and tracks the buttons, so no stale press fires on return.
@@ -30,14 +33,24 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow);
 // Every control tick with the knob's shaft-angle change since the last tick (radians).
 void app_mode_motion(float delta_rad, int64_t now_us);
 
-// True while a drag (zoom/orbit/pan) is in progress. (APP mode sends no wheel steps, and
-// runs the smooth VISCOSE feel throughout -- control_task.c.)
-bool app_mode_dragging(void);
+// Every detent crossing while APP mode is active, +1 / -1.
+void app_mode_detent(int8_t dir, int64_t now_us);
+
+// The live slot's feel: overrides *type / *detents (leaves them if the slot has no action).
+void app_mode_haptics(haptic_type_t *type, uint32_t *detents);
+
+// --- display side ---
+
+// The slot whose action is live right now (APP_SLOT_KNOB when no key is held).
+int app_mode_live_slot(void);
 
 // --- USB task side ---
+
 // What the host should see held: MOUSE_BUTTON_* mask, KEYBOARD_MODIFIER_* mask, and
-// whether pointer travel goes on the y axis (zoom) instead of x (orbit/pan).
+// whether pointer travel goes on the y axis instead of x.
 void app_mode_wanted(uint8_t *buttons, uint8_t *modifier, bool *axis_y);
-int32_t app_mode_take_move_px(void);    // pointer travel accumulated since the last call
+int32_t app_mode_take_move_px(void);      // pointer travel accumulated since the last call
 void app_mode_return_move_px(int32_t px); // give back what didn't fit in one report
-bool app_mode_take_shortcut(uint8_t *modifier, uint8_t *keycode); // true once per F3 press
+int32_t app_mode_take_wheel_steps(void);  // wheel steps accumulated since the last call
+void app_mode_return_wheel_steps(int32_t steps);
+bool app_mode_take_tap(app_key_t *key);   // next queued key tap, if any

@@ -1,79 +1,74 @@
 #include "app_mode.h"
-#include "ipc.h"
+#include "app_profiles/app_profiles.h"
 #include "menu.h"
 #include "ui_state.h"
-#include "class/hid/hid.h"
 #include <math.h>
 #include <stdatomic.h>
 
-// --- Plasticity profile (hardcoded for this test) ---
-// Plasticity's default viewport navigation (doc.plasticity.xyz, "Operating the 3D
-// viewport"): middle-drag orbits, right-drag pans, Ctrl + middle-drag zooms continuously.
-// Zoom was the wheel at first -- one step per detent, a visible jump each time; the
-// continuous drag follows the knob pixel by pixel instead. (macOS doesn't honor HID
-// high-resolution wheel reports, so a finer wheel wasn't an option.)
-// F3 was Alt + middle-click ("center the view on the cursor") -- dropped after the first
-// test: it re-centers the view rather than setting an orbit pivot in place. It's now Undo,
-// Cmd+Z for macOS (HID Left GUI = Cmd; use KEYBOARD_MODIFIER_LEFTCTRL on Windows).
-#define APP_ORBIT_BUTTON MOUSE_BUTTON_MIDDLE
-#define APP_PAN_BUTTON MOUSE_BUTTON_RIGHT
-#define APP_ZOOM_BUTTON MOUSE_BUTTON_MIDDLE
-#define APP_ZOOM_MODIFIER KEYBOARD_MODIFIER_LEFTCTRL
-#define APP_F3_MODIFIER KEYBOARD_MODIFIER_LEFTGUI
-#define APP_F3_KEYCODE HID_KEY_Z
+#define APP_DRAG_START_PX 3.0f       // movement before a drag engages (ignores a wobble while
+                                     // long-pressing F4 for the menu)
+#define APP_MOTION_EPS_RAD 0.004f    // travel that counts as "the knob moved" (above sensor noise)
+#define APP_IDLE_RELEASE_US 250000   // knob-alone slot: let go once the knob rests this long
+#define APP_MENU_HOLD_US 700000      // long-press F4 -> menu
+#define APP_DEBOUNCE_US 15000        // a button change counts once it has been stable this long
+#define APP_TAP_RING 16              // queued key taps (a full ring drops taps, never releases)
 
-#define APP_DRAG_PX_PER_RAD 120.0f  // ~750px of pointer travel per knob turn -- tune on hardware
-#define APP_DRAG_SIGN 1             // flip if orbit/pan runs the wrong way for the knob direction
-#define APP_ZOOM_SIGN (-1)          // zoom drags vertically; flip if zoom in/out is reversed
-#define APP_DRAG_START_PX 3.0f      // movement before the drag button goes down (ignores a
-                                    // wobble while long-pressing F4 for the menu)
-#define APP_AUTO_ZOOM_IDLE_US 250000 // knob-alone zoom: let go once the knob rests this long
-#define APP_MENU_HOLD_US 700000     // long-press F4 -> menu
-#define APP_DEBOUNCE_US 15000       // a button change counts once it has been stable this long
-
-// DRAG_ZOOM_AUTO: zoom with no key held -- started by the knob itself, ended by it resting.
-typedef enum { DRAG_NONE, DRAG_ORBIT, DRAG_PAN, DRAG_ZOOM, DRAG_ZOOM_AUTO } drag_t;
+static const uint8_t SLOT_KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
 
 // Control-task-only state.
+static const app_profile_t *s_profile = NULL;
 static bool s_active = false;
 static uint8_t s_raw_held = 0, s_stable_held = 0, s_prev_held = 0;
 static int64_t s_raw_since_us = 0;
-static drag_t s_drag = DRAG_NONE;
-static uint8_t s_drag_key = 0;      // UI_BTN_* that owns the drag (0 for the auto zoom)
-static bool s_engaged = false;      // drag's buttons/modifier requested
-static float s_accum_px = 0.0f;     // travel not yet published (fraction, or before engaging)
-static int64_t s_drag_start_us = 0;
+static int s_slot = -1;             // live slot, -1 = none
+static uint8_t s_slot_key = 0;      // UI_BTN_* that owns it (0 = knob alone)
+static bool s_engaged = false;      // the slot has sent something (button/modifier down, a step)
+static float s_accum_px = 0.0f;     // drag travel not yet published
+static float s_motion_accum = 0.0f; // travel since the last "moved" mark
+static int64_t s_slot_start_us = 0;
 static int64_t s_last_motion_us = 0;
 
 // Shared with the USB task. The held state is one packed word so buttons, modifier and axis
 // always change together: bits 0-7 mouse buttons, 8-15 keyboard modifier, bit 16 = y axis.
 static _Atomic uint32_t s_want = 0;
 static _Atomic int32_t s_move_px = 0;
-static _Atomic uint32_t s_shortcut_requests = 0;
+static _Atomic int32_t s_wheel_steps = 0;
+static app_key_t s_taps[APP_TAP_RING];
+static _Atomic uint32_t s_tap_head = 0, s_tap_tail = 0; // single producer (Core 0), single consumer (USB)
+// Shared with the display task.
+static _Atomic int s_live_slot = APP_SLOT_KNOB;
 
 #define WANT(buttons, modifier, axis_y) ((uint32_t)(buttons) | ((uint32_t)(modifier) << 8) | ((axis_y) ? 1u << 16 : 0u))
 
-static void end_drag(void) {
+static const app_action_t *action(int slot) {
+    return &s_profile->slot[slot];
+}
+
+static void push_tap(app_key_t key) {
+    uint32_t head = atomic_load(&s_tap_head);
+    if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
+    s_taps[head % APP_TAP_RING] = key;
+    atomic_store(&s_tap_head, head + 1);
+}
+
+static void end_slot(void) {
     atomic_store(&s_want, 0);
     atomic_store(&s_move_px, 0);
-    s_drag = DRAG_NONE;
-    s_drag_key = 0;
+    atomic_store(&s_wheel_steps, 0);
+    s_slot = -1;
+    s_slot_key = 0;
     s_engaged = false;
     s_accum_px = 0.0f;
 }
 
-static void begin_drag(drag_t d, uint8_t key, int64_t now_us) {
-    if (s_drag != DRAG_NONE) end_drag();
-    s_drag = d;
-    s_drag_key = key;
+static void begin_slot(int slot, int64_t now_us) {
+    if (s_slot >= 0) end_slot();
+    s_slot = slot;
+    s_slot_key = SLOT_KEY[slot];
     s_engaged = false;
     s_accum_px = 0.0f;
-    s_drag_start_us = now_us;
+    s_slot_start_us = now_us;
     s_last_motion_us = now_us;
-}
-
-static bool is_zoom(drag_t d) {
-    return d == DRAG_ZOOM || d == DRAG_ZOOM_AUTO;
 }
 
 void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
@@ -87,61 +82,111 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
     held = s_stable_held;
     uint8_t pressed = held & ~s_prev_held;
     s_prev_held = held;
+
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    if (p != s_profile) {
+        end_slot();
+        s_profile = p;
+    }
     s_active = active && !swallow;
     if (!active) {
-        if (s_drag != DRAG_NONE || atomic_load(&s_want)) end_drag();
+        if (s_slot >= 0 || atomic_load(&s_want)) end_slot();
+        atomic_store(&s_live_slot, APP_SLOT_KNOB);
         return;
     }
     if (swallow) pressed = 0;
 
-    if (pressed & UI_BTN_F3) {
-        atomic_fetch_add(&s_shortcut_requests, 1);
-    }
-    // A key press takes over from the knob-alone zoom.
-    if (s_drag == DRAG_NONE || s_drag == DRAG_ZOOM_AUTO) {
-        if (pressed & UI_BTN_F1) {
-            begin_drag(DRAG_ZOOM, UI_BTN_F1, now_us);
-        } else if (pressed & UI_BTN_F2) {
-            begin_drag(DRAG_ORBIT, UI_BTN_F2, now_us);
-        } else if (pressed & UI_BTN_F4) {
-            begin_drag(DRAG_PAN, UI_BTN_F4, now_us);
+    for (int slot = APP_SLOT_F1; slot < APP_SLOT_COUNT; slot++) {
+        if (!(pressed & SLOT_KEY[slot])) continue;
+        const app_action_t *a = action(slot);
+        if (a->kind == APP_ACT_TAP && slot != APP_SLOT_F4) {
+            push_tap(a->cw);
+        } else if (s_slot < 0 || s_slot_key == 0) {
+            // A key takes over from the knob-alone slot. F4 always starts a slot (even with
+            // no action) so its long press can open the menu.
+            if (a->kind != APP_ACT_NONE || slot == APP_SLOT_F4) begin_slot(slot, now_us);
         }
     }
-    if (s_drag_key != 0 && !(held & s_drag_key)) {
-        end_drag();
+    if (s_slot_key != 0 && !(held & s_slot_key)) {
+        end_slot();
     }
-    if (s_drag == DRAG_ZOOM_AUTO && now_us - s_last_motion_us >= APP_AUTO_ZOOM_IDLE_US) {
-        end_drag();
+    if (s_slot == APP_SLOT_KNOB && now_us - s_last_motion_us >= APP_IDLE_RELEASE_US) {
+        end_slot();
     }
-    // F4 held with the knob still -> it was a long press for the menu, not a pan.
-    if (s_drag == DRAG_PAN && !s_engaged && now_us - s_drag_start_us >= APP_MENU_HOLD_US) {
-        end_drag();
+    // F4 held with the knob still -> it was a long press for the menu.
+    if (s_slot == APP_SLOT_F4 && !s_engaged && now_us - s_slot_start_us >= APP_MENU_HOLD_US) {
+        end_slot();
         menu_input_toggle_open();
     }
+    atomic_store(&s_live_slot, s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
+}
+
+// The knob moved: make sure a slot is live (the knob-alone slot starts itself).
+static bool knob_slot_ready(int64_t now_us) {
+    if (!s_active || s_profile == NULL) return false;
+    if (s_slot < 0) {
+        if (s_stable_held != 0) return false; // a key is down but owns no turn action
+        if (action(APP_SLOT_KNOB)->kind == APP_ACT_NONE) return false;
+        begin_slot(APP_SLOT_KNOB, now_us);
+    }
+    return true;
 }
 
 void app_mode_motion(float delta_rad, int64_t now_us) {
-    if (!s_active) return;
-    if (s_drag == DRAG_NONE) {
-        if (s_stable_held != 0) return; // a key is down but not a drag key (F3)
-        begin_drag(DRAG_ZOOM_AUTO, 0, now_us);
-    }
-    bool zoom = is_zoom(s_drag);
-    s_accum_px += delta_rad * APP_DRAG_PX_PER_RAD * (zoom ? APP_ZOOM_SIGN : APP_DRAG_SIGN);
-    if (delta_rad != 0.0f) s_last_motion_us = now_us;
+    if (!s_active || s_profile == NULL) return;
+    s_motion_accum += delta_rad;
+    bool moved = fabsf(s_motion_accum) >= APP_MOTION_EPS_RAD;
+    if (moved) s_motion_accum = 0.0f;
+    if (s_slot < 0 && !moved) return; // sensor noise never starts the knob-alone slot
+    if (!knob_slot_ready(now_us)) return;
+    if (moved) s_last_motion_us = now_us;
+
+    const app_action_t *a = action(s_slot);
+    if (a->kind != APP_ACT_DRAG) return; // steps come from app_mode_detent()
+    s_accum_px += delta_rad * a->px_per_rad * a->sign;
     if (!s_engaged) {
         if (fabsf(s_accum_px) < APP_DRAG_START_PX) return;
         s_engaged = true;
-        uint32_t want = zoom ? WANT(APP_ZOOM_BUTTON, APP_ZOOM_MODIFIER, true)
-                      : s_drag == DRAG_ORBIT ? WANT(APP_ORBIT_BUTTON, 0, false)
-                      : WANT(APP_PAN_BUTTON, 0, false);
-        atomic_store(&s_want, want);
+        atomic_store(&s_want, WANT(a->buttons, a->modifier, a->axis_y));
     }
     float px = truncf(s_accum_px);
     if (px != 0.0f) {
         s_accum_px -= px;
         atomic_fetch_add(&s_move_px, (int32_t)px);
     }
+}
+
+void app_mode_detent(int8_t dir, int64_t now_us) {
+    if (!knob_slot_ready(now_us)) return;
+    s_last_motion_us = now_us;
+    const app_action_t *a = action(s_slot);
+    switch (a->kind) {
+        case APP_ACT_WHEEL:
+            if (!s_engaged) {
+                s_engaged = true;
+                atomic_store(&s_want, WANT(0, a->modifier, false));
+            }
+            atomic_fetch_add(&s_wheel_steps, dir * a->sign);
+            break;
+        case APP_ACT_KEYS:
+            s_engaged = true;
+            push_tap(dir > 0 ? a->cw : a->ccw);
+            break;
+        default:
+            break; // drags follow app_mode_motion(); taps fire on press
+    }
+}
+
+void app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
+    if (s_profile == NULL) return;
+    const app_action_t *a = action(s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
+    if (a->kind == APP_ACT_NONE || a->kind == APP_ACT_TAP) return;
+    *type = a->feel;
+    if (a->detents) *detents = a->detents;
+}
+
+int app_mode_live_slot(void) {
+    return atomic_load(&s_live_slot);
 }
 
 void app_mode_wanted(uint8_t *buttons, uint8_t *modifier, bool *axis_y) {
@@ -159,18 +204,18 @@ void app_mode_return_move_px(int32_t px) {
     atomic_fetch_add(&s_move_px, px);
 }
 
-bool app_mode_take_shortcut(uint8_t *modifier, uint8_t *keycode) {
-    uint32_t n = atomic_load(&s_shortcut_requests);
-    while (n > 0) {
-        if (atomic_compare_exchange_weak(&s_shortcut_requests, &n, n - 1)) {
-            *modifier = APP_F3_MODIFIER;
-            *keycode = APP_F3_KEYCODE;
-            return true;
-        }
-    }
-    return false;
+int32_t app_mode_take_wheel_steps(void) {
+    return atomic_exchange(&s_wheel_steps, 0);
 }
 
-bool app_mode_dragging(void) {
-    return s_drag != DRAG_NONE;
+void app_mode_return_wheel_steps(int32_t steps) {
+    atomic_fetch_add(&s_wheel_steps, steps);
+}
+
+bool app_mode_take_tap(app_key_t *key) {
+    uint32_t tail = atomic_load(&s_tap_tail);
+    if (tail == atomic_load(&s_tap_head)) return false;
+    *key = s_taps[tail % APP_TAP_RING];
+    atomic_store(&s_tap_tail, tail + 1);
+    return true;
 }

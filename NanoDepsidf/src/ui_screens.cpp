@@ -45,9 +45,6 @@ static const char *mode_name(menu_hid_type_t m) {
     }
 }
 
-// The APP profile's name (hardcoded Plasticity profile, app_mode.c).
-static const char *const APP_PROFILE_NAME = "PLASTICITY";
-
 // Sprite drawn at `scale`, centered on (cx, cy).
 static void sprite_c(const Sprite &s, float cx, float cy, uint32_t c, int scale) {
     sprite(s, lroundf(cx - s.w * scale / 2.0f), lroundf(cy - s.h * scale / 2.0f), c, scale);
@@ -79,7 +76,38 @@ static void draw_mode_and_feel(const MainInputs &in) {
     text(feel, fx + 36, 119, GREY);
 }
 
+static void draw_status_and_middle(const MainInputs &in);
+static void draw_legend(const MainInputs &in);
+
+// 24x24 app icon + name, centered on (cx, cy); returns the pair's width.
+static int app_badge(const char *name, const uint8_t *icon, float cx, float cy, uint32_t c) {
+    int tw = text_width(name), total = (icon ? 24 + 6 : 0) + tw;
+    int x0 = (int)lroundf(cx - total / 2.0f);
+    if (icon) image565(x0, (int)lroundf(cy - 12), 24, 24, icon);
+    text(name, x0 + (icon ? 30 : 0), cy - 3, c);
+    return total;
+}
+
+// APP mode's status strip and middle: the app instead of HID/tone, and what the knob does
+// right now instead of the mode icon + feel.
+static void draw_app_top(const AppView &app) {
+    app_badge(app.name, app.icon24, CX, 36, WHITE);
+    rect(56, 52, 128, 1, DARK);
+    text(app.action_via, CX, 82, GREY, 1, CENTER);
+    text(app.action, CX, 98, WHITE, fit_scale(app.action, 176, 3), CENTER);
+}
+
 void draw_main(const MainInputs &in) {
+    if (in.app != nullptr) {
+        draw_app_top(*in.app);
+    } else {
+        draw_status_and_middle(in);
+    }
+    draw_legend(in);
+}
+
+// Status strip (USB mode, click tone) + the knob's job: the non-APP main screen.
+static void draw_status_and_middle(const MainInputs &in) {
     // Status strip: USB mode, click tone -- 1.5x icons, 10px text, vertically centered on y=36.
     const char *usb = in.usb_serial ? "SERIAL" : "HID";
     const char *tone = (in.tone == AUDIO_TIMBRE_WOOD_TOCK) ? "WOOD" : "THUD";
@@ -102,13 +130,14 @@ void draw_main(const MainInputs &in) {
     } else {
         draw_mode_and_feel(in);
     }
+}
 
-    // Key legend on the arc of the glass; a key lights amber while its button is held.
-    // APP mode: the keys are the app's controls (app_mode.c); long-press F4 is the menu.
+// Key legend on the arc of the glass; a key lights amber while its button is held. APP mode:
+// the keys are the profile's controls (long-press F4 is still the menu).
+static void draw_legend(const MainInputs &in) {
     static const char *const keys[4] = {"F1", "F2", "F3", "F4"};
     static const char *const menu_acts[4] = {"SEL", "", "BACK", "MENU"}; // F2 has no job here
-    static const char *const app_acts[4] = {"ZOOM", "ORBIT", "UNDO", "PAN"};
-    const char *const *acts = in.mode == MENU_HID_APP ? app_acts : menu_acts;
+    const char *const *acts = in.app != nullptr ? in.app->legend : menu_acts;
     static const int xs[4] = {60, 100, 140, 180};
     static const int ys[4] = {146, 154, 154, 146};
     for (int i = 0; i < 4; i++) {
@@ -243,15 +272,21 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         sprite_c(SPR_TRI_R_M, 218, 80, AMBER, 1);
     }
     text(mode_name(in.type), CX, 108, type_focus ? WHITE : GREY, 2, CENTER);
-    if (in.type == MENU_HID_APP) text(APP_PROFILE_NAME, CX, 132, GREY, 1, CENTER);
-    if (in.type == MENU_HID_MIDI && snap.row_count > 1) {
+    if (in.type == MENU_HID_APP && snap.row_count > 1) {
+        bool pf_focus = snap.selected == 1;
+        text("PROFILE", CX, 132, GREY, 1, CENTER);
+        const char *name = in.profile_name ? in.profile_name : snap.rows[1].value;
+        int w = app_badge(name, in.profile_icon, CX, 154, pf_focus ? AMBER : WHITE);
+        if (pf_focus) edit_arrows(CX, 147, w, 14, AMBER);
+        text(pf_focus ? "F1 TYPE" : "F1 PROFILE", CX, 190, GREY, 1, CENTER);
+    } else if (in.type == MENU_HID_MIDI && snap.row_count > 1) {
         bool ch_focus = snap.selected == 1;
         text("CHANNEL", CX, 132, GREY, 1, CENTER);
         int w = text(snap.rows[1].value, CX, 146, ch_focus ? AMBER : WHITE, 2, CENTER);
         if (ch_focus) edit_arrows(CX, 146, w, cap_height(2), AMBER);
         text(ch_focus ? "F1 TYPE" : "F1 CHANNEL", CX, 190, GREY, 1, CENTER);
     } else if (!snap.dirty) {
-        text("IN USE", CX, in.type == MENU_HID_APP ? 148 : 134, GREY, 1, CENTER);
+        text("IN USE", CX, 134, GREY, 1, CENTER);
     }
     save_hint(170, snap.dirty, in.blink_on);
 }

@@ -13,6 +13,16 @@ extern "C" {
 
 namespace ui {
 
+// APP mode's view of the active app profile (display_task.cpp fills it from
+// app_profiles/; the screens stay free of engine types).
+struct AppView {
+    const char *name;         // "FIGMA"
+    const uint8_t *icon24;    // 24x24 RGB565 BE status-bar icon, or nullptr
+    const char *legend[4];    // under the F1-F4 keycaps
+    const char *action;       // what the knob does right now ("ZOOM", "UNDO/REDO")
+    const char *action_via;   // how: "KNOB" or "F1 + KNOB"
+};
+
 struct MainInputs {
     bool usb_serial;          // this boot's USB personality (status strip)
     audio_click_timbre_t tone;
@@ -20,6 +30,7 @@ struct MainInputs {
     haptic_type_t feel;
     uint8_t buttons_held;     // UI_BTN_* -- lit keycaps
     const uint8_t *icon;      // HID-uploaded 48x48 RGB565 (big-endian) icon, or nullptr
+    const AppView *app;       // APP mode: the active profile, or nullptr
 };
 void draw_main(const MainInputs &in);
 
@@ -39,6 +50,8 @@ struct HidInputs {
     menu_hid_type_t type;
     float slide_px;    // carousel offset while sliding to `type`, 0 at rest
     bool blink_on;
+    const char *profile_name;     // APP: the PROFILE row's profile
+    const uint8_t *profile_icon;  // its 24x24 icon, or nullptr
 };
 void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in);
 

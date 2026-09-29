@@ -123,6 +123,8 @@ boot_usb_mode_t menu_get_boot_mode(void);
 
 // Pixel UI: read by display_task.cpp for the Main Screen mode icon and the HID carousel.
 menu_hid_type_t menu_get_hid_type(void);
+// APP mode's profile: an index into app_profiles_get() (app_profiles/app_profiles.h).
+int32_t menu_get_app_profile(void);
 
 // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8): the earlier "laggy roller" fixes
 // (I2S/display priority equalization, roller anim-duration override, single-buffer/24-row

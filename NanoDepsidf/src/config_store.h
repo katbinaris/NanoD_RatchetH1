@@ -45,3 +45,9 @@ bool config_store_load_boot(boot_cfg_t *out);
 void config_store_save_haptic(const haptic_cfg_t *cfg);
 void config_store_save_hid(const hid_cfg_t *cfg);
 void config_store_save_boot(const boot_cfg_t *cfg);
+
+// APP mode's profile, stored by its id string ("figma") next to hid_cfg -- a separate key
+// rather than a new hid_cfg field, so blobs saved before profiles existed still load. The
+// id (not an index) keeps a saved choice valid when profiles are added or reordered.
+bool config_store_load_app_profile(char *id, size_t len);
+void config_store_save_app_profile(const char *id);

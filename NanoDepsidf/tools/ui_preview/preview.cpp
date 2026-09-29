@@ -9,6 +9,7 @@
 #include "ui_gfx.hpp"
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
+#include "icons/app_icons.h"
 extern "C" {
 #include "ui_state.h"
 }
@@ -76,8 +77,17 @@ int main() {
     keep("main mouse");
     ui::draw_main({true, AUDIO_TIMBRE_TICK_THUD, MENU_HID_KEYBOARD, HAPTIC_TYPE_VISCOSE, UI_BTN_F4, nullptr});
     keep("main keyboard, F4 held");
-    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F2, nullptr});
-    keep("main APP, F2 held");
+    ui::AppView figma = {"FIGMA", app_icon_figma_24, {"UNDO", "LAYER", "FOCUS", "NUDGE"}, "ZOOM", "KNOB"};
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &figma});
+    keep("main APP figma");
+    ui::AppView figma_f1 = figma;
+    figma_f1.action = "UNDO/REDO";
+    figma_f1.action_via = "F1 + KNOB";
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F1, nullptr, &figma_f1});
+    keep("main APP figma, F1 held");
+    ui::AppView plast = {"PLASTICITY", app_icon_plasticity_24, {"ZOOM", "ORBIT", "UNDO", "PAN"}, "ORBIT", "F2 + KNOB"};
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F2, nullptr, &plast});
+    keep("main APP plasticity, F2 held");
     // Uploaded icon: raw RGB565 BE written by run.sh from tools/icons/figma_pixel_48.png.
     if (FILE *f = fopen(getenv("ICON_RAW") ? getenv("ICON_RAW") : "", "rb")) {
         static uint8_t icon[48 * 48 * 2];
@@ -116,9 +126,16 @@ int main() {
     hid.row_count = 1;
     ui::draw_hid(hid, {MENU_HID_KEYBOARD, 0, true});
     keep("hid keyboard");
-    hid.rows[0] = row("HID TYPE", "", "APP", true);
-    ui::draw_hid(hid, {MENU_HID_APP, 0, true});
-    keep("hid APP");
+    hid.rows[0] = row("HID TYPE", "", "APP", false);
+    hid.rows[1] = row("PROFILE", "", "FIGMA", true);
+    hid.row_count = 2;
+    hid.selected = 1;
+    hid.dirty = true;
+    ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
+    keep("hid APP profile");
+    hid.row_count = 1;
+    hid.selected = 0;
+    hid.dirty = false;
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("HID TYPE", "", "MIDI", false);

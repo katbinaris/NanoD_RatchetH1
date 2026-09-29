@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "config_store.h"
 #include "haptic_params.h"
+#include "app_profiles/app_profiles.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_timer.h"
 #include <stdatomic.h>
@@ -94,6 +95,7 @@ static const char *ph_hid_type_name(menu_hid_type_t t) {
 }
 
 static _Atomic int32_t s_ph_midi_channel = 1; // 1-16
+static _Atomic int32_t s_ph_app_profile = 0;  // app_profiles_get() index; NVS stores the id
 
 // boot_usb_mode_t itself now lives in boot_mode.h (Phase 8 step 6) -- main.c reads it
 // directly at startup to decide which USB personality to bring up.
@@ -202,12 +204,26 @@ static void rotate_midi_mapping(int8_t dir) {
     atomic_store_explicit(&s_ph_midi_channel, v, memory_order_relaxed);
 }
 
+static bool app_profile_enabled(void) {
+    return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) == MENU_HID_APP;
+}
+static void fmt_app_profile(char *buf, size_t n) {
+    snprintf(buf, n, "%s", app_profiles_get(atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed))->name);
+}
+static void rotate_app_profile(int8_t dir) {
+    int count = app_profiles_count();
+    int v = ((int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed) + dir) % count;
+    if (v < 0) v += count;
+    atomic_store_explicit(&s_ph_app_profile, v, memory_order_relaxed);
+}
+
 static void action_save_hid(void) {
     hid_cfg_t cfg = {
         .hid_type = (int32_t)atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed),
         .midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed),
     };
     config_store_save_hid(&cfg);
+    config_store_save_app_profile(app_profiles_get(atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed))->id);
 }
 
 static void fmt_boot_mode(char *buf, size_t n) {
@@ -245,6 +261,7 @@ static const menu_screen_t s_haptic_screen = {
 static const menu_item_t s_hid_items[] = {
     { .label = "HID TYPE", .kind = MENU_ITEM_VALUE, .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
     { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE, .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
+    { .label = "PROFILE",  .kind = MENU_ITEM_VALUE, .format_value = fmt_app_profile,  .on_rotate = rotate_app_profile,  .is_enabled = app_profile_enabled },
 };
 static const menu_screen_t s_hid_screen = {
     MENU_SCREEN_HID, "HID Type", s_hid_items, sizeof(s_hid_items) / sizeof(s_hid_items[0]), true, action_save_hid
@@ -343,6 +360,7 @@ typedef struct {
     float pitch;
     menu_hid_type_t hid_type;
     int32_t midi_channel;
+    int32_t app_profile;
     boot_usb_mode_t boot_mode;
 } settings_t;
 
@@ -359,6 +377,7 @@ static void settings_capture(settings_t *s) {
     s->pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
     s->hid_type = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
     s->midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed);
+    s->app_profile = atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
     s->boot_mode = atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
 }
 
@@ -371,6 +390,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_pitch, s->pitch, memory_order_relaxed);
     atomic_store_explicit(&s_ph_hid_type, s->hid_type, memory_order_relaxed);
     atomic_store_explicit(&s_ph_midi_channel, s->midi_channel, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_app_profile, s->app_profile, memory_order_relaxed);
     atomic_store_explicit(&s_ph_boot_mode, s->boot_mode, memory_order_relaxed);
 }
 
@@ -388,6 +408,7 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
         case MENU_SCREEN_HID:
             dst->hid_type = src->hid_type;
             dst->midi_channel = src->midi_channel;
+            dst->app_profile = src->app_profile;
             break;
         case MENU_SCREEN_BOOT:
             dst->boot_mode = src->boot_mode;
@@ -403,7 +424,8 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
             return a->detents != b->detents || a->kp != b->kp || a->kd != b->kd
                 || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch;
         case MENU_SCREEN_HID:
-            return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel;
+            return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel
+                || a->app_profile != b->app_profile;
         case MENU_SCREEN_BOOT:
             return a->boot_mode != b->boot_mode;
         default:
@@ -443,6 +465,11 @@ void menu_init(void) {
     if (config_store_load_hid(&icfg)) {
         atomic_store_explicit(&s_ph_hid_type, (menu_hid_type_t)icfg.hid_type, memory_order_relaxed);
         atomic_store_explicit(&s_ph_midi_channel, icfg.midi_channel, memory_order_relaxed);
+    }
+    char app_id[16];
+    if (config_store_load_app_profile(app_id, sizeof(app_id))) {
+        int idx = app_profiles_find(app_id);
+        if (idx >= 0) atomic_store_explicit(&s_ph_app_profile, idx, memory_order_relaxed);
     }
     boot_cfg_t bcfg;
     if (config_store_load_boot(&bcfg)) {
@@ -687,6 +714,10 @@ float menu_get_haptic_pitch(void) {
 
 boot_usb_mode_t menu_get_boot_mode(void) {
     return atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
+}
+
+int32_t menu_get_app_profile(void) {
+    return atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
 }
 
 menu_hid_type_t menu_get_hid_type(void) {

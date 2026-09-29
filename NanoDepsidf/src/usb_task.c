@@ -202,23 +202,35 @@ static bool send_keys(uint8_t modifier, uint8_t keycode) {
 
 // APP mode (app_mode.h): bring the host in line with the wanted state. What the host has is
 // tracked in *sent_buttons / *sent_modifier and only updated on a report that went out, so a
-// failed send is simply retried next pass. Order matters for chords like Ctrl + middle-drag:
-// a modifier goes down before the button, and comes up after it.
+// failed send is simply retried next pass. Order matters for chords (Ctrl + middle-drag,
+// Cmd + wheel): a modifier goes down before the button or wheel, and comes up after.
 static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
-    static bool keys_dirty = false; // a key report may still be held on the host
-    uint8_t modifier, keycode;
-    if (app_mode_take_shortcut(&modifier, &keycode)) {
-        // A shortcut tap (F3): press, then back to whatever modifier a drag holds.
-        if (send_keys(*sent_modifier | modifier, keycode)) keys_dirty = true;
+    static bool keys_dirty = false; // a key tap's report may still be held on the host
+    app_key_t tap;
+    while (app_mode_take_tap(&tap)) {
+        // One tap = press with the tap's own modifier, then back to what a slot holds.
+        if (send_keys(tap.modifier, tap.keycode)) keys_dirty = true;
         if (send_keys(*sent_modifier, 0)) keys_dirty = false;
     }
     uint8_t want_buttons, want_modifier;
     bool axis_y;
     app_mode_wanted(&want_buttons, &want_modifier, &axis_y);
 
-    // Modifier added -> before the buttons.
+    // Modifier added -> before the buttons / wheel.
     if (want_modifier & ~*sent_modifier) {
         if (send_keys(want_modifier, 0)) *sent_modifier = want_modifier;
+    }
+    // Wheel steps only go out once the host has the slot's modifier (Cmd + wheel is zoom;
+    // the wheel alone would scroll).
+    int32_t wheel = app_mode_take_wheel_steps();
+    if (wheel != 0) {
+        if (*sent_modifier != want_modifier) {
+            app_mode_return_wheel_steps(wheel);
+        } else {
+            int32_t w = wheel > 127 ? 127 : wheel < -127 ? -127 : wheel;
+            if (w != wheel) app_mode_return_wheel_steps(wheel - w);
+            if (!send_mouse(*sent_buttons, 0, 0, (int8_t)w)) app_mode_return_wheel_steps(w);
+        }
     }
     int32_t move = app_mode_take_move_px();
     if (move != 0 && want_buttons == 0) move = 0; // travel only counts during a drag
@@ -235,7 +247,7 @@ static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
             app_mode_return_move_px(move);
         }
     }
-    // Modifier removed (or a shortcut's release failed) -> once the buttons are in sync.
+    // Modifier removed (or a tap's release failed) -> once the buttons are in sync.
     if ((*sent_modifier != want_modifier || keys_dirty) && *sent_buttons == want_buttons) {
         if (send_keys(want_modifier, 0)) {
             *sent_modifier = want_modifier;

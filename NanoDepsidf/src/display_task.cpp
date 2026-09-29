@@ -18,6 +18,8 @@ extern "C" {
 #include "menu.h"
 #include "ui_state.h"
 #include "icon_store.h"
+#include "app_mode.h"
+#include "app_profiles/app_profiles.h"
 }
 
 static const char *TAG = "display";
@@ -191,6 +193,22 @@ static void list_retarget(const menu_render_snapshot_t &snap, int64_t now) {
     }
 }
 
+// APP mode: the active profile as the screens see it. `slot` is the live slot; a slot with
+// no turn action (a TAP, or nothing) shows the knob's own action instead.
+static ui::AppView app_view(int slot) {
+    static const char *const VIA[APP_SLOT_COUNT] = {"KNOB", "F1 + KNOB", "F2 + KNOB", "F3 + KNOB", "F4 + KNOB"};
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    app_action_kind_t k = p->slot[slot].kind;
+    if (k == APP_ACT_NONE || k == APP_ACT_TAP) slot = APP_SLOT_KNOB;
+    ui::AppView v = {};
+    v.name = p->name;
+    v.icon24 = p->icon24;
+    for (int i = 0; i < 4; i++) v.legend[i] = p->legend[i];
+    v.action = p->slot[slot].label ? p->slot[slot].label : "";
+    v.action_via = VIA[slot];
+    return v;
+}
+
 static float ease_out3(float k) {
     if (k < 0) k = 0;
     if (k > 1) k = 1;
@@ -206,11 +224,12 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             break;
         }
         case V_MAIN: {
+            bool app = menu_get_hid_type() == MENU_HID_APP;
+            ui::AppView av = app ? app_view(app_mode_live_slot()) : ui::AppView{};
             ui::MainInputs in = {
                 ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
-                // APP mode always runs VISCOSE (control_task.c), so that's what the feel line says.
-                menu_get_hid_type() == MENU_HID_APP ? HAPTIC_TYPE_VISCOSE : menu_get_haptic_type(),
-                ui_state_get_buttons(), s_icon_set ? s_icon : nullptr,
+                menu_get_haptic_type(), // the feel line isn't shown in APP mode
+                ui_state_get_buttons(), s_icon_set ? s_icon : nullptr, app ? &av : nullptr,
             };
             ui::draw_main(in);
             break;
@@ -230,7 +249,8 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
         case V_HID: {
             float k = ease_out3((now - s_slide_start_us) / (HID_SLIDE_MS * 1000.0f));
-            ui::HidInputs in = {menu_get_hid_type(), (1 - k) * s_slide_dir * HID_SLIDE_PX, blink_on};
+            const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+            ui::HidInputs in = {menu_get_hid_type(), (1 - k) * s_slide_dir * HID_SLIDE_PX, blink_on, p->name, p->icon24};
             ui::draw_hid(snap, in);
             break;
         }
@@ -332,7 +352,13 @@ static Pace update_ui(void) {
     }
     ui_state_set_screensaver(s_attract_on);
 
-    bool redraw = first || snapshot_changed || buttons_changed || icon_changed;
+    // APP mode's live slot changes a beat after the raw buttons (it's debounced) -- redraw
+    // when it does, or the middle would show the previous action.
+    static int s_last_app_slot = -1;
+    int app_slot = app_mode_live_slot();
+    bool app_slot_changed = app_slot != s_last_app_slot;
+    s_last_app_slot = app_slot;
+    bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
