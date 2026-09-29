@@ -206,11 +206,12 @@ static bool send_keys(uint8_t modifier, uint8_t keycode) {
 // Cmd + wheel): a modifier goes down before the button or wheel, and comes up after.
 static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
     static bool keys_dirty = false; // a key tap's report may still be held on the host
-    app_key_t tap;
+    app_tap_t tap;
     while (app_mode_take_tap(&tap)) {
         // One tap = press with the tap's own modifier, then back to what a slot holds.
         if (send_keys(tap.modifier, tap.keycode)) keys_dirty = true;
         if (send_keys(*sent_modifier, 0)) keys_dirty = false;
+        if (tap.wait_ticks) vTaskDelay(tap.wait_ticks); // a macro waiting on the host's UI
     }
     uint8_t want_buttons, want_modifier;
     bool axis_y;

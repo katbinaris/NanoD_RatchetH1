@@ -23,6 +23,14 @@
 // that with queued edge events). Buttons are debounced here (raw GPIO bounce fired several
 // actions per press).
 
+// One queued key tap. `wait_ticks` = pause after it (10ms ticks) -- a command-search macro
+// waits for the search box to open and for results to appear.
+typedef struct {
+    uint8_t modifier;
+    uint8_t keycode;
+    uint8_t wait_ticks;
+} app_tap_t;
+
 // --- control task side (Core 0) ---
 
 // Every control tick. `active` = APP mode selected and the menu closed; when false this just
@@ -43,6 +51,11 @@ void app_mode_haptics(haptic_type_t *type, uint32_t *detents);
 
 // The slot whose action is live right now (APP_SLOT_KNOB when no key is held).
 int app_mode_live_slot(void);
+// Command wheel: true while open; *ring = index into the profile's rings, *entry 0 = cancel,
+// n = the ring's command n-1.
+bool app_mode_wheel(int *ring, int *entry);
+// Commands run so far (a counter that moves on every run) and which one ran last.
+uint32_t app_mode_last_run(int *ring, int *entry);
 
 // --- USB task side ---
 
@@ -53,4 +66,4 @@ int32_t app_mode_take_move_px(void);      // pointer travel accumulated since th
 void app_mode_return_move_px(int32_t px); // give back what didn't fit in one report
 int32_t app_mode_take_wheel_steps(void);  // wheel steps accumulated since the last call
 void app_mode_return_wheel_steps(int32_t steps);
-bool app_mode_take_tap(app_key_t *key);   // next queued key tap, if any
+bool app_mode_take_tap(app_tap_t *key);   // next queued key tap, if any

@@ -13,6 +13,8 @@
 #include "icons/app_icons.h"
 extern "C" {
 #include "ui_state.h"
+#include "app_profiles/app_profile.h"
+extern const app_profile_t app_profile_figma;
 }
 
 static LGFX_Sprite g;
@@ -179,6 +181,64 @@ int main() {
     boot.row_count = 1;
     ui::draw_boot_mode(boot, BOOT_USB_MODE_SERIAL, false, true);
     keep("boot mode");
+
+    // Command wheel (Figma): each card on its resting (last) keyframe, one mid-animation,
+    // cancel, a slide in flight, and the Main Screen echo after a run.
+    {
+        const app_profile_t &p = app_profile_figma;
+        auto rest_ms = [](const app_scene_t *s) {
+            uint32_t t = 0;
+            for (int i = 0; i + 1 < s->n_frames; i++) t += s->frames[i].ms;
+            return t;
+        };
+        auto wheel = [&](int ring, int entry, uint32_t t, float slide, const app_scene_t *prev) {
+            static const char *const KEYS[5] = {"", "F1", "F2", "F3", "F4"};
+            static char key[2];
+            const app_ring_t &r = p.rings[ring];
+            ui::WheelView v = {};
+            v.ring_name = r.name;
+            v.ring_count = p.ring_count;
+            for (int i = 0; i < p.ring_count; i++) v.ring_keys[i] = KEYS[p.rings[i].slot];
+            v.ring = ring;
+            v.count = r.count + 1;
+            v.entry = entry;
+            const app_cmd_t *c = entry ? &r.cmds[entry - 1] : nullptr;
+            v.name = c ? c->name : "CANCEL";
+            v.scene = c ? c->scene : nullptr;
+            if (c && c->kind == APP_CMD_ACTIONS) v.search = true;
+            else if (c) {
+                v.modifier = c->key.modifier;
+                key[0] = (char)('A' + c->key.keycode - 0x04);
+                key[1] = 0;
+                v.key = key;
+            }
+            v.slide = slide;
+            v.slide_dir = 1;
+            v.prev = prev;
+            v.prev_valid = slide < 1;
+            v.t_ms = c && t == UINT32_MAX ? rest_ms(c->scene) : t;
+            ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F3, nullptr, nullptr, &v};
+            ui::draw_main(in);
+        };
+        for (int ring = 0; ring < p.ring_count; ring++)
+            for (int e = 1; e <= p.rings[ring].count; e++) {
+                wheel(ring, e, UINT32_MAX, 1, nullptr);
+                keep(p.rings[ring].cmds[e - 1].name);
+            }
+        wheel(0, 1, 0, 1, nullptr);
+        keep("ADD AUTO LAYOUT, start");
+        wheel(0, 0, 0, 1, nullptr);
+        keep("wheel cancel");
+        wheel(0, 3, UINT32_MAX, 0.4f, p.rings[0].cmds[1].scene);
+        keep("wheel sliding");
+        ui::AppView echo = {"FIGMA", app_icon_figma_24, {"UNDO", "DEPTH", "WHEEL", "FRAME"}, "ZOOM", "KNOB"};
+        echo.echo = true;
+        echo.echo_scene = p.rings[0].cmds[2].scene;
+        echo.echo_name = p.rings[0].cmds[2].name;
+        echo.echo_ms = rest_ms(echo.echo_scene);
+        ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &echo});
+        keep("echo after run");
+    }
 
     ui::fx_attract(1000);
     keep("plasma 1s");

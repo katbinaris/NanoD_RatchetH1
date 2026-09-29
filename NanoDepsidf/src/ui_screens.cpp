@@ -93,6 +93,15 @@ static int app_badge(const char *name, const uint8_t *icon, float cx, float cy, 
 static void draw_app_top(const AppView &app) {
     app_badge(app.name, app.icon24, CX, 36, WHITE);
     rect(56, 52, 128, 1, DARK);
+    if (app.echo) {
+        if (app.echo_scene != nullptr) {
+            draw_card(app.echo_scene, CX - CARD_W / 2, 56, app.echo_ms);
+            text(app.echo_name, CX, 124, AMBER, 1, CENTER);
+        } else {
+            text(app.echo_name, CX, 92, AMBER, fit_scale(app.echo_name, 176, 2), CENTER);
+        }
+        return;
+    }
     if (app.shape != nullptr) {
         // Micro-interaction: the shape follows the knob; under it, key (grey) + action.
         shape_scene(*app.shape);
@@ -107,6 +116,10 @@ static void draw_app_top(const AppView &app) {
 }
 
 void draw_main(const MainInputs &in) {
+    if (in.wheel != nullptr) {
+        draw_wheel(*in.wheel);
+        return;
+    }
     if (in.app != nullptr) {
         draw_app_top(*in.app);
     } else {

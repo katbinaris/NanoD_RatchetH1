@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "haptic_params.h"
 #include "ui_shape.hpp"
+#include "ui_cards.hpp"
 extern "C" {
 #include "menu.h"
 #include "audio_trigger.h"
@@ -25,6 +26,11 @@ struct AppView {
     const char *action_key;   // short form under a shape: "KNOB", "F2"
     const ShapeView *shape;   // profile shows a 3D shape instead of the label, or nullptr
     bool flash;               // a tap action just fired (the shape's action line goes amber)
+    // A command-wheel command just ran: its card replays in the middle with its name.
+    bool echo;
+    const app_scene_t *echo_scene; // may be nullptr (name only)
+    const char *echo_name;
+    uint32_t echo_ms;              // since it ran
 };
 
 struct MainInputs {
@@ -35,6 +41,7 @@ struct MainInputs {
     uint8_t buttons_held;     // UI_BTN_* -- lit keycaps
     const uint8_t *icon;      // HID-uploaded 48x48 RGB565 (big-endian) icon, or nullptr
     const AppView *app;       // APP mode: the active profile, or nullptr
+    const WheelView *wheel;   // APP mode, command wheel open: it takes the whole screen
 };
 void draw_main(const MainInputs &in);
 

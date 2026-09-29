@@ -1,17 +1,235 @@
-// Figma (design). Standard profile: keyboard shortcuts and the wheel only -- no plugin (a
-// Figma plugin talking to the knob is later scope, DEVELOPMENT_PLAN.md). Shortcuts per
-// Figma's docs: Cmd + wheel zooms, Cmd+Z / Shift+Cmd+Z undo/redo, Tab / Shift+Tab step
-// through layers, Shift+2 zooms to the selection, arrows nudge 1px. macOS modifiers.
+// Figma (design). Standard profile: keyboard shortcuts, the wheel, and a command wheel -- no
+// plugin (a Figma plugin talking to the knob is later scope, DEVELOPMENT_PLAN.md). macOS
+// modifiers, US key positions.
 //
-// Everything here is a step, so it runs with detents (unlike Plasticity's smooth drags):
-// one detent = one zoom step, one history step, one layer, one pixel. Prior art: Work
-// Louder's Figma Creator Micro puts undo/redo on a dial the same way.
+// Knob = zoom (Cmd + wheel). F1: tap undo, turn undo/redo. F2: tap zoom to selection, turn
+// = depth (Enter selects children, Shift+Enter the parent). F3: hold = command wheel. F4: turn
+// = next / previous frame (N / Shift+N); long-press = menu, as in every profile.
+//
+// The command wheel is built around auto layout and design-system work, not rare settings:
+// commands that are buried in menus or need three-key chords. Two go through Figma's Actions
+// search (Cmd+K, type, Enter) because they have no shortcut. Shortcuts are from memory --
+// check them against Figma's own shortcut panel (Ctrl+Shift+?).
 #include "app_profile.h"
 #include "icons/app_icons.h"
 #include "class/hid/hid.h"
 
 #define CMD KEYBOARD_MODIFIER_LEFTGUI
 #define SHIFT KEYBOARD_MODIFIER_LEFTSHIFT
+#define OPT KEYBOARD_MODIFIER_LEFTALT
+
+// --- command cards (DEVELOPMENT_PLAN.md "Figma command wheel", preview round 3) ---
+// Canvas pane x 4..60; layers rows on the right. Amber = the selection / what changes.
+
+static const app_scene_t SCENE_ADD_AL = {
+    .n_frames = 4,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, EL_BOX(8, 6, 8, 14, K_W), EL_BOX(26, 38, 8, 14, K_W), EL_BOX(46, 12, 8, 14, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL),
+                 EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(80, EL_BOX(10, 12, 8, 14, K_W), EL_BOX(27, 33, 8, 14, K_W), EL_BOX(45, 16, 8, 14, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL),
+                 EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(80, EL_FRAME(9, 19, 47, 24, K_D),
+                 EL_BOX(12, 18, 8, 14, K_W), EL_BOX(27, 29, 8, 14, K_W), EL_BOX(43, 20, 8, 14, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL),
+                 EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_FRAME(9, 19, 47, 24, K_W),
+                 EL_BOX(14, 24, 8, 14, K_W), EL_BOX(28, 24, 8, 14, K_W), EL_BOX(42, 24, 8, 14, K_W),
+                 EL_BOX(24, 28, 2, 6, K_A), EL_BOX(38, 28, 2, 6, K_A),
+                 EL_ROW(0, 0, APP_GLYPH_AUTO, 18, K_A, 0), EL_ROW(1, 1, APP_GLYPH_RECT, 14, K_G, 0),
+                 EL_ROW(2, 1, APP_GLYPH_RECT, 18, K_G, 0), EL_ROW(3, 1, APP_GLYPH_RECT, 12, K_G, 0)),
+    },
+};
+
+static const app_scene_t SCENE_REMOVE_AL = {
+    .n_base = 4,
+    .base = EL_LIST(EL_FRAME(9, 19, 47, 24, K_W), EL_ROW(1, 1, APP_GLYPH_RECT, 14, K_G, 0),
+                    EL_ROW(2, 1, APP_GLYPH_RECT, 18, K_G, 0), EL_ROW(3, 1, APP_GLYPH_RECT, 12, K_G, 0)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_BOX(14, 24, 8, 14, K_W), EL_BOX(28, 24, 8, 14, K_W), EL_BOX(42, 24, 8, 14, K_W),
+                 EL_BOX(24, 28, 2, 6, K_G), EL_BOX(38, 28, 2, 6, K_G), EL_ROW(0, 0, APP_GLYPH_AUTO, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(120, EL_BOX(13, 23, 8, 14, K_W), EL_BOX(28, 26, 8, 14, K_W), EL_BOX(42, 22, 8, 14, K_W),
+                 EL_BOX(24, 28, 2, 6, K_A), EL_BOX(38, 28, 2, 6, K_A), EL_ROW(0, 0, APP_GLYPH_AUTO, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_BOX(12, 22, 8, 14, K_W), EL_BOX(29, 27, 8, 14, K_W), EL_BOX(43, 21, 8, 14, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_FRAME, 18, K_A, 0)),
+    },
+};
+
+static const app_scene_t SCENE_WRAP = {
+    .n_base = 2,
+    .base = EL_LIST(EL_BOX(13, 26, 14, 14, K_W), EL_DISC(37, 26, 14, K_W)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_SEL(10, 23, 45, 20),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 16, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_CIRCLE, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(100, EL_FRAME(8, 19, 49, 28, K_G),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 16, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_CIRCLE, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_FRAME(8, 19, 49, 28, K_A), EL_LABEL(8, 10, APP_GLYPH_FRAME, 14, K_A),
+                 EL_ROW(0, 0, APP_GLYPH_FRAME, 14, K_A, 0), EL_ROW(1, 1, APP_GLYPH_RECT, 16, K_G, 0),
+                 EL_ROW(2, 1, APP_GLYPH_CIRCLE, 12, K_G, 0)),
+    },
+};
+
+static const app_scene_t SCENE_GROUP = {
+    .n_base = 2,
+    .base = EL_LIST(EL_BOX(13, 26, 14, 14, K_W), EL_DISC(37, 26, 14, K_W)),
+    .n_frames = 2,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_SEL(10, 23, 45, 20),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 16, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_CIRCLE, 12, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_DASH(9, 22, 47, 22, K_A),
+                 EL_ROW(0, 0, APP_GLYPH_GROUP, 14, K_A, 0), EL_ROW(1, 1, APP_GLYPH_RECT, 16, K_G, 0),
+                 EL_ROW(2, 1, APP_GLYPH_CIRCLE, 12, K_G, 0)),
+    },
+};
+
+static const app_scene_t SCENE_COMPONENT = {
+    .n_base = 1,
+    .base = EL_LIST(EL_BOX(18, 24, 28, 22, K_G)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_FRAME(18, 24, 28, 22, K_W), EL_SEL(16, 22, 32, 26), EL_ROW(0, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(100, EL_FRAME(16, 22, 32, 26, K_A), EL_FRAME(17, 23, 30, 24, K_A), EL_FRAME(18, 24, 28, 22, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_FRAME(18, 24, 28, 22, K_A), EL_LABEL(18, 14, APP_GLYPH_COMP, 16, K_A),
+                 EL_ROW(0, 0, APP_GLYPH_COMP, 18, K_A, 0)),
+    },
+};
+
+static const app_scene_t SCENE_DETACH = {
+    .n_base = 4,
+    .base = EL_LIST(EL_BOX(16, 24, 32, 24, K_G), EL_FRAME(16, 24, 32, 24, K_W), EL_DISC(21, 33, 6, K_W),
+                    EL_BOX(30, 35, 12, 2, K_W)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_LABEL(16, 14, APP_GLYPH_INST, 16, K_W), EL_ROW(0, 0, APP_GLYPH_INST, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(110, EL_LABEL(16, 14, APP_GLYPH_INST, 16, K_W), EL_LINE(12, 10, 9, 7, K_A), EL_LINE(12, 20, 9, 23, K_A),
+                 EL_LINE(42, 11, 46, 8, K_A), EL_ROW(0, 0, APP_GLYPH_INST, 18, K_W, APP_ROW_SEL)),
+        KEYFRAME(1400, EL_LABEL(16, 14, APP_GLYPH_FRAME, 16, K_A), EL_ROW(0, 0, APP_GLYPH_FRAME, 18, K_A, 0),
+                 EL_ROW(1, 1, APP_GLYPH_CIRCLE, 8, K_G, 0), EL_ROW(2, 1, APP_GLYPH_TEXT, 14, K_G, 0)),
+    },
+};
+
+// The canvas pans from the instance to its main component (camera steps of ~15px).
+#define MAIN_AT(c, last)                                                                            \
+    EL_BOX(14 - (c), 26, 26, 20, K_G), EL_FRAME(14 - (c), 26, 26, 20, K_W),                         \
+    EL_LABEL(14 - (c), 16, APP_GLYPH_INST, 14, K_W), EL_BOX(72 - (c), 26, 26, 20, K_G),              \
+    EL_FRAME(72 - (c), 26, 26, 20, (last) ? K_A : K_W), EL_LABEL(72 - (c), 16, APP_GLYPH_COMP, 14, (last) ? K_A : K_W), \
+    EL_ROW(0, 0, APP_GLYPH_COMP, 16, (last) ? K_W : K_G, (last) ? APP_ROW_SEL : 0),                  \
+    EL_ROW(1, 0, APP_GLYPH_INST, 16, (c) == 0 ? K_W : K_G, (c) == 0 ? APP_ROW_SEL : 0)
+static const app_scene_t SCENE_GO_TO_MAIN = {
+    .n_frames = 5,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, MAIN_AT(0, 0), EL_SEL(12, 24, 30, 24)),
+        KEYFRAME(70, MAIN_AT(15, 0)),
+        KEYFRAME(70, MAIN_AT(29, 0)),
+        KEYFRAME(70, MAIN_AT(44, 0)),
+        KEYFRAME(1400, MAIN_AT(58, 1), EL_SEL(12, 24, 30, 24)),
+    },
+};
+
+static const app_scene_t SCENE_RESET = {
+    .n_base = 1,
+    .base = EL_LIST(EL_LABEL(16, 14, APP_GLYPH_INST, 16, K_W)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(750, EL_BOX(16, 24, 32, 24, K_A), EL_FRAME(16, 24, 32, 24, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_INST, 18, K_W, APP_ROW_SEL | APP_ROW_DOT)),
+        KEYFRAME(110, EL_BOX(16, 24, 32, 24, K_G), EL_FRAME(16, 24, 32, 24, K_W), EL_FRAME(14, 22, 36, 28, K_A),
+                 EL_ROW(0, 0, APP_GLYPH_INST, 18, K_W, APP_ROW_SEL | APP_ROW_DOT)),
+        KEYFRAME(1400, EL_BOX(16, 24, 32, 24, K_G), EL_FRAME(16, 24, 32, 24, K_W),
+                 EL_ROW(0, 0, APP_GLYPH_INST, 18, K_W, APP_ROW_SEL)),
+    },
+};
+
+// A styled shape (grey fill, 2px white stroke); its fill + stroke travel as two amber swatches.
+static const app_scene_t SCENE_COPY_PROPS = {
+    .n_base = 5,
+    .base = EL_LIST(EL_BOX(10, 22, 26, 24, K_G), EL_FRAME(10, 22, 26, 24, K_W), EL_FRAME(11, 23, 24, 22, K_W),
+                    EL_SEL(8, 20, 30, 28), EL_ROW(0, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL)),
+    .n_frames = 4,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, EL_CLIPBOARD(44, 10, K_D)),
+        KEYFRAME(90, EL_CLIPBOARD(44, 10, K_D), EL_DISC(30, 24, 5, K_A), EL_FRAME(30, 30, 5, 5, K_A)),
+        KEYFRAME(90, EL_CLIPBOARD(44, 10, K_D), EL_DISC(40, 18, 5, K_A), EL_FRAME(40, 24, 5, 5, K_A)),
+        KEYFRAME(1400, EL_CLIPBOARD(44, 10, K_W), EL_DISC(48, 15, 5, K_A), EL_FRAME(48, 21, 5, 5, K_A)),
+    },
+};
+
+static const app_scene_t SCENE_PASTE_PROPS = {
+    .n_base = 2,
+    .base = EL_LIST(EL_CLIPBOARD(44, 10, K_W), EL_ROW(0, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL)),
+    .n_frames = 5,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, EL_FRAME(10, 22, 26, 24, K_D), EL_SEL(8, 20, 30, 28), EL_DISC(48, 15, 5, K_A), EL_FRAME(48, 21, 5, 5, K_A)),
+        KEYFRAME(90, EL_FRAME(10, 22, 26, 24, K_D), EL_SEL(8, 20, 30, 28), EL_DISC(38, 21, 5, K_A), EL_FRAME(38, 27, 5, 5, K_A)),
+        KEYFRAME(90, EL_FRAME(10, 22, 26, 24, K_D), EL_SEL(8, 20, 30, 28), EL_DISC(27, 27, 5, K_A), EL_FRAME(27, 33, 5, 5, K_A)),
+        KEYFRAME(130, EL_FRAME(10, 22, 26, 24, K_A), EL_FRAME(11, 23, 24, 22, K_A), EL_SEL(8, 20, 30, 28)),
+        KEYFRAME(1400, EL_BOX(10, 22, 26, 24, K_G), EL_FRAME(10, 22, 26, 24, K_W), EL_FRAME(11, 23, 24, 22, K_W),
+                 EL_SEL(8, 20, 30, 28)),
+    },
+};
+
+static const app_scene_t SCENE_RENAME = {
+    .n_base = 2,
+    .base = EL_LIST(EL_BOX(14, 26, 36, 22, K_G), EL_FRAME(14, 26, 36, 22, K_W)),
+    .n_frames = 6,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, EL_LABEL(14, 16, APP_GLYPH_FRAME, 26, K_G), EL_ROW(0, 0, APP_GLYPH_FRAME, 26, K_W, APP_ROW_SEL)),
+        KEYFRAME(380, EL_LABEL(14, 16, APP_GLYPH_FRAME, 26, K_G), EL_ROW(0, 0, APP_GLYPH_FRAME, 26, K_W, APP_ROW_SEL | APP_ROW_ALL)),
+        KEYFRAME(260, EL_LABEL(14, 16, APP_GLYPH_FRAME, 26, K_G),
+                 EL_ROW(0, 0, APP_GLYPH_FRAME, 0, K_W, APP_ROW_SEL | APP_ROW_FIELD | APP_ROW_CURSOR)),
+        KEYFRAME(420, EL_LABEL(14, 16, APP_GLYPH_FRAME, 26, K_G),
+                 EL_ROW(0, 0, APP_GLYPH_FRAME, 14, K_W, APP_ROW_SEL | APP_ROW_FIELD | APP_ROW_CURSOR)),
+        KEYFRAME(260, EL_LABEL(14, 16, APP_GLYPH_FRAME, 26, K_G), EL_ROW(0, 0, APP_GLYPH_FRAME, 14, K_W, APP_ROW_SEL | APP_ROW_FIELD)),
+        KEYFRAME(1400, EL_LABEL(14, 16, APP_GLYPH_FRAME, 14, K_A), EL_ROW(0, 0, APP_GLYPH_FRAME, 14, K_W, APP_ROW_SEL)),
+    },
+};
+
+// Messy shapes -> the plugin window runs -> the shapes come out tidied.
+#define PLUGIN_MESS EL_BOX(9, 12, 12, 9, K_W), EL_BOX(30, 34, 16, 11, K_W), EL_BOX(44, 14, 10, 13, K_W)
+static const app_scene_t SCENE_PLUGIN = {
+    .n_base = 3,
+    .base = EL_LIST(EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_G, 0), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_G, 0),
+                    EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_G, 0)),
+    .n_frames = 5,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(650, PLUGIN_MESS),
+        KEYFRAME(80, PLUGIN_MESS, EL_BOX(20, 20, 26, 22, K_B), EL_FRAME(20, 20, 26, 22, K_W), EL_BOX(21, 21, 24, 5, K_D)),
+        KEYFRAME(600, PLUGIN_MESS, EL_BOX(12, 12, 42, 36, K_B), EL_FRAME(12, 12, 42, 36, K_W), EL_BOX(13, 13, 40, 5, K_D),
+                 EL_PLAY(25, 23, 16)),
+        KEYFRAME(90, EL_BOX(10, 19, 12, 11, K_W), EL_BOX(28, 30, 14, 12, K_W), EL_BOX(43, 20, 11, 13, K_W)),
+        KEYFRAME(1400, EL_BOX(10, 26, 12, 12, K_W), EL_BOX(26, 26, 12, 12, K_W), EL_BOX(42, 26, 12, 12, K_W),
+                 EL_LINE(16, 19, 16, 23, K_A), EL_LINE(14, 21, 18, 21, K_A), EL_LINE(32, 19, 32, 23, K_A),
+                 EL_LINE(30, 21, 34, 21, K_A), EL_LINE(48, 19, 48, 23, K_A), EL_LINE(46, 21, 50, 21, K_A)),
+    },
+};
+
+static const app_cmd_t STRUCTURE[] = {
+    {"ADD AUTO LAYOUT", APP_CMD_KEYS, {SHIFT, HID_KEY_A}, NULL, &SCENE_ADD_AL},
+    {"REMOVE AUTO LAYOUT", APP_CMD_KEYS, {OPT | SHIFT, HID_KEY_A}, NULL, &SCENE_REMOVE_AL},
+    {"WRAP IN FRAME", APP_CMD_KEYS, {OPT | CMD, HID_KEY_G}, NULL, &SCENE_WRAP},
+    {"GROUP", APP_CMD_KEYS, {CMD, HID_KEY_G}, NULL, &SCENE_GROUP},
+};
+static const app_cmd_t COMPONENTS[] = {
+    {"CREATE COMPONENT", APP_CMD_KEYS, {OPT | CMD, HID_KEY_K}, NULL, &SCENE_COMPONENT},
+    {"DETACH INSTANCE", APP_CMD_KEYS, {OPT | CMD, HID_KEY_B}, NULL, &SCENE_DETACH},
+    {"GO TO MAIN", APP_CMD_ACTIONS, {0, 0}, "go to main component", &SCENE_GO_TO_MAIN},
+    {"RESET INSTANCE", APP_CMD_ACTIONS, {0, 0}, "reset all changes", &SCENE_RESET},
+};
+static const app_cmd_t UTILITY[] = {
+    {"COPY PROPERTIES", APP_CMD_KEYS, {OPT | CMD, HID_KEY_C}, NULL, &SCENE_COPY_PROPS},
+    {"PASTE PROPERTIES", APP_CMD_KEYS, {OPT | CMD, HID_KEY_V}, NULL, &SCENE_PASTE_PROPS},
+    {"RENAME", APP_CMD_KEYS, {CMD, HID_KEY_R}, NULL, &SCENE_RENAME},
+    {"RUN LAST PLUGIN", APP_CMD_KEYS, {OPT | CMD, HID_KEY_P}, NULL, &SCENE_PLUGIN},
+};
+static const app_ring_t RINGS[] = {
+    {"STRUCTURE", APP_SLOT_F1, 4, STRUCTURE},
+    {"COMPONENTS", APP_SLOT_F2, 4, COMPONENTS},
+    {"UTILITY", APP_SLOT_F4, 4, UTILITY},
+};
 
 const app_profile_t app_profile_figma = {
     .version = APP_PROFILE_VERSION,
@@ -19,7 +237,7 @@ const app_profile_t app_profile_figma = {
     .name = "FIGMA",
     .icon24 = app_icon_figma_24,
     .icon48 = app_icon_figma_48,
-    .legend = {"UNDO", "LAYER", "FOCUS", "NUDGE"},
+    .legend = {"UNDO", "DEPTH", "WHEEL", "FRAME"},
     .slot = {
         // Wheel up with Cmd = zoom in. Flip `sign` if the knob zooms the wrong way.
         [APP_SLOT_KNOB] = {
@@ -28,23 +246,26 @@ const app_profile_t app_profile_figma = {
         },
         [APP_SLOT_F1] = {
             .kind = APP_ACT_KEYS, .label = "UNDO/REDO",
-            .cw = {CMD | SHIFT, HID_KEY_Z}, .ccw = {CMD, HID_KEY_Z},
+            .cw = {CMD | SHIFT, HID_KEY_Z}, .ccw = {CMD, HID_KEY_Z}, .tap = {CMD, HID_KEY_Z},
             .feel = HAPTIC_TYPE_SAW, .detents = 12,
         },
+        // Walk the layer tree: clockwise into the children, counter-clockwise up to the parent.
         [APP_SLOT_F2] = {
-            .kind = APP_ACT_KEYS, .label = "LAYERS",
-            .cw = {0, HID_KEY_TAB}, .ccw = {SHIFT, HID_KEY_TAB},
+            .kind = APP_ACT_KEYS, .label = "DEPTH",
+            .cw = {0, HID_KEY_ENTER}, .ccw = {SHIFT, HID_KEY_ENTER}, .tap = {SHIFT, HID_KEY_2},
             .feel = HAPTIC_TYPE_SAW, .detents = 12,
         },
         [APP_SLOT_F3] = {
-            .kind = APP_ACT_TAP, .label = "FOCUS",
-            .cw = {SHIFT, HID_KEY_2},
+            .kind = APP_ACT_COMMANDS, .label = "COMMANDS",
+            .feel = HAPTIC_TYPE_SAW, .detents = 12,
         },
-        // Fine detents: one per pixel.
         [APP_SLOT_F4] = {
-            .kind = APP_ACT_KEYS, .label = "NUDGE",
-            .cw = {0, HID_KEY_ARROW_RIGHT}, .ccw = {0, HID_KEY_ARROW_LEFT},
-            .feel = HAPTIC_TYPE_SAW, .detents = 36,
+            .kind = APP_ACT_KEYS, .label = "FRAMES",
+            .cw = {0, HID_KEY_N}, .ccw = {SHIFT, HID_KEY_N},
+            .feel = HAPTIC_TYPE_SAW, .detents = 12,
         },
     },
+    .ring_count = 3,
+    .rings = RINGS,
+    .search = {{CMD, HID_KEY_K}, 25, 40},
 };

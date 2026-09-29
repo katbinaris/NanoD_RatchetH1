@@ -21,6 +21,7 @@ extern "C" {
 #include "icon_store.h"
 #include "app_mode.h"
 #include "app_profiles/app_profiles.h"
+#include "class/hid/hid.h"
 }
 
 static const char *TAG = "display";
@@ -333,6 +334,106 @@ static ui::AppView app_view(int slot, int64_t now) {
     return v;
 }
 
+// --- Command wheel (profiles with an APP_ACT_COMMANDS slot, e.g. Figma) ---
+// app_mode.c owns the wheel; this side only animates it: the card carousel slides between
+// entries (and rings), each card loops its keyframes from when it was chosen, and a command
+// that ran echoes on the Main Screen for ECHO_MS.
+#define WHEEL_SLIDE_MS 120
+#define ECHO_MS 1100
+static bool s_wheel_was_open = false;
+static int s_wheel_ring = -1, s_wheel_entry = -1;
+static int64_t s_wheel_entry_us = 0, s_wheel_slide_us = -(1LL << 40);
+static int s_wheel_slide_dir = 1;
+static const app_scene_t *s_wheel_prev = nullptr;
+static bool s_wheel_prev_valid = false;
+static uint32_t s_echo_count = 0;
+static bool s_echo_have = false;
+static int64_t s_echo_start_us = -(1LL << 40);
+static int s_echo_ring = 0, s_echo_entry = 0;
+
+static const app_cmd_t *wheel_cmd(const app_profile_t *p, int ring, int entry) {
+    if (ring < 0 || ring >= p->ring_count || entry < 1 || entry > p->rings[ring].count) return nullptr;
+    return &p->rings[ring].cmds[entry - 1];
+}
+
+// Every tick: follow app_mode's wheel. Returns true while the wheel or an echo needs frames.
+static bool wheel_tick(int64_t now, bool *changed) {
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    int ring, entry;
+    bool open = menu_get_hid_type() == MENU_HID_APP && app_mode_wheel(&ring, &entry);
+    *changed = open != s_wheel_was_open;
+    if (open) {
+        if (!s_wheel_was_open) {
+            s_wheel_entry_us = now;
+            s_wheel_prev_valid = false;
+        } else if (ring != s_wheel_ring || entry != s_wheel_entry) {
+            const app_cmd_t *old = wheel_cmd(p, s_wheel_ring, s_wheel_entry);
+            s_wheel_prev = old ? old->scene : nullptr;
+            s_wheel_prev_valid = true;
+            s_wheel_slide_dir = (ring != s_wheel_ring) ? (ring > s_wheel_ring ? 1 : -1) : (entry > s_wheel_entry ? 1 : -1);
+            s_wheel_slide_us = now;
+            s_wheel_entry_us = now;
+            *changed = true;
+        }
+        s_wheel_ring = ring;
+        s_wheel_entry = entry;
+    }
+    s_wheel_was_open = open;
+
+    int er, ee;
+    uint32_t runs = app_mode_last_run(&er, &ee);
+    if (!s_echo_have) {
+        s_echo_count = runs;
+        s_echo_have = true;
+    } else if (runs != s_echo_count) {
+        s_echo_count = runs;
+        s_echo_ring = er;
+        s_echo_entry = ee;
+        s_echo_start_us = now;
+        *changed = true;
+    }
+    bool echo = now - s_echo_start_us < ECHO_MS * 1000LL;
+    static bool s_echo_was = false;
+    if (echo != s_echo_was) *changed = true;
+    s_echo_was = echo;
+    return open || echo;
+}
+
+static ui::WheelView wheel_view(int64_t now) {
+    static const char *const KEYS[APP_SLOT_COUNT] = {"", "F1", "F2", "F3", "F4"};
+    static char key[2];
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    ui::WheelView v = {};
+    const app_ring_t &r = p->rings[s_wheel_ring];
+    v.ring_name = r.name;
+    v.ring_count = p->ring_count < 8 ? p->ring_count : 8;
+    for (int i = 0; i < v.ring_count; i++) v.ring_keys[i] = KEYS[p->rings[i].slot % APP_SLOT_COUNT];
+    v.ring = s_wheel_ring;
+    v.count = r.count + 1;
+    v.entry = s_wheel_entry;
+    const app_cmd_t *c = wheel_cmd(p, s_wheel_ring, s_wheel_entry);
+    v.name = c ? c->name : "CANCEL";
+    v.scene = c ? c->scene : nullptr;
+    if (c && c->kind == APP_CMD_ACTIONS) {
+        v.search = true;
+    } else if (c) {
+        v.modifier = c->key.modifier;
+        uint8_t k = c->key.keycode;
+        key[0] = k >= HID_KEY_A && k <= HID_KEY_Z ? (char)('A' + k - HID_KEY_A)
+               : k >= HID_KEY_1 && k <= HID_KEY_9 ? (char)('1' + k - HID_KEY_1)
+               : k == HID_KEY_0 ? '0' : '?';
+        key[1] = 0;
+        v.key = key;
+    }
+    v.prev = s_wheel_prev;
+    v.prev_valid = s_wheel_prev_valid;
+    float k = (now - s_wheel_slide_us) / (WHEEL_SLIDE_MS * 1000.0f);
+    v.slide = k >= 1 ? 1 : 1 - (1 - k) * (1 - k) * (1 - k);
+    v.slide_dir = s_wheel_slide_dir;
+    v.t_ms = (uint32_t)((now - s_wheel_entry_us) / 1000);
+    return v;
+}
+
 static float ease_out3(float k) {
     if (k < 0) k = 0;
     if (k > 1) k = 1;
@@ -350,10 +451,23 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_MAIN: {
             bool app = menu_get_hid_type() == MENU_HID_APP;
             ui::AppView av = app ? app_view(app_mode_live_slot(), now) : ui::AppView{};
+            ui::WheelView wv;
+            bool wheel = app && s_wheel_was_open;
+            if (wheel) wv = wheel_view(now);
+            if (app && now - s_echo_start_us < ECHO_MS * 1000LL) {
+                const app_cmd_t *c = wheel_cmd(app_profiles_get(menu_get_app_profile()), s_echo_ring, s_echo_entry);
+                if (c) {
+                    av.echo = true;
+                    av.echo_scene = c->scene;
+                    av.echo_name = c->name;
+                    av.echo_ms = (uint32_t)((now - s_echo_start_us) / 1000);
+                }
+            }
             ui::MainInputs in = {
                 ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
                 menu_get_haptic_type(), // the feel line isn't shown in APP mode
                 ui_state_get_buttons(), s_icon_set ? s_icon : nullptr, app ? &av : nullptr,
+                wheel ? &wv : nullptr,
             };
             ui::draw_main(in);
             break;
@@ -513,7 +627,10 @@ static Pace update_ui(void) {
     bool app_slot_changed = app_slot != s_last_app_slot;
     s_last_app_slot = app_slot;
     bool shape_live = shape_tick(now, buttons);
-    bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed;
+    bool wheel_changed = false;
+    bool wheel_live = wheel_tick(now, &wheel_changed);
+    if (wheel_live) s_last_activity_us = now; // no screensaver over the wheel or an echo
+    bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -535,8 +652,10 @@ static Pace update_ui(void) {
              || (s_view == V_HAPTIC && now - s_morph_start_us < FEEL_MORPH_MS * 1000LL)
              || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL)
              || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL)
-             || (s_view == V_MAIN && shape_live);
+             || (s_view == V_MAIN && shape_live)
+             || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT
+                || (s_view == V_MAIN && wheel_live) // card animations
                 || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
     bool blink_on = ((now / 1000) % 900) < 600;
     bool blink_edge = is_settings_view(s_view) && snap.dirty && blink_on != s_drawn_blink;

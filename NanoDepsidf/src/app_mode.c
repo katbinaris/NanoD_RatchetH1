@@ -4,6 +4,8 @@
 #include "ui_state.h"
 #include <math.h>
 #include <stdatomic.h>
+#include <string.h>
+#include "class/hid/hid.h"
 
 #define APP_DRAG_START_PX 3.0f       // movement before a drag engages (ignores a wobble while
                                      // long-pressing F4 for the menu)
@@ -11,7 +13,10 @@
 #define APP_IDLE_RELEASE_US 250000   // knob-alone slot: let go once the knob rests this long
 #define APP_MENU_HOLD_US 700000      // long-press F4 -> menu
 #define APP_DEBOUNCE_US 15000        // a button change counts once it has been stable this long
-#define APP_TAP_RING 16              // queued key taps (a full ring drops taps, never releases)
+#define APP_TAP_RING 64              // queued key taps (a full ring drops taps, never releases);
+                                     // sized for one command-search macro (open + ~40 chars + Enter)
+#define APP_TAP_MAX_US 400000        // a key let go within this, without turning, was a tap
+#define APP_CANCEL 0                 // wheel entry 0 of every ring: close without running
 
 static const uint8_t SLOT_KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
 
@@ -33,10 +38,20 @@ static int64_t s_last_motion_us = 0;
 static _Atomic uint32_t s_want = 0;
 static _Atomic int32_t s_move_px = 0;
 static _Atomic int32_t s_wheel_steps = 0;
-static app_key_t s_taps[APP_TAP_RING];
+static app_tap_t s_taps[APP_TAP_RING];
 static _Atomic uint32_t s_tap_head = 0, s_tap_tail = 0; // single producer (Core 0), single consumer (USB)
 // Shared with the display task.
 static _Atomic int s_live_slot = APP_SLOT_KNOB;
+// Command wheel: bit 31 open, bits 8-15 ring, 0-7 entry (0 = cancel). Runs: a counter plus
+// which command, so the display can echo it.
+static _Atomic uint32_t s_wheel = 0;
+static _Atomic uint32_t s_run = 0; // bits 16-31 count, 8-15 ring, 0-7 entry
+
+// Command wheel, control-task side.
+static bool s_wheel_open = false;
+static uint8_t s_ring = 0, s_entry = 1;
+static uint8_t s_ring_entry[8];     // last entry used per ring (opens there: hold-release repeats)
+static uint8_t s_swallow_keys = 0;  // F keys used to switch rings: their release does nothing
 
 #define WANT(buttons, modifier, axis_y) ((uint32_t)(buttons) | ((uint32_t)(modifier) << 8) | ((axis_y) ? 1u << 16 : 0u))
 
@@ -44,14 +59,84 @@ static const app_action_t *action(int slot) {
     return &s_profile->slot[slot];
 }
 
-static void push_tap(app_key_t key) {
+static uint32_t tap_room(void) {
+    return APP_TAP_RING - (atomic_load(&s_tap_head) - atomic_load(&s_tap_tail));
+}
+
+static void push_tap_wait(app_key_t key, uint8_t wait_ticks) {
     uint32_t head = atomic_load(&s_tap_head);
     if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
-    s_taps[head % APP_TAP_RING] = key;
+    s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, wait_ticks};
     atomic_store(&s_tap_head, head + 1);
 }
 
+static void push_tap(app_key_t key) {
+    push_tap_wait(key, 0);
+}
+
+// US key positions for the characters a command-search phrase may use.
+static bool ascii_key(char c, app_key_t *k) {
+    k->modifier = 0;
+    if (c >= 'a' && c <= 'z') k->keycode = HID_KEY_A + (c - 'a');
+    else if (c >= 'A' && c <= 'Z') { k->keycode = HID_KEY_A + (c - 'A'); k->modifier = KEYBOARD_MODIFIER_LEFTSHIFT; }
+    else if (c >= '1' && c <= '9') k->keycode = HID_KEY_1 + (c - '1');
+    else if (c == '0') k->keycode = HID_KEY_0;
+    else if (c == ' ') k->keycode = HID_KEY_SPACE;
+    else if (c == '-') k->keycode = HID_KEY_MINUS;
+    else if (c == '.') k->keycode = HID_KEY_PERIOD;
+    else return false;
+    return true;
+}
+
+// ACTIONS: open the app's command search, type the phrase, wait for the results, Enter. All
+// or nothing -- a macro cut short by a full ring would type half a phrase.
+static void push_search(const app_search_t *s, const char *phrase) {
+    uint32_t need = 2 + (uint32_t)strlen(phrase);
+    if (tap_room() < need) return;
+    push_tap_wait(s->open, s->open_wait);
+    for (const char *c = phrase; *c; c++) {
+        app_key_t k;
+        if (ascii_key(*c, &k)) push_tap_wait(k, c[1] ? 0 : s->result_wait);
+    }
+    push_tap((app_key_t){0, HID_KEY_ENTER});
+}
+
+static int ring_count(void) {
+    int n = s_profile->ring_count;
+    return n > (int)sizeof(s_ring_entry) ? (int)sizeof(s_ring_entry) : n;
+}
+
+static void publish_wheel(void) {
+    atomic_store(&s_wheel, (s_wheel_open ? 1u << 31 : 0u) | ((uint32_t)s_ring << 8) | s_entry);
+}
+
+static void wheel_open(void) {
+    if (ring_count() == 0) return;
+    if (s_ring >= ring_count()) s_ring = 0;
+    s_entry = s_ring_entry[s_ring] ? s_ring_entry[s_ring] : 1;
+    s_wheel_open = true;
+    publish_wheel();
+}
+
+// F3 let go: run the chosen command (entry 0 = cancel).
+static void wheel_close(void) {
+    if (!s_wheel_open) return;
+    s_wheel_open = false;
+    const app_ring_t *r = &s_profile->rings[s_ring];
+    if (s_entry != APP_CANCEL && s_entry <= r->count) {
+        const app_cmd_t *c = &r->cmds[s_entry - 1];
+        if (c->kind == APP_CMD_ACTIONS && c->phrase) push_search(&s_profile->search, c->phrase);
+        else push_tap(c->key);
+        s_ring_entry[s_ring] = s_entry;
+        uint32_t n = (atomic_load(&s_run) >> 16) + 1;
+        atomic_store(&s_run, (n << 16) | ((uint32_t)s_ring << 8) | s_entry);
+    }
+    publish_wheel();
+}
+
 static void end_slot(void) {
+    s_wheel_open = false;
+    publish_wheel();
     atomic_store(&s_want, 0);
     atomic_store(&s_move_px, 0);
     atomic_store(&s_wheel_steps, 0);
@@ -89,12 +174,28 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
         s_profile = p;
     }
     s_active = active && !swallow;
+    s_swallow_keys &= held; // forget keys once they're up
     if (!active) {
         if (s_slot >= 0 || atomic_load(&s_want)) end_slot();
         atomic_store(&s_live_slot, APP_SLOT_KNOB);
         return;
     }
     if (swallow) pressed = 0;
+
+    // Command wheel open: the other F keys jump between rings and do nothing else.
+    if (s_wheel_open) {
+        for (int i = 0; i < ring_count(); i++) {
+            uint8_t k = SLOT_KEY[s_profile->rings[i].slot];
+            if ((pressed & k) && k != s_slot_key) {
+                s_ring = (uint8_t)i;
+                s_entry = s_ring_entry[i] ? s_ring_entry[i] : 1;
+                publish_wheel();
+            }
+        }
+        s_swallow_keys |= pressed & ~s_slot_key;
+        pressed &= s_slot_key;
+    }
+    pressed &= ~s_swallow_keys;
 
     for (int slot = APP_SLOT_F1; slot < APP_SLOT_COUNT; slot++) {
         if (!(pressed & SLOT_KEY[slot])) continue;
@@ -105,9 +206,14 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
             // A key takes over from the knob-alone slot. F4 always starts a slot (even with
             // no action) so its long press can open the menu.
             if (a->kind != APP_ACT_NONE || slot == APP_SLOT_F4) begin_slot(slot, now_us);
+            if (a->kind == APP_ACT_COMMANDS && slot != APP_SLOT_F4) wheel_open();
         }
     }
     if (s_slot_key != 0 && !(held & s_slot_key)) {
+        // Let go: the wheel runs its command; a quick press that never turned is a tap.
+        const app_action_t *a = action(s_slot);
+        if (s_wheel_open) wheel_close();
+        else if (a->tap.keycode && !s_engaged && now_us - s_slot_start_us < APP_TAP_MAX_US) push_tap(a->tap);
         end_slot();
     }
     if (s_slot == APP_SLOT_KNOB && now_us - s_last_motion_us >= APP_IDLE_RELEASE_US) {
@@ -161,6 +267,18 @@ void app_mode_detent(int8_t dir, int64_t now_us) {
     s_last_motion_us = now_us;
     const app_action_t *a = action(s_slot);
     switch (a->kind) {
+        case APP_ACT_COMMANDS: {
+            // One detent per entry; the ends just stop (cancel first, last command last).
+            if (!s_wheel_open) break;
+            int last = s_profile->rings[s_ring].count;
+            int e = s_entry + dir;
+            if (e >= 0 && e <= last) {
+                s_entry = (uint8_t)e;
+                publish_wheel();
+            }
+            s_engaged = true;
+            break;
+        }
         case APP_ACT_WHEEL:
             if (!s_engaged) {
                 s_engaged = true;
@@ -212,7 +330,21 @@ void app_mode_return_wheel_steps(int32_t steps) {
     atomic_fetch_add(&s_wheel_steps, steps);
 }
 
-bool app_mode_take_tap(app_key_t *key) {
+bool app_mode_wheel(int *ring, int *entry) {
+    uint32_t w = atomic_load(&s_wheel);
+    *ring = (w >> 8) & 0xFF;
+    *entry = w & 0xFF;
+    return (w >> 31) != 0;
+}
+
+uint32_t app_mode_last_run(int *ring, int *entry) {
+    uint32_t r = atomic_load(&s_run);
+    *ring = (r >> 8) & 0xFF;
+    *entry = r & 0xFF;
+    return r >> 16;
+}
+
+bool app_mode_take_tap(app_tap_t *key) {
     uint32_t tail = atomic_load(&s_tap_tail);
     if (tail == atomic_load(&s_tap_head)) return false;
     *key = s_taps[tail % APP_TAP_RING];
