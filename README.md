@@ -1,0 +1,541 @@
+# Quadra
+
+**A haptic knob for creative software, by Kafi Devices.**
+
+Quadra is a desktop controller built around one motorised knob, four keys and a round
+240×240 display. The motor can make the knob feel like anything: crisp detents, a smooth
+sine bump, syrup-like drag, or a hard wall at the end of a list. The firmware uses that to
+drive applications directly. In Figma the knob zooms, walks the layer tree and runs a wheel
+of auto-layout and component commands. In Plasticity and Onshape it orbits, pans and zooms
+the viewport, and it dials fillets, extrusions and rotations to exact values.
+
+<p align="center">
+  <img src="NanoDepsidf/docs/images/main-figma.png" width="200" alt="Main screen in Figma mode: app icon, live action ZOOM, key legend">
+  <img src="NanoDepsidf/docs/images/figma-wheel-wrap.png" width="200" alt="Figma command wheel: WRAP IN FRAME card with keycaps">
+  <img src="NanoDepsidf/docs/images/param-chamfer.png" width="200" alt="Plasticity parameter mode: CHAMFER -.85, step row">
+  <img src="NanoDepsidf/docs/images/attract-figma.png" width="200" alt="Idle screen: plasma emitted from the Figma icon">
+</p>
+
+Every screen in this README is rendered by the firmware's own drawing code through the host
+preview tool (`NanoDepsidf/tools/ui_preview`), so what you see is exactly what the display
+shows, at 2× scale.
+
+---
+
+## Contents
+
+- [Features](#features)
+- [Using Quadra](#using-quadra)
+  - [Keys and knob](#keys-and-knob)
+  - [The settings menu](#the-settings-menu)
+  - [APP mode and profiles](#app-mode-and-profiles)
+  - [Figma](#figma)
+  - [Plasticity](#plasticity)
+  - [Onshape](#onshape)
+  - [The command wheel](#the-command-wheel)
+  - [Parameter mode](#parameter-mode)
+  - [Idle screen](#idle-screen)
+- [Hardware](#hardware)
+- [Firmware architecture](#firmware-architecture)
+- [Building and flashing](#building-and-flashing)
+- [Tools](#tools)
+- [Writing an app profile](#writing-an-app-profile)
+- [Repository layout](#repository-layout)
+- [Status and roadmap](#status-and-roadmap)
+
+---
+
+## Features
+
+- **Programmable haptics.** Field-oriented control of a BLDC motor at 10 kHz, with three
+  force laws:
+  - **SAW:** crisp detents with an electrical click pulse.
+  - **SINE:** a smooth bump.
+  - **VISCOSE:** pure velocity damping, no detents.
+
+  Detent count, stiffness (Kp) and damping (Kd) are adjustable live. Lists end in a
+  **haptic wall**: the knob pushes back instead of clicking past the end.
+- **Audible clicks.** Every detent plays a synthesised click through an I²S amplifier and
+  transducer. There are two timbres (WOOD, THUD) and an adjustable pitch. Fine-adjustment
+  clicks sound an octave higher so you can hear which mode you are in.
+- **USB composite device:**
+  - a keyboard, mouse and gamepad HID interface;
+  - a vendor HID data channel, used for icon upload;
+  - a CDC serial console.
+
+  There is no host software to install; the computer sees a keyboard and a mouse.
+- **APP mode with app profiles.** Each supported application is one data file describing
+  what the knob and keys send, how the knob feels while doing it, and what the screen shows.
+  Figma, Plasticity and Onshape ship today.
+- **Command wheel.** Hold a key, turn to pick a command, release to run it. Each command has
+  a small animated illustration of what it does.
+- **Parameter mode.** After a modelling command starts, the knob sets its value: fine clicks,
+  or exact 0.05 / 0.10 / 1.00 steps. In Plasticity you can constrain to the X, Y or Z axis;
+  in Onshape the knob steps the dialog's number field 0.01 / 0.1 / 1.0 at a time. Then
+  confirm or cancel.
+- **Pixel UI.** A console-style interface on a round display: crisp whole-pixel graphics, a
+  pixel font, and animated transitions. Screen rotation is selectable for holding the device
+  in any orientation.
+- **Idle screen.** A plasma animation that radiates from the QUADRA wordmark, or from the
+  active app's icon in that app's colours.
+- **Icon upload.** Send any 48×48 image over USB to show on the main screen (RAM only).
+
+---
+
+## Using Quadra
+
+### Keys and knob
+
+The four keys are **F1, F2, F3 and F4**, from left to right along the bottom of the display.
+The screen always shows what each key does, on the key legend at the bottom.
+
+| Input | Main screen, non-APP modes | In the menu |
+|---|---|---|
+| Knob | Mouse scroll wheel, one step per detent | Move the selection / change a value |
+| F1 | — | Select, or start / confirm an edit |
+| F2 | — | Save the current screen |
+| F3 | — | Back / cancel an edit |
+| F4 | Open the menu | Close the menu |
+
+In APP mode the keys belong to the application (see below), and **holding F4 for 0.7 s
+opens the menu** instead.
+
+### The settings menu
+
+<p>
+  <img src="NanoDepsidf/docs/images/menu.png" width="180" alt="Top-level menu list">
+  <img src="NanoDepsidf/docs/images/haptics-feel.png" width="180" alt="Haptics screen editing FEEL">
+  <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="HID TYPE carousel on APP">
+  <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
+  <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
+</p>
+
+| Screen | Settings |
+|---|---|
+| **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), TONE (WOOD / THUD click), PITCH (click pitch). Changes are live while you tune; F2 saves. |
+| **HID TYPE** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
+| **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
+| **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
+
+Screens with a single choice (HID TYPE, DISPLAY, BOOT MODE) change the value directly as you
+turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
+survive power cycles.
+
+### APP mode and profiles
+
+APP is the default HID type. The status bar shows the active app's icon and name, and the
+keys and knob drive that application. Profiles are chosen in **HID TYPE → PROFILE**.
+
+The knob's feel follows what it is doing. Smooth drags (orbit, pan, zoom) run VISCOSE.
+Stepped actions (undo history, layers, frames) click once per step.
+
+### Figma
+
+<p>
+  <img src="NanoDepsidf/docs/images/main-figma.png" width="200" alt="Figma main screen">
+  <img src="NanoDepsidf/docs/images/figma-wheel-align.png" width="200" alt="Figma wheel: ALIGN LEFT">
+  <img src="NanoDepsidf/docs/images/figma-wheel-detach.png" width="200" alt="Figma wheel: DETACH INSTANCE">
+  <img src="NanoDepsidf/docs/images/wheel-echo.png" width="200" alt="Main screen echoing a command after it ran">
+</p>
+
+| Input | Tap | Hold + turn |
+|---|---|---|
+| Knob alone | — | Zoom (⌘ + wheel) |
+| F1 | Undo | Undo / redo, one history step per detent |
+| F2 | Zoom to selection | **Depth:** clockwise selects children (↵), counter-clockwise the parent (⇧↵) |
+| F3 | — | **Command wheel** |
+| F4 | Long press: menu | Next / previous frame (N / ⇧N) |
+
+**Wheel rings (F3):**
+- **STRUCTURE:** add or remove auto layout, wrap in frame, group.
+- **ALIGN:** left, centre, right, top, middle, bottom, tidy up.
+- **COMPONENTS:** create component, detach instance, go to main component, reset instance.
+- **UTILITY:** copy and paste properties, rename, run last plugin.
+
+Commands without a shortcut go through Figma's Actions search (⌘K, type, Enter).
+
+Shortcuts assume macOS and a US keyboard layout.
+
+### Plasticity
+
+<p>
+  <img src="NanoDepsidf/docs/images/plasticity-orbit.png" width="200" alt="Plasticity main screen: isometric pyramid while orbiting">
+  <img src="NanoDepsidf/docs/images/plasticity-wheel-fillet.png" width="200" alt="Plasticity wheel: FILLET">
+  <img src="NanoDepsidf/docs/images/plasticity-wheel-boolean.png" width="200" alt="Plasticity wheel: BOOLEAN">
+  <img src="NanoDepsidf/docs/images/plasticity-wheel-edges.png" width="200" alt="Plasticity wheel: EDGES selection mode">
+</p>
+
+| Input | Tap | Hold + turn |
+|---|---|---|
+| Knob alone | — | Zoom (continuous: Ctrl + middle-drag) |
+| F1 | — | Zoom |
+| F2 | — | Orbit (middle-drag) |
+| F3 | Undo (⌘Z) | **Command wheel** |
+| F4 | Long press: menu | Pan (right-drag) |
+
+The main screen shows a small isometric pyramid chained to the knob. It turns one-for-one
+with orbit, zooms through nested copies, slides with pan, and flashes on undo. After an
+orbit it settles to the clean 45° isometric pose.
+
+**Wheel rings (F3):**
+- **SOLID:** extrude, fillet, boolean, cut, offset face, hollow.
+- **EDIT:** move, rotate, scale, duplicate, mirror, delete.
+- **SELECT:** control points, edges, faces, solids, all types, select all, invert.
+- **VIEW:** front, right, top, perspective, focus, isolate, unisolate.
+
+Keys follow Plasticity's defaults from the [Plasticity manual](https://doc.plasticity.xyz/all-commands).
+Commands without a default key use the command palette (F, type, Enter).
+
+### Onshape
+
+<p>
+  <img src="NanoDepsidf/docs/images/profile-onshape.png" width="200" alt="App profile carousel on ONSHAPE">
+  <img src="NanoDepsidf/docs/images/onshape-wheel-revolve.png" width="200" alt="Onshape wheel: REVOLVE">
+  <img src="NanoDepsidf/docs/images/onshape-wheel-circle.png" width="200" alt="Onshape wheel: sketch CIRCLE">
+  <img src="NanoDepsidf/docs/images/onshape-wheel-section.png" width="200" alt="Onshape wheel: SECTION view">
+</p>
+
+Onshape runs in the browser, so keys land only while its tab has focus. Navigation follows
+Onshape's default mouse: right-drag rotates, middle-drag pans, and the scroll wheel zooms.
+
+| Input | Tap | Hold + turn |
+|---|---|---|
+| Knob alone | — | Zoom, one scroll notch per detent |
+| F1 | — | Zoom |
+| F2 | — | Orbit (right-drag) |
+| F3 | Undo (⌘Z) | **Command wheel** |
+| F4 | Long press: menu | Pan (middle-drag) |
+
+The main screen shows the same knob-driven isometric shape as Plasticity, as a cube.
+
+**Wheel rings (F3):**
+- **MODEL:** sketch, extrude, revolve, fillet, chamfer, shell.
+- **MODIFY:** boolean, split, transform, linear pattern, mirror, move face.
+- **SKETCH:** line, rectangle, circle, arc, dimension, trim, construction. These are
+  Onshape's single-letter sketch keys, which work only while a sketch is open.
+- **VIEW:** front, right, top, isometric, normal to, zoom to fit, section.
+
+Cards show Onshape's feature list on the right, with the new feature above the rollback
+bar. Keys follow Onshape's
+[keyboard shortcuts](https://cad.onshape.com/help/Content/Home/keyboard_shortcuts_and_hotkeys.htm).
+Tools without a default key go through tool search (⌥C, type, Enter).
+
+### The command wheel
+
+Hold the wheel key (F3) and the screen turns into a carousel of commands:
+- **One detent per command.** Clockwise moves to the next.
+- **× at the start of every ring** cancels.
+- **A haptic wall at both ends.**
+- **Release to run** the command.
+- **Opens on the last command you used,** so a quick hold-and-release repeats it.
+- **Switching rings:** while the wheel is open, F1, F2 and F4 jump between rings. A key
+  bound to two rings (F1 in every profile) steps through them.
+
+Each command has a **card**: a 120×64 illustration of what it does, animated in a loop. In
+Figma a card is a mini canvas plus layers panel. In Plasticity it is a wireframe isometric
+viewport, the selection-mode strip and the outliner. In Onshape it is the same viewport
+(or a flat sketch) beside the feature list. Cards are not stored as images. They are short
+scene descriptions (shapes, rows and keyframes) drawn at runtime, so 71 animated cards cost
+about 30 KB of flash in total. After a command runs, the main screen replays its
+card for a moment with the name in amber.
+
+On a key that also has a tap action (Plasticity's F3 = undo), the wheel only appears after
+you hold it for 250 ms, so a quick undo never flashes it on screen.
+
+### Parameter mode
+
+<p>
+  <img src="NanoDepsidf/docs/images/param-chamfer.png" width="200" alt="Parameter mode: chamfer">
+  <img src="NanoDepsidf/docs/images/param-rotate.png" width="200" alt="Parameter mode: rotate 35 degrees about X">
+  <img src="NanoDepsidf/docs/images/param-scale-cancel.png" width="200" alt="Parameter mode: scale, holding F3 towards cancel">
+</p>
+
+Running **fillet, extrude, offset face, hollow, move, rotate or scale** from the Plasticity
+wheel turns the screen into that command's value dial. The card follows the value live.
+
+| Input | Does |
+|---|---|
+| Knob alone | **Free:** fine clicks (48 per turn, higher-pitched). Each click nudges the value and moves the pointer, so Plasticity's own handle follows. |
+| Hold F1 / F2 / F4 + turn | **Exact** steps of 0.05 / 0.10 / 1.00 (rotate: 1° / 5° / 15°), one click each. The value is typed in on confirm. |
+| Tap F1 / F2 / F4 | Constrain to **X / Y / Z** (move, rotate, scale). Tap the active one again for its plane (⇧X…), and for scale again for uniform (S). |
+| Tap F3 | Confirm |
+| Hold F3 (0.6 s) | Cancel (Esc); a bar fills while you hold |
+
+**Fillet:** turning right makes a fillet, turning left a chamfer. That is Plasticity's own
+sign convention.
+
+**Limits:** values with a minimum (hollow thickness, scale factor) stop at a haptic wall.
+
+**Defaults:** move starts on X, rotate on Z, and scale is uniform. Each command remembers
+the last constraint you used.
+
+#### Onshape: the number field
+
+<p>
+  <img src="NanoDepsidf/docs/images/param-onshape-scroll.png" width="200" alt="Onshape parameter mode, A scroll: RADIUS +.30">
+  <img src="NanoDepsidf/docs/images/param-onshape-type.png" width="200" alt="Onshape parameter mode, B type: DEPTH 26.00">
+</p>
+
+Running **extrude, fillet, chamfer, shell, move face or transform** from the Onshape wheel
+opens the same dial. Onshape has no handle to drag, so the knob drives the dialog's number
+field. That field steps 0.1 per scroll notch, 0.01 with Ctrl and 1.0 with Shift.
+
+| Input | Does |
+|---|---|
+| Knob alone | Steps of **0.1**, one click each |
+| Hold F1 + turn | Steps of **0.01**, as fine clicks (48 per turn, higher-pitched) |
+| Hold F4 + turn | Steps of **1.0** |
+| Tap F2 | Switch between **A** and **B** (remembered) |
+| Tap F3 | Confirm (Enter) |
+| Hold F3 (0.6 s) | Cancel (Esc) |
+
+The two ways the value reaches Onshape:
+- **A, scroll (the default).** Point at the field. Each click is one scroll notch, with Ctrl
+  or Shift held for the step, and Onshape updates its own preview. The device can't read the
+  field, so the screen shows the change (+.30) and there are no limits.
+- **B, type.** The device keeps the value. When the knob rests, it selects the field (⌘A)
+  and types the value. The screen shows the value, with haptic walls at the limits.
+
+### Idle screen
+
+<p>
+  <img src="NanoDepsidf/docs/images/attract-quadra.png" width="200" alt="Idle plasma around QUADRA">
+  <img src="NanoDepsidf/docs/images/attract-figma.png" width="200" alt="Idle plasma around the Figma icon">
+  <img src="NanoDepsidf/docs/images/attract-plasticity.png" width="200" alt="Idle plasma around the Plasticity icon">
+  <img src="NanoDepsidf/docs/images/attract-onshape.png" width="200" alt="Idle plasma around the Onshape icon">
+</p>
+
+After 5 s without input, a plasma animation ripples outward from the centre. Any input
+wakes the device, and the waking key press is swallowed.
+
+The plasma body is always dithered greys. In APP mode it radiates from the profile's icon,
+and its hottest spots step through that app's colours:
+- **Figma:** its brand purple, blue and green.
+- **Onshape:** teal, Onshape green and lime.
+- **Other profiles:** the three most common colours of the icon.
+
+---
+
+## Hardware
+
+| Part | Details |
+|---|---|
+| MCU | ESP32-S3 (dual core, 240 MHz), 4 MB flash, 2 MB PSRAM, native USB |
+| Motor | 3-phase BLDC, 7 pole pairs, driven by an STSPIN233. Voltage-mode FOC (no current sensing), MCPWM at 32 kHz. |
+| Position sensor | MT6701 magnetic encoder, SSI over SPI |
+| Display | GC9A01 round IPS, 240×240, SPI at 80 MHz, PWM backlight |
+| Audio | MAX98357A I²S amplifier driving a transducer |
+| Keys | 4 (F1–F4), active low |
+| LEDs | Two WS2811 rings (60 + 8 LEDs); not driven yet |
+| USB | USB-C, native USB OTG (TinyUSB) |
+
+<details>
+<summary>Pin map (<code>NanoDepsidf/src/board_pins.h</code>)</summary>
+
+| Function | GPIO |
+|---|---|
+| Motor EN U / V / W | 33 / 48 / 36 |
+| Motor IN U / V / W | 34 / 35 / 37 |
+| MT6701 DO / CLK / CS | 21 / 18 / 17 |
+| Display MOSI / SCLK / CS / DC / RST / BL | 4 / 3 / 6 / 7 / 2 / 5 |
+| I²S DOUT / BCLK / LRC | 9 / 10 / 11 |
+| Keys F1 / F2 / F3 / F4 | 41 / 40 / 45 / 46 |
+| LED ring A / B | 38 / 42 |
+| I²C SDA / SCL | 12 / 13 |
+| UART2 RX / TX | 44 / 43 |
+
+</details>
+
+---
+
+## Firmware architecture
+
+The firmware is ESP-IDF 6.1, built with PlatformIO. It is written in C for the real-time
+and model code, and C++ for the display.
+
+**Core split.** Core 0 runs only the control loop: FOC, sensor reads, haptics, key reads and
+input mapping. Core 1 runs everything that can tolerate latency:
+
+| Task | Core | Priority | Job |
+|---|---|---|---|
+| `control` | 0 | 20 | 10 kHz FOC + haptic loop, key debounce, menu input, APP-mode engine |
+| `usb` | 1 | 12 | Brings the host in line with the wanted HID state every tick |
+| TinyUSB device task | 1 | 11 | The USB stack itself (kept above the display so animations never delay reports) |
+| `i2s` | 1 | 9 | Click synthesis and audio output |
+| `display` | 1 | 9 | Renders frames into a full-screen sprite and pushes them over SPI |
+| `led` | 1 | 3 | Reserved for the LED rings |
+
+**Haptics.** Each tick reads the encoder and finds the nearest detent, with hysteresis. It
+then applies the selected law: a SAW spring with a click pulse, a SINE bump, or VISCOSE
+damping. Fast flicks coast torque-free. End stops refuse the next detent and pull back with a
+stiffer spring that starts continuously from the switch point.
+
+**State, not events.** The control task never queues USB press/release events. It publishes
+what the host *should* see: held buttons and modifier, pending pointer travel and wheel
+steps, and a ring of key taps. The USB task keeps sending until the host matches, so a
+report lost to a busy endpoint can never leave a key or button stuck down.
+
+**App profiles are data.** `src/app_profiles/` holds one C file per application. A profile
+declares:
+- the slots (knob, F1–F4), each with an action (drag, wheel, keys, tap or command wheel), a
+  feel and a detent count;
+- a quick-tap action per key;
+- the command rings and their commands;
+- each command's card, as scene data;
+- optional parameter specs.
+
+The engine (`src/app_mode.c`) knows nothing about any particular app.
+
+**Rendering.** One 240×240 RGB565 sprite in internal RAM is fully redrawn and pushed with
+LovyanGFX: about 1 ms to draw and 12 ms to push. Frames are produced only when something
+changes, or while an animation runs. Everything is whole pixels, with no anti-aliasing:
+- a black background with a four-colour palette (white, grey, dark, amber), where app icons
+  are the only full-colour exception;
+- a Silkscreen-derived pixel font;
+- 1-bit sprites, sometimes scaled by whole numbers.
+
+---
+
+## Building and flashing
+
+**Requirements:** [PlatformIO](https://platformio.org/) (CLI or the VS Code extension). The
+ESP-IDF, TinyUSB and LovyanGFX dependencies download on the first build.
+
+```sh
+cd NanoDepsidf
+pio run                                        # build
+pio run -t upload --upload-port <port>         # flash
+pio device monitor                             # serial console, 115200 baud
+```
+
+In normal operation the device enumerates as a composite HID + CDC device, and uploads use
+the CDC port's 1200-baud reset. If an upload can't find the device:
+
+- **Hold F3 + F4 while powering on.** For that boot, the device skips the HID device and
+  stays in the ESP32-S3's plain USB serial/JTAG mode, which the uploader can always reach.
+  This takes priority over every saved setting.
+- Or set **BOOT MODE → USB MODE → SERIAL** in the menu and restart.
+
+The board definition is `NanoDepsidf/boards/nanofoc_d.json`, and the partition table
+`boards/nano_partitions.csv` has two OTA slots of 1.25 MB each, NVS and a spare 1.4 MB data
+partition. Motor calibration runs on first boot and is cached in NVS.
+
+---
+
+## Tools
+
+All Python tools use one virtualenv:
+
+```sh
+python3 -m venv NanoDepsidf/tools/.venv
+NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
+```
+
+| Tool | What it does |
+|---|---|
+| `tools/ui_preview/run.sh [out.png]` | Compiles the firmware's UI code for the host against a small graphics stub and renders every screen into one PNG contact sheet: menus, wheels, every command card, parameter dials, the idle screen. No hardware needed. |
+| `tools/send_icon.py` | Uploads a 48×48 image to the device over the vendor HID interface (`icon.png`, `--test-pattern`, `--clear`, `--list`, `--dry-run --preview out.png`). |
+| `tools/gen_icon_c.py` | Converts a PNG into an RGB565 C array for a profile icon (24×24 status bar, 48×48 profile screen and idle screen). |
+| `tools/gen_silkscreen_font.py` | Regenerates the pixel fonts in `src/fonts/` from Silkscreen. |
+
+---
+
+## Writing an app profile
+
+1. **Add the file.** Create `src/app_profiles/<app>.c` defining a `const app_profile_t`, and
+   add one line to the registry in `app_profiles.c`. No build changes are needed; `src/` is
+   globbed.
+2. **Add icons.** Draw a 24×24 and a 48×48 icon (`tools/icons/<app>_pixel_{24,48}.png`) and
+   convert them with `gen_icon_c.py`.
+3. **Fill in the slots.** A turn action is a drag (mouse buttons + modifier + pointer axis), a
+   wheel, or keys (one shortcut per detent, clockwise and counter-clockwise). A key can also
+   have a quick-press `tap`:
+
+   ```c
+   [APP_SLOT_F1] = {
+       .kind = APP_ACT_KEYS, .label = "UNDO/REDO",
+       .cw = {CMD | SHIFT, HID_KEY_Z}, .ccw = {CMD, HID_KEY_Z}, .tap = {CMD, HID_KEY_Z},
+       .feel = HAPTIC_TYPE_SAW, .detents = 12,
+   },
+   ```
+
+4. **Optional: a command wheel.** Set a slot to `APP_ACT_COMMANDS` and define `rings`. Each
+   command is a shortcut, or a phrase typed into the app's search (`.search`). It has a
+   `scene` for its card: a list of keyframes, each a handful of elements such as
+   `EL_BOX`, `EL_FRAME`, `EL_ROW` (outliner rows), `EL_ISO` (isometric boxes) or `EL_MODES`:
+
+   ```c
+   SCENE(SC_EXTRUDE,
+         KEYFRAME(600, EL_ISO(32, 40, 16, 16, 0, APP_ISO_FACE), EL_MODES(M_FC), ...),
+         KEYFRAME(1300, EL_ISO(32, 35, 16, 16, 14, APP_ISO_FACE), EL_MODES(M_FC), ...));
+   ```
+
+5. **Optional: parameter mode.** Give a command an `app_param_t` with its label, steps,
+   limits, the key that puts the app into value entry, axis options and a visual. Set the
+   profile's `param_keys`: numeric entry, confirm, cancel, the X / Y / Z keys and uniform.
+   For an app with number fields instead of handles, set `.field = true` with the modifier
+   for each step (`step_mod`), the scroll direction and a select-all key, as Onshape does.
+6. **Check it.** Render with `tools/ui_preview/run.sh`; every card and dial shows up in the
+   contact sheet.
+
+`figma.c`, `plasticity.c` and `onshape.c` are complete worked examples.
+
+---
+
+## Repository layout
+
+```
+NanoDepsidf/                   the firmware (PlatformIO project)
+├── platformio.ini
+├── sdkconfig.defaults         ESP-IDF settings (CPU 240 MHz, watchdog, TinyUSB, ...)
+├── boards/                    board definition + partition table
+├── src/
+│   ├── main.c                 boot: USB mode select, task start-up
+│   ├── control_task.c         10 kHz FOC + haptics loop, keys, menu input (Core 0)
+│   ├── motor_driver.c, foc_*.c, mt6701.c    motor, FOC maths, calibration, encoder
+│   ├── app_mode.c             APP-mode engine: slots, command wheel, parameter mode
+│   ├── app_profiles/          one file per app + icons
+│   ├── usb_task.c             TinyUSB composite device, HID state sync
+│   ├── icon_store.c           vendor-HID icon upload protocol
+│   ├── i2s_task.c, audio_trigger.c          click synthesis
+│   ├── menu.c, config_store.c               settings menu + NVS persistence
+│   ├── display_task.cpp       view state, transitions, frame pacing
+│   ├── ui_gfx.cpp             pixel primitives, font, sprites
+│   ├── ui_screens.cpp         every screen's layout
+│   ├── ui_cards.cpp           command cards, wheel, parameter dials (scene renderer)
+│   ├── ui_shape.cpp           the CAD profiles' isometric micro-interaction
+│   └── ui_fx.cpp              boot animation, idle plasma
+├── tools/                     host tools (see above)
+└── docs/images/               README screens (rendered by tools/ui_preview)
+```
+
+---
+
+## Status and roadmap
+
+**Working and confirmed on hardware:**
+- FOC and haptics, with end stops.
+- Audio clicks.
+- The USB composite device.
+- The settings menu with persistence, and display rotation.
+- APP mode with the Figma, Plasticity and Onshape profiles, their command wheels, and
+  parameter mode (Plasticity's handle, Onshape's number field).
+- The idle screen, icon upload, and the pixel UI.
+
+**Milestone 1 (in progress):**
+- LED rings.
+- KEYBOARD, MOUSE and MIDI modes.
+- Host configuration protocol.
+- Integration, load and power tests.
+- Final clean-up.
+
+**Milestone 2:**
+- Uploadable profiles stored on the device.
+- Automatic profile switching from the frontmost app.
+- Windows support (Ctrl in place of ⌘).
+- A Figma plugin for direct value control over HID.
+
+**Known assumptions:**
+- Shortcuts assume **macOS** and a **US keyboard layout**. HID sends key positions, so other
+  layouts can type different characters.
+- Uploaded icons are held in RAM and cleared on restart.
