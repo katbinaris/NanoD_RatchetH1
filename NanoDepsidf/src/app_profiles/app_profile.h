@@ -309,3 +309,27 @@ typedef struct {
     app_search_t search;
     app_param_keys_t param_keys;
 } app_profile_t;
+
+// --- Empty template ---
+// A profile with nothing app-specific: the knob scrolls (as outside APP mode), F1-F3 do
+// nothing, holding F4 still opens the menu. A new app starts as one line
+//     const app_profile_t app_profile_blender =
+//         APP_PROFILE_EMPTY_ICON("blender", "BLENDER", app_icon_blender_24, app_icon_blender_48);
+// and is filled in later (APP_PROFILE_EMPTY: the placeholder icon). `app_profile_empty` (empty.c) is the same template, used in place of
+// a registry entry that is missing or fails the checks in app_profiles.c. Needs
+// "icons/app_icons.h" (placeholder icon) and "class/hid/hid.h".
+#define APP_PROFILE_EMPTY(id_, name_) APP_PROFILE_EMPTY_ICON(id_, name_, app_icon_empty_24, app_icon_empty_48)
+#define APP_PROFILE_EMPTY_ICON(id_, name_, icon24_, icon48_) {                 \
+    .version = APP_PROFILE_VERSION,                                           \
+    .id = id_,                                                                \
+    .name = name_,                                                            \
+    .icon24 = icon24_,                                                        \
+    .icon48 = icon48_,                                                        \
+    .legend = {"-", "-", "-", "MENU"},                                        \
+    .slot = {                                                                 \
+        [APP_SLOT_KNOB] = {                                                   \
+            .kind = APP_ACT_WHEEL, .label = "SCROLL", .sign = 1,              \
+            .feel = HAPTIC_TYPE_SAW,                                          \
+        },                                                                    \
+    },                                                                        \
+}

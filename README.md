@@ -32,6 +32,7 @@ shows, at 2× scale.
   - [Figma](#figma)
   - [Plasticity](#plasticity)
   - [Onshape](#onshape)
+  - [Blender and AutoCAD](#blender-and-autocad)
   - [The command wheel](#the-command-wheel)
   - [Parameter mode](#parameter-mode)
   - [Idle screen](#idle-screen)
@@ -66,7 +67,8 @@ shows, at 2× scale.
   There is no host software to install; the computer sees a keyboard and a mouse.
 - **APP mode with app profiles.** Each supported application is one data file describing
   what the knob and keys send, how the knob feels while doing it, and what the screen shows.
-  Figma, Plasticity and Onshape ship today.
+  Figma, Plasticity and Onshape ship today. Blender and AutoCAD are listed as empty profiles
+  (the knob scrolls) until they are designed.
 - **Command wheel.** Hold a key, turn to pick a command, release to run it. Each command has
   a small animated illustration of what it does.
 - **Parameter mode.** After a modelling command starts, the knob sets its value: fine clicks,
@@ -219,6 +221,18 @@ Cards show Onshape's feature list on the right, with the new feature above the r
 bar. Keys follow Onshape's
 [keyboard shortcuts](https://cad.onshape.com/help/Content/Home/keyboard_shortcuts_and_hotkeys.htm).
 Tools without a default key go through tool search (⌥C, type, Enter).
+
+### Blender and AutoCAD
+
+<p>
+  <img src="NanoDepsidf/docs/images/profile-blender.png" width="200" alt="App profile carousel on BLENDER">
+  <img src="NanoDepsidf/docs/images/profile-autocad.png" width="200" alt="App profile carousel on AUTOCAD">
+</p>
+
+Both are in the profile list with their icons, but not designed yet: they use the **empty
+template**. The knob scrolls as it does outside APP mode, F1–F3 do nothing, and holding F4
+opens the menu. Their own controls will come in later profiles; both work differently from
+the Plasticity / Onshape pair.
 
 ### The command wheel
 
@@ -444,7 +458,19 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 
 1. **Add the file.** Create `src/app_profiles/<app>.c` defining a `const app_profile_t`, and
    add one line to the registry in `app_profiles.c`. No build changes are needed; `src/` is
-   globbed.
+   globbed. The quickest start is the empty template, which gives a working profile where the
+   knob scrolls and holding F4 opens the menu (as `blender.c` and `autocad.c` do today):
+
+   ```c
+   const app_profile_t app_profile_blender =
+       APP_PROFILE_EMPTY_ICON("blender", "BLENDER", app_icon_blender_24, app_icon_blender_48);
+   ```
+
+   `APP_PROFILE_EMPTY(id, name)` does the same with a placeholder icon.
+
+   The registry checks each profile once before use (version, names, legends, slots, rings,
+   commands, scenes). A profile that fails, or a missing entry, is replaced by the same empty
+   template, shown as EMPTY, so a mistake can never crash the device.
 2. **Add icons.** Draw a 24×24 and a 48×48 icon (`tools/icons/<app>_pixel_{24,48}.png`) and
    convert them with `gen_icon_c.py`.
 3. **Fill in the slots.** A turn action is a drag (mouse buttons + modifier + pointer axis), a

@@ -152,23 +152,32 @@ int main() {
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
     keep("hid APP");
 
-    static const ui::ProfileItem profiles[3] = {
+    static const ui::ProfileItem profiles[5] = {
         {"PLASTICITY", app_icon_plasticity_24, app_icon_plasticity_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
         {"FIGMA", app_icon_figma_24, app_icon_figma_48, {"UNDO", "DEPTH", "WHEEL", "FRAME"}},
         {"ONSHAPE", app_icon_onshape_24, app_icon_onshape_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
+        {"BLENDER", app_icon_blender_24, app_icon_blender_48, {"-", "-", "-", "MENU"}}, // the empty template
+        {"AUTOCAD", app_icon_autocad_24, app_icon_autocad_48, {"-", "-", "-", "MENU"}},
     };
     menu_render_snapshot_t prof = {};
     prof.open = true;
     prof.screen = MENU_SCREEN_APP_PROFILE;
     prof.rows[0] = row("PROFILE", "", "FIGMA", true);
     prof.row_count = 1;
-    ui::draw_app_profile(prof, {profiles, 3, 0, 0, true});
+    ui::draw_app_profile(prof, {profiles, 5, 0, 0, true});
     keep("profile PLASTICITY, saved");
     prof.dirty = true;
-    ui::draw_app_profile(prof, {profiles, 3, 1, 0, true});
+    ui::draw_app_profile(prof, {profiles, 5, 1, 0, true});
     keep("profile FIGMA, unsaved");
-    ui::draw_app_profile(prof, {profiles, 3, 2, 0, true});
+    ui::draw_app_profile(prof, {profiles, 5, 2, 0, true});
     keep("profile ONSHAPE, unsaved");
+    ui::draw_app_profile(prof, {profiles, 5, 3, 0, true});
+    keep("profile BLENDER (empty template), unsaved");
+    ui::AppView empty = {"BLENDER", app_icon_blender_24, {"-", "-", "-", "MENU"}, "SCROLL", "KNOB"};
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &empty});
+    keep("main APP blender (empty template)");
+    ui::draw_app_profile(prof, {profiles, 5, 4, 0, true});
+    keep("profile AUTOCAD (empty template), unsaved");
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("HID TYPE", "", "MIDI", false);

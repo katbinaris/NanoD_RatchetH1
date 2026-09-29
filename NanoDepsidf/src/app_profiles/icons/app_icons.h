@@ -15,9 +15,15 @@ extern "C" {
 extern const uint8_t app_icon_figma_24[APP_ICON_24_BYTES];
 extern const uint8_t app_icon_plasticity_24[APP_ICON_24_BYTES];
 extern const uint8_t app_icon_onshape_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_blender_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_autocad_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_empty_24[APP_ICON_24_BYTES]; // placeholder: a dashed square + plus
 extern const uint8_t app_icon_figma_48[APP_ICON_48_BYTES];
 extern const uint8_t app_icon_plasticity_48[APP_ICON_48_BYTES];
 extern const uint8_t app_icon_onshape_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_blender_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_autocad_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_empty_48[APP_ICON_48_BYTES];
 
 #ifdef __cplusplus
 }
