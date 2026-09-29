@@ -202,9 +202,14 @@ void draw_wheel(const WheelView &v) {
 
     int dots_w = v.count * 8 - 4;
     for (int i = 0; i < v.count; i++) rect(lroundf(CX - dots_w / 2.0f) + i * 8, 170, 4, 4, i == v.entry ? AMBER : DARK);
-    int tabs_w = v.ring_count * 20 - 20;
+    // Ring tabs: short names, the open ring amber.
+    const int TAB_GAP = 9;
+    int tabs_w = -TAB_GAP;
+    for (int i = 0; i < v.ring_count; i++) tabs_w += text_width(v.ring_tabs[i]) + TAB_GAP;
+    float tx = lroundf(CX - tabs_w / 2.0f);
     for (int i = 0; i < v.ring_count; i++) {
-        text(v.ring_keys[i], CX - tabs_w / 2.0f + i * 20, 188, i == v.ring ? AMBER : DARK, 1, CENTER);
+        text(v.ring_tabs[i], tx, 188, i == v.ring ? AMBER : DARK);
+        tx += text_width(v.ring_tabs[i]) + TAB_GAP;
     }
 }
 

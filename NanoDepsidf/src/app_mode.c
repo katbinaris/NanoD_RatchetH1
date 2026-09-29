@@ -184,12 +184,19 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
 
     // Command wheel open: the other F keys jump between rings and do nothing else.
     if (s_wheel_open) {
-        for (int i = 0; i < ring_count(); i++) {
-            uint8_t k = SLOT_KEY[s_profile->rings[i].slot];
-            if ((pressed & k) && k != s_slot_key) {
+        for (int slot = APP_SLOT_F1; slot < APP_SLOT_COUNT; slot++) {
+            uint8_t k = SLOT_KEY[slot];
+            if (!(pressed & k) || k == s_slot_key) continue;
+            // The next ring bound to this key after the current one (wrapping), so a key
+            // that owns several rings steps through them.
+            int n = ring_count();
+            for (int step = 1; step <= n; step++) {
+                int i = (s_ring + step) % n;
+                if (s_profile->rings[i].slot != slot) continue;
                 s_ring = (uint8_t)i;
                 s_entry = s_ring_entry[i] ? s_ring_entry[i] : 1;
                 publish_wheel();
+                break;
             }
         }
         s_swallow_keys |= pressed & ~s_slot_key;
@@ -293,6 +300,11 @@ void app_mode_detent(int8_t dir, int64_t now_us) {
         default:
             break; // drags follow app_mode_motion(); taps fire on press
     }
+}
+
+bool app_mode_at_end(int8_t dir) {
+    if (!s_active || !s_wheel_open || s_profile == NULL) return false;
+    return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
 void app_mode_haptics(haptic_type_t *type, uint32_t *detents) {

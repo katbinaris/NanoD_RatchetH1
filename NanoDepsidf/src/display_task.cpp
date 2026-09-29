@@ -401,14 +401,13 @@ static bool wheel_tick(int64_t now, bool *changed) {
 }
 
 static ui::WheelView wheel_view(int64_t now) {
-    static const char *const KEYS[APP_SLOT_COUNT] = {"", "F1", "F2", "F3", "F4"};
     static char key[2];
     const app_profile_t *p = app_profiles_get(menu_get_app_profile());
     ui::WheelView v = {};
     const app_ring_t &r = p->rings[s_wheel_ring];
     v.ring_name = r.name;
     v.ring_count = p->ring_count < 8 ? p->ring_count : 8;
-    for (int i = 0; i < v.ring_count; i++) v.ring_keys[i] = KEYS[p->rings[i].slot % APP_SLOT_COUNT];
+    for (int i = 0; i < v.ring_count; i++) v.ring_tabs[i] = p->rings[i].tab;
     v.ring = s_wheel_ring;
     v.count = r.count + 1;
     v.entry = s_wheel_entry;
@@ -581,15 +580,6 @@ static Pace update_ui(void) {
     // A new icon counts as activity so an upload wakes the screen and shows it.
     bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed;
     if (activity) s_last_activity_us = now;
-
-    // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8) -- see menu.h's
-    // menu_get_last_input_us() comment.
-    if (snapshot_changed) {
-        int64_t input_us = menu_get_last_input_us();
-        if (input_us > 0) {
-            ESP_LOGI(TAG, "menu render latency: %lld ms", (long long)((now - input_us) / 1000));
-        }
-    }
 
     if (snap.save_count != s_last_save_count) {
         s_last_save_count = snap.save_count;

@@ -3,7 +3,6 @@
 #include "haptic_params.h"
 #include "app_profiles/app_profiles.h"
 #include "freertos/FreeRTOS.h"
-#include "esp_timer.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,6 +25,7 @@ typedef struct {
     void (*format_value)(char *buf, size_t buf_size);  // MENU_ITEM_VALUE
     void (*on_rotate)(int8_t direction);               // MENU_ITEM_VALUE, called while editing
     bool (*is_enabled)(void);                          // NULL = always enabled
+    bool (*at_end)(int8_t direction);                  // non-wrapping value at its end that way
 } menu_item_t;
 
 struct menu_screen_s {
@@ -214,6 +214,10 @@ static void fmt_app_profile(char *buf, size_t n) {
 }
 // The profile list stops at both ends instead of wrapping: with only a few apps, a
 // wrapping carousel would show the same app on both sides.
+static bool app_profile_at_end(int8_t dir) {
+    int v = (int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
+    return dir > 0 ? v >= app_profiles_count() - 1 : v <= 0;
+}
 static void rotate_app_profile(int8_t dir) {
     int v = (int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed) + dir;
     if (v < 0) v = 0;
@@ -278,7 +282,7 @@ static const menu_screen_t s_haptic_screen = {
 // APP -> F1 opens a screen of its own for choosing the app profile (a carousel of app
 // icons), rather than an inline row -- it scales past a handful of apps.
 static const menu_item_t s_app_profile_items[] = {
-    { .label = "PROFILE", .kind = MENU_ITEM_VALUE, .format_value = fmt_app_profile, .on_rotate = rotate_app_profile },
+    { .label = "PROFILE", .kind = MENU_ITEM_VALUE, .format_value = fmt_app_profile, .on_rotate = rotate_app_profile, .at_end = app_profile_at_end },
 };
 static const menu_screen_t s_app_profile_screen = {
     MENU_SCREEN_APP_PROFILE, "App Profile", s_app_profile_items, 1, true, action_save_hid
@@ -539,11 +543,6 @@ void menu_init(void) {
     settings_capture(&s_saved);
 }
 
-// TEMPORARY DIAGNOSTIC -- see menu.h's menu_get_last_input_us() comment.
-static _Atomic int64_t s_last_input_us = 0;
-static inline void stamp_input_time(void) {
-    atomic_store_explicit(&s_last_input_us, esp_timer_get_time(), memory_order_relaxed);
-}
 
 void menu_input_toggle_open(void) {
     portENTER_CRITICAL(&s_state_mux);
@@ -564,7 +563,6 @@ void menu_input_toggle_open(void) {
         s_editing = false;
     }
     portEXIT_CRITICAL(&s_state_mux);
-    stamp_input_time();
 }
 
 void menu_input_back(void) {
@@ -583,14 +581,12 @@ void menu_input_back(void) {
         s_stack_depth = (s_stack_depth > 1) ? s_stack_depth - 1 : 0; // at the top level, back = close
     }
     portEXIT_CRITICAL(&s_state_mux);
-    stamp_input_time();
 }
 
 void menu_input_select(void) {
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0) {
         portEXIT_CRITICAL(&s_state_mux);
-        stamp_input_time();
         return;
     }
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
@@ -626,7 +622,6 @@ void menu_input_select(void) {
         s_editing = true;
     }
     portEXIT_CRITICAL(&s_state_mux);
-    stamp_input_time();
 }
 
 void menu_input_save(void) {
@@ -660,14 +655,12 @@ void menu_input_save(void) {
         portEXIT_CRITICAL(&s_state_mux);
         atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed);
     }
-    stamp_input_time();
 }
 
 void menu_input_rotate(int8_t direction) {
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0 || direction == 0) {
         portEXIT_CRITICAL(&s_state_mux);
-        stamp_input_time();
         return;
     }
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
@@ -680,11 +673,18 @@ void menu_input_rotate(int8_t direction) {
         top->selected_index = step_index(top->screen, top->selected_index, direction);
     }
     portEXIT_CRITICAL(&s_state_mux);
-    stamp_input_time();
 }
 
-int64_t menu_get_last_input_us(void) {
-    return atomic_load_explicit(&s_last_input_us, memory_order_relaxed);
+bool menu_at_end(int8_t direction) {
+    bool end = false;
+    portENTER_CRITICAL(&s_state_mux);
+    if (s_stack_depth > 0) {
+        const menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
+        const menu_item_t *it = &top->screen->items[top->selected_index];
+        if ((s_editing || top->screen->direct_edit) && it->at_end != NULL) end = it->at_end(direction);
+    }
+    portEXIT_CRITICAL(&s_state_mux);
+    return end;
 }
 
 bool menu_is_open(void) {

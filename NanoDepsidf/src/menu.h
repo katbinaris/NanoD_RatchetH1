@@ -120,6 +120,10 @@ void menu_input_rotate(int8_t direction); // knob tick, +1/-1: navigate list, or
 
 bool menu_is_open(void);
 
+// True when turning `direction` would push a non-wrapping value past its end (the PROFILE
+// list): control_task.c makes that detent a haptic wall instead of a step. Core 0.
+bool menu_at_end(int8_t direction);
+
 // Consumer side (Core 1). Thread-safe full-struct copy.
 void menu_get_render_snapshot(menu_render_snapshot_t *out);
 
@@ -151,13 +155,3 @@ menu_hid_type_t menu_get_hid_type(void);
 int32_t menu_get_app_profile(void);
 // Screen rotation, 0-3 quarter turns (live while the DISPLAY screen is being turned).
 int32_t menu_get_display_rotation(void);
-
-// TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8): the earlier "laggy roller" fixes
-// (I2S/display priority equalization, roller anim-duration override, single-buffer/24-row
-// revert) didn't resolve it, and I2S being fully disabled still didn't either -- rather than
-// guess a sixth hypothesis, measure the actual Core0-input-to-Core1-render latency directly.
-// esp_timer_get_time(), an atomic store -- cheap and non-blocking, safe to call from Core 0's
-// real-time loop (unlike an ESP_LOGx call there, which is exactly what caused the Phase 2a
-// watchdog incident this project already learned from). display_task.c reads this and logs
-// the delta only on Core 1, only when it actually detects a change -- infrequent, safe.
-int64_t menu_get_last_input_us(void);

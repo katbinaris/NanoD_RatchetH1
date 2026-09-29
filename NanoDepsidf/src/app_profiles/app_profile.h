@@ -168,7 +168,10 @@ typedef struct {
 
 typedef struct {
     const char *name;         // "STRUCTURE"
-    uint8_t slot;             // app_slot_t of the F key that jumps here while the wheel is open
+    const char *tab;          // short name for the ring tabs, <= 6 chars ("BUILD")
+    // app_slot_t of the F key that jumps here while the wheel is open. Several rings may share
+    // a key: tapping it again steps through them (F1: STRUCTURE -> ALIGN -> STRUCTURE).
+    uint8_t slot;
     uint8_t count;
     const app_cmd_t *cmds;    // count entries; "cancel" is added in front by the engine
 } app_ring_t;

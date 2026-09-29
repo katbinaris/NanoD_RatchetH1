@@ -21,7 +21,7 @@ void draw_card(const app_scene_t *scene, int x, int y, uint32_t t_ms);
 // The wheel screen (replaces the Main Screen while the wheel key is held).
 struct WheelView {
     const char *ring_name;      // header
-    const char *ring_keys[8];   // "F1", "F2", "F4" -- the ring tabs
+    const char *ring_tabs[8];   // short ring names ("BUILD", "ALIGN") -- the ring tabs
     int ring_count, ring;       // tabs + the open one
     int count, entry;           // entries incl. cancel (0) + the chosen one
     const char *name;           // "WRAP IN FRAME" / "CANCEL"

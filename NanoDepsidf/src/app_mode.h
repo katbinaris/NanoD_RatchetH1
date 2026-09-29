@@ -47,6 +47,10 @@ void app_mode_detent(int8_t dir, int64_t now_us);
 // The live slot's feel: overrides *type / *detents (leaves them if the slot has no action).
 void app_mode_haptics(haptic_type_t *type, uint32_t *detents);
 
+// True when a detent in `dir` would run off the end of a list (the command wheel): the
+// control loop turns that detent into a haptic wall instead of a step.
+bool app_mode_at_end(int8_t dir);
+
 // --- display side ---
 
 // The slot whose action is live right now (APP_SLOT_KNOB when no key is held).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload a 48x48 icon to the Nano D++ over its vendor HID interface.
+"""Upload a 48x48 icon to the Quadra over its vendor HID interface.
 
 The PNG (any size, any mode) is fitted into 48x48 keeping its aspect ratio, alpha is
 flattened onto black (the device's background), converted to RGB565 big-endian, and sent in
@@ -36,7 +36,7 @@ STATUS = {0: "OK", 1: "BAD_STATE", 2: "BAD_PARAM", 3: "BAD_OFFSET", 4: "CRC_FAIL
 # --- device matching (src/usb_task.c) ---
 VENDOR_USAGE_PAGE = 0xFF00
 VENDOR_USAGE = 0x01
-PRODUCT_STRING = "Nano D++"
+PRODUCT_STRING = "Quadra"
 
 REPLY_TIMEOUT_MS = 1000
 
@@ -173,7 +173,7 @@ def main():
         for d in devs:
             print("%04x:%04x  %s  %s" % (d["vendor_id"], d["product_id"], d.get("product_string"), d["path"]))
         if not devs:
-            print("no Nano D++ vendor HID interface found")
+            print("no Quadra vendor HID interface found")
         return 0 if devs else 1
 
     data = None
@@ -197,7 +197,7 @@ def main():
 
     devs = find_devices()
     if not devs:
-        print("error: no Nano D++ vendor HID interface found (is the new firmware flashed "
+        print("error: no Quadra vendor HID interface found (is the new firmware flashed "
               "and the board in HID USB mode?)", file=sys.stderr)
         return 1
     link = Link(devs[0])

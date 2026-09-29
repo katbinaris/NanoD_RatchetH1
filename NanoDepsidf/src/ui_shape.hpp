@@ -2,8 +2,9 @@
 // APP-mode micro-interaction: a small 3D shape in the Main Screen's middle band that follows
 // the knob -- nested copies for zoom (an endless loop), a one-for-one turn for orbit, a
 // wrapping row over a scrolling floor for pan, an amber flash for a tap. Direct port of the
-// approved preview (https://claude.ai/artifact/9x5URCUiMgJPqHDDtFeZWj, round 3 "Selected
-// face", isometric 2:1): same projection, same scenes, same numbers, so the device matches it.
+// approved preview (https://claude.ai/artifact/9x5URCUiMgJPqHDDtFeZWj, isometric 2:1; the
+// shipped style is round 4A "Thick"): same projection, same scenes, same numbers, so the
+// device matches it.
 // Stateless: display_task.cpp owns yaw / zoom / pan and the settle / flash timing.
 
 #include <stdint.h>

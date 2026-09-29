@@ -10,12 +10,17 @@
 #define HID_KEY_A 0x04
 #define HID_KEY_B 0x05
 #define HID_KEY_C 0x06
+#define HID_KEY_D 0x07
 #define HID_KEY_G 0x0A
+#define HID_KEY_H 0x0B
 #define HID_KEY_K 0x0E
 #define HID_KEY_N 0x11
 #define HID_KEY_P 0x13
 #define HID_KEY_R 0x15
+#define HID_KEY_S 0x16
+#define HID_KEY_T 0x17
 #define HID_KEY_V 0x19
+#define HID_KEY_W 0x1A
 #define HID_KEY_Z 0x1D
 #define HID_KEY_1 0x1E
 #define HID_KEY_2 0x1F

@@ -192,13 +192,12 @@ int main() {
             return t;
         };
         auto wheel = [&](int ring, int entry, uint32_t t, float slide, const app_scene_t *prev) {
-            static const char *const KEYS[5] = {"", "F1", "F2", "F3", "F4"};
             static char key[2];
             const app_ring_t &r = p.rings[ring];
             ui::WheelView v = {};
             v.ring_name = r.name;
             v.ring_count = p.ring_count;
-            for (int i = 0; i < p.ring_count; i++) v.ring_keys[i] = KEYS[p.rings[i].slot];
+            for (int i = 0; i < p.ring_count; i++) v.ring_tabs[i] = p.rings[i].tab;
             v.ring = ring;
             v.count = r.count + 1;
             v.entry = entry;

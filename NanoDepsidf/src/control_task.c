@@ -212,6 +212,15 @@ static int64_t s_pp_start_us = 0;
 // detent switches. Without this, sitting still exactly at a midpoint lets sensor noise
 // alone flip the nearest-detent pick every tick, chattering between two targets.
 #define HAPTIC_DETENT_HYSTERESIS_FRAC 0.15f
+// End stops: a list at its end (the command wheel, the PROFILE carousel) turns the next detent
+// into a wall -- the committed detent is kept, with no click and no step, and the spring
+// keeps pulling back to it. Past the point where a detent would normally switch, stiffness
+// ramps up by HAPTIC_WALL_GAIN x Kp on top of the normal spring, starting from zero there so
+// the force is continuous (no bump). No breakaway: the first version re-based after 1.6
+// detents, which felt like a ratchet on hardware ("pushes back, then a noticeable skip"). The
+// push is still capped by the motor voltage limit, so a hand can overpower it; let go and
+// it springs back to the end detent.
+#define HAPTIC_WALL_GAIN 3.0f
 // Compared against legacy_fw/src/haptic.cpp (SimpleFOC): the dominant reason legacy feels
 // "clicky" while ours feels "dampened" is that legacy has real closed-loop current control
 // (up to 1.22A/5V) -- ~6x our static Ohm's-law voltage/current ceiling (~0.3A/0.79V), a hard
@@ -882,6 +891,17 @@ static void control_task_fn(void *arg) {
                 } else {
                     detent_index = (int32_t)roundf(rel / detent_spacing);
                 }
+                // End stop: a crossing that would run a list off its end is refused.
+                bool at_wall = false;
+                if (s_haptic_prev_detent_index_valid && detent_index != s_haptic_prev_detent_index) {
+                    float past = wrap_pi(rel - (float)s_haptic_prev_detent_index * detent_spacing);
+                    int8_t dir = past > 0 ? 1 : -1; // same sense as the dispatch's velocity sign below
+                    bool end = menu_is_open() ? menu_at_end(dir) : (app_on && app_mode_at_end(dir));
+                    if (end) {
+                        detent_index = s_haptic_prev_detent_index;
+                        at_wall = true;
+                    }
+                }
                 float target_rel = (float)detent_index * detent_spacing;
                 float error = wrap_pi(target_rel - rel);
 
@@ -908,7 +928,7 @@ static void control_task_fn(void *arg) {
                 // error can never legitimately exceed half a detent's spacing (target is
                 // always the NEAREST one) -- past a full spacing signals a real control bug
                 // (e.g. the direction-sign class of bug found earlier), not normal operation.
-                if (fabsf(error) > detent_spacing) {
+                if (!at_wall && fabsf(error) > detent_spacing) { // pushing into a wall is allowed past this
                     ESP_LOGE(TAG, "haptic demo: error (%.3f rad) exceeds one full detent spacing "
                                    "(%.3f rad) -- likely a control bug, aborting.",
                              error, detent_spacing);
@@ -924,7 +944,14 @@ static void control_task_fn(void *arg) {
                     // energy on a fast flick -- see the switch below for why Viscose ignores it.
                     bool is_coasting = fabsf(s_haptic_filtered_velocity) > HAPTIC_COAST_VELOCITY_RAD_S;
                     float vq;
-                    switch (haptic_type) {
+                    if (at_wall) {
+                        // The normal spring back to the end detent, plus extra stiffness that
+                        // starts at the switch point -- whatever the feel type, and not
+                        // coast-gated: a flick into the end should still stop there.
+                        float beyond = fabsf(error) - detent_spacing * (0.5f + HAPTIC_DETENT_HYSTERESIS_FRAC);
+                        float extra = beyond > 0.0f ? HAPTIC_WALL_GAIN * kp * beyond : 0.0f;
+                        vq = kp * error + (error >= 0.0f ? extra : -extra) - kd * s_haptic_filtered_velocity;
+                    } else switch (haptic_type) {
                         case HAPTIC_TYPE_VISCOSE:
                             // Kp forced to 0 regardless of the menu's own Kp field -- pure
                             // velocity damping, no positional spring at all. Deliberately does

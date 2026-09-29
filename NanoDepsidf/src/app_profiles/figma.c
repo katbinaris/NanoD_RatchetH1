@@ -207,6 +207,48 @@ static const app_scene_t SCENE_PLUGIN = {
     },
 };
 
+// ALIGN: three layers pull to a shared edge / centre line (amber guide). Horizontal aligns use
+// bars stacked vertically, vertical aligns bars side by side.
+#define ALIGN_ROWS EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL), \
+                   EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_W, APP_ROW_SEL)
+#define H_BARS(x0, x1, x2) EL_BOX(x0, 12, 30, 8, K_W), EL_BOX(x1, 26, 18, 8, K_W), EL_BOX(x2, 40, 24, 8, K_W)
+#define V_BARS(y0, y1, y2) EL_BOX(12, y0, 8, 30, K_W), EL_BOX(27, y1, 8, 18, K_W), EL_BOX(42, y2, 8, 24, K_W)
+#define ALIGN_SCENE(NAME, START, MID, END, GUIDE)                                                   \
+    static const app_scene_t NAME = {                                                               \
+        .n_base = 3, .base = EL_LIST(ALIGN_ROWS), .n_frames = 3,                                    \
+        .frames = (const app_keyframe_t[]){KEYFRAME(700, START), KEYFRAME(90, MID), KEYFRAME(1300, GUIDE, END)}, \
+    }
+ALIGN_SCENE(SCENE_ALIGN_LEFT, H_BARS(16, 32, 22), H_BARS(12, 20, 15), H_BARS(10, 10, 10), EL_BOX(8, 8, 1, 44, K_A));
+ALIGN_SCENE(SCENE_ALIGN_HCENTER, H_BARS(10, 36, 14), H_BARS(14, 28, 17), H_BARS(17, 23, 20), EL_BOX(32, 8, 1, 44, K_A));
+ALIGN_SCENE(SCENE_ALIGN_RIGHT, H_BARS(16, 22, 12), H_BARS(21, 30, 22), H_BARS(24, 36, 30), EL_BOX(55, 8, 1, 44, K_A));
+ALIGN_SCENE(SCENE_ALIGN_TOP, V_BARS(18, 34, 22), V_BARS(13, 20, 15), V_BARS(10, 10, 10), EL_BOX(8, 8, 48, 1, K_A));
+ALIGN_SCENE(SCENE_ALIGN_VCENTER, V_BARS(10, 36, 14), V_BARS(14, 28, 17), V_BARS(17, 23, 20), EL_BOX(8, 32, 48, 1, K_A));
+ALIGN_SCENE(SCENE_ALIGN_BOTTOM, V_BARS(18, 22, 12), V_BARS(22, 30, 22), V_BARS(24, 36, 30), EL_BOX(8, 55, 48, 1, K_A));
+
+// Tidy up: a loose 2x2 arrangement snaps to an even grid, with amber spacing marks.
+static const app_scene_t SCENE_TIDY = {
+    .n_base = 4,
+    .base = EL_LIST(EL_ROW(0, 0, APP_GLYPH_RECT, 14, K_W, APP_ROW_SEL), EL_ROW(1, 0, APP_GLYPH_RECT, 18, K_W, APP_ROW_SEL),
+                    EL_ROW(2, 0, APP_GLYPH_RECT, 12, K_W, APP_ROW_SEL), EL_ROW(3, 0, APP_GLYPH_RECT, 16, K_W, APP_ROW_SEL)),
+    .n_frames = 3,
+    .frames = (const app_keyframe_t[]){
+        KEYFRAME(700, EL_BOX(10, 9, 16, 14, K_W), EL_BOX(33, 13, 16, 14, K_W), EL_BOX(13, 33, 16, 14, K_W), EL_BOX(38, 37, 16, 14, K_W)),
+        KEYFRAME(90, EL_BOX(12, 11, 16, 14, K_W), EL_BOX(34, 12, 16, 14, K_W), EL_BOX(13, 34, 16, 14, K_W), EL_BOX(36, 36, 16, 14, K_W)),
+        KEYFRAME(1300, EL_BOX(13, 12, 16, 14, K_W), EL_BOX(35, 12, 16, 14, K_W), EL_BOX(13, 34, 16, 14, K_W), EL_BOX(35, 34, 16, 14, K_W),
+                 EL_BOX(30, 17, 4, 2, K_A), EL_BOX(30, 39, 4, 2, K_A), EL_BOX(20, 27, 2, 6, K_A), EL_BOX(42, 27, 2, 6, K_A)),
+    },
+};
+
+static const app_cmd_t ALIGN[] = {
+    {"ALIGN LEFT", APP_CMD_KEYS, {OPT, HID_KEY_A}, NULL, &SCENE_ALIGN_LEFT},
+    {"ALIGN CENTER", APP_CMD_KEYS, {OPT, HID_KEY_H}, NULL, &SCENE_ALIGN_HCENTER},
+    {"ALIGN RIGHT", APP_CMD_KEYS, {OPT, HID_KEY_D}, NULL, &SCENE_ALIGN_RIGHT},
+    {"ALIGN TOP", APP_CMD_KEYS, {OPT, HID_KEY_W}, NULL, &SCENE_ALIGN_TOP},
+    {"ALIGN MIDDLE", APP_CMD_KEYS, {OPT, HID_KEY_V}, NULL, &SCENE_ALIGN_VCENTER},
+    {"ALIGN BOTTOM", APP_CMD_KEYS, {OPT, HID_KEY_S}, NULL, &SCENE_ALIGN_BOTTOM},
+    {"TIDY UP", APP_CMD_KEYS, {KEYBOARD_MODIFIER_LEFTCTRL | OPT, HID_KEY_T}, NULL, &SCENE_TIDY},
+};
+
 static const app_cmd_t STRUCTURE[] = {
     {"ADD AUTO LAYOUT", APP_CMD_KEYS, {SHIFT, HID_KEY_A}, NULL, &SCENE_ADD_AL},
     {"REMOVE AUTO LAYOUT", APP_CMD_KEYS, {OPT | SHIFT, HID_KEY_A}, NULL, &SCENE_REMOVE_AL},
@@ -225,10 +267,12 @@ static const app_cmd_t UTILITY[] = {
     {"RENAME", APP_CMD_KEYS, {CMD, HID_KEY_R}, NULL, &SCENE_RENAME},
     {"RUN LAST PLUGIN", APP_CMD_KEYS, {OPT | CMD, HID_KEY_P}, NULL, &SCENE_PLUGIN},
 };
+// F1 steps between the two layout rings (STRUCTURE <-> ALIGN).
 static const app_ring_t RINGS[] = {
-    {"STRUCTURE", APP_SLOT_F1, 4, STRUCTURE},
-    {"COMPONENTS", APP_SLOT_F2, 4, COMPONENTS},
-    {"UTILITY", APP_SLOT_F4, 4, UTILITY},
+    {"STRUCTURE", "BUILD", APP_SLOT_F1, 4, STRUCTURE},
+    {"ALIGN", "ALIGN", APP_SLOT_F1, 7, ALIGN},
+    {"COMPONENTS", "COMP", APP_SLOT_F2, 4, COMPONENTS},
+    {"UTILITY", "UTIL", APP_SLOT_F4, 4, UTILITY},
 };
 
 const app_profile_t app_profile_figma = {
@@ -268,7 +312,7 @@ const app_profile_t app_profile_figma = {
             .feel = HAPTIC_TYPE_SAW, .detents = 12,
         },
     },
-    .ring_count = 3,
+    .ring_count = 4,
     .rings = RINGS,
     .search = {{CMD, HID_KEY_K}, 25, 40},
 };

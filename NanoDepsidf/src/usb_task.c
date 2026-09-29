@@ -45,10 +45,9 @@ static const char *TAG = "usb";
 // 2 IN + 1 OUT, HID's 3 report IDs share a single IN endpoint -- 3 IN + 1 OUT total,
 // comfortably inside budget, so nothing had to be dropped from the HID side to fit CDC in.
 //
-// Key input still isn't wired up: the actual key-input driver (GPIO read/debounce for
-// BTN_A-D, owned by Core 0 per the architecture log in DEVELOPMENT_PLAN.md) doesn't exist
-// yet, and how much of the rest of the mapping engine survives is still open (see
-// DEVELOPMENT_PLAN.md Phase 3's "Open decisions" list).
+// Keys and richer mappings arrived with APP mode: app_mode.c (Core 0) publishes the wanted
+// buttons / modifier / pointer travel / wheel steps / key taps, and app_sync() below brings
+// the host in line with it every tick.
 //
 // Second HID interface: vendor-defined (usage page 0xFF00, "raw HID" style), with its own
 // 64-byte interrupt IN+OUT endpoints, carrying host<->device data -- first user is icon
@@ -103,13 +102,13 @@ static const uint8_t s_vendor_report_descriptor[] = {
 
 static const char *s_usb_string_descriptor[7] = {
     (char[]){0x09, 0x04}, // 0: supported language -- English (0x0409)
-    "Binaris Circuitry",  // 1: Manufacturer
-    "Nano D++",           // 2: Product
-    "NANOD-DEV",          // 3: Serial -- placeholder; a real per-device ID (e.g. from
+    "Kafi Devices",       // 1: Manufacturer
+    "Quadra",             // 2: Product (tools/send_icon.py matches on this)
+    "QUADRA-DEV",         // 3: Serial -- placeholder; a real per-device ID (e.g. from
                            //    efuse MAC) is follow-on work, not needed for this slice
-    "NanoD Console",       // 4: CDC interface name
-    "NanoD HID",           // 5: HID interface name
-    "NanoD Data",          // 6: vendor HID interface name
+    "Quadra Console",      // 4: CDC interface name
+    "Quadra HID",          // 5: HID interface name
+    "Quadra Data",         // 6: vendor HID interface name
 };
 
 // device descriptor deliberately left NULL in tinyusb_config_t below: esp_tinyusb's own
