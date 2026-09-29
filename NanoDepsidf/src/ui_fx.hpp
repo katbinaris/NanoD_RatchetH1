@@ -13,8 +13,9 @@ void fx_init(); // one-time tables (logo particles, plasma lookups)
 constexpr uint32_t BOOT_ANIM_MS = 3400;
 void fx_boot(uint32_t elapsed_ms);
 
-// Attract animation: dark plasma rippling out of the QUADRA lettering in the middle. (Warp
-// was dropped by request; Plasma is the only one.)
-void fx_attract(uint32_t t_ms);
+// Attract animation: dark plasma rippling out of the QUADRA lettering in the middle -- or, in
+// APP mode, out of the active profile's 48x48 icon (drawn at 2x). (Warp was dropped by
+// request; Plasma is the only one.)
+void fx_attract(uint32_t t_ms, const uint8_t *icon48 = nullptr);
 
 } // namespace ui

@@ -1,6 +1,7 @@
 #include "ui_fx.hpp"
 #include "ui_gfx.hpp"
 #include <math.h>
+#include <string.h>
 
 namespace ui {
 
@@ -72,10 +73,11 @@ void fx_boot(uint32_t e) {
     boot_tail(e, 1950);
 }
 
-// --- attract: Plasma radiating from the QUADRA lettering ---
-// The field's travelling term is keyed to each cell's distance from the letters (not from
-// the panel center), so crests ripple outward from the word; a glow term makes the plasma
-// brightest next to the letters and fade toward the rim. Mostly black by design.
+// --- attract: Plasma radiating from the QUADRA lettering (or the active app's icon) ---
+// The field's travelling term is keyed to each cell's distance from the centre shape (not
+// from the panel center), so crests ripple outward from it; a glow term makes the plasma
+// brightest next to the shape and fade toward the rim. Mostly black by design.
+// In APP mode the shape is the active profile's 48x48 icon at 2x instead of the word.
 
 #define PLASMA_CELL 4
 #define PLASMA_N (240 / PLASMA_CELL)
@@ -83,15 +85,22 @@ void fx_boot(uint32_t e) {
 #define ATTRACT_WORD "QUADRA"
 #define ATTRACT_WORD_SCALE 3
 #define ATTRACT_WORD_Y 113 // cap top; scale 3 caps are 15px -> centered on the panel
+#define ATTRACT_ICON 48
+#define ATTRACT_ICON_SCALE 2 // 96x96, whole-pixel
+#define ATTRACT_ICON_X (CX - ATTRACT_ICON * ATTRACT_ICON_SCALE / 2)
+#define ATTRACT_ICON_Y (CY - ATTRACT_ICON * ATTRACT_ICON_SCALE / 2)
 static float s_sin[SIN_LUT];
 static uint8_t s_plasma_mask[PLASMA_N * PLASMA_N / 8 + 1];
-static uint8_t s_plasma_dist[PLASMA_N * PLASMA_N]; // px from the nearest letter block, capped 255
-static float s_glow[256];                            // emission falloff by that distance
+// px from the nearest cell of the centre shape, capped 255 -- one field per shape
+static uint8_t s_dist_word[PLASMA_N * PLASMA_N];
+static uint8_t s_dist_icon[PLASMA_N * PLASMA_N];
+static const uint8_t *s_dist_icon_for = nullptr; // which icon s_dist_icon was built from
+static float s_glow[256];                         // emission falloff by that distance
 
 static inline float lut(float rad_as_units) { return s_sin[((int)rad_as_units) & (SIN_LUT - 1)]; }
 static const float TO_UNITS = SIN_LUT / (2.0f * (float)M_PI);
 
-static void plasma(uint32_t t) {
+static void plasma(uint32_t t, const uint8_t *dist) {
     static const uint32_t levels[5] = {BLACK, DARK, GREY, WHITE, AMBER};
     static const uint8_t bayer[4] = {0, 2, 3, 1};
     float T = t / 1000.0f;
@@ -102,8 +111,8 @@ static void plasma(uint32_t t) {
         for (int gx = 0; gx < PLASMA_N; gx++) {
             int idx = gy * PLASMA_N + gx;
             if (!(s_plasma_mask[idx >> 3] & (1 << (idx & 7)))) continue;
-            uint8_t d = s_plasma_dist[idx];
-            if (d < 5) continue; // black halo keeps the letters readable
+            uint8_t d = dist[idx];
+            if (d < 5) continue; // black halo keeps the shape readable
             float x = gx * PLASMA_CELL + 2;
             // Outward ripple (phase grows with distance, falls with time) plus a slow drift.
             float ripple = lut(d / 9.0f * TO_UNITS + p4 + 1024);
@@ -119,11 +128,69 @@ static void plasma(uint32_t t) {
             if (li > 0) rect(gx * PLASMA_CELL, gy * PLASMA_CELL, PLASMA_CELL, PLASMA_CELL, levels[li]);
         }
     }
-    text(ATTRACT_WORD, CX, ATTRACT_WORD_Y, WHITE, ATTRACT_WORD_SCALE, CENTER);
 }
 
-void fx_attract(uint32_t t_ms) {
-    plasma(t_ms);
+// Distance field from a set of seed cells. Only seeds on the shape's outline are measured
+// against (the nearest seed to an outside cell is always an outline one), which keeps this
+// to a few ms -- cheap enough to build an icon's field when the attract screen starts.
+#define FIELD_CELLS (PLASMA_N * PLASMA_N)
+#define FIELD_MAX_EDGE 1024 // outline cells measured against (a 96px icon has a few hundred)
+static uint8_t s_seed_bits[FIELD_CELLS / 8 + 1]; // scratch: which cells the shape covers
+static inline bool seed_at(int idx) { return s_seed_bits[idx >> 3] & (1 << (idx & 7)); }
+
+static void build_field(uint8_t *dist) {
+    static int16_t edge[FIELD_MAX_EDGE]; // scratch, off the task stack
+    int ne = 0;
+    for (int gy = 0; gy < PLASMA_N; gy++) {
+        for (int gx = 0; gx < PLASMA_N; gx++) {
+            int idx = gy * PLASMA_N + gx;
+            if (!seed_at(idx)) continue;
+            bool outline = gx == 0 || gy == 0 || gx == PLASMA_N - 1 || gy == PLASMA_N - 1
+                        || !seed_at(idx - 1) || !seed_at(idx + 1) || !seed_at(idx - PLASMA_N) || !seed_at(idx + PLASMA_N);
+            if (outline && ne < FIELD_MAX_EDGE) edge[ne++] = (int16_t)idx;
+        }
+    }
+    for (int idx = 0; idx < FIELD_CELLS; idx++) {
+        if (seed_at(idx) || ne == 0) {
+            dist[idx] = seed_at(idx) ? 0 : 255;
+            continue;
+        }
+        int gx = idx % PLASMA_N, gy = idx / PLASMA_N;
+        int best = 1 << 30;
+        for (int k = 0; k < ne; k++) {
+            int dx = gx - edge[k] % PLASMA_N, dy = gy - edge[k] / PLASMA_N;
+            int d2 = dx * dx + dy * dy;
+            if (d2 < best) best = d2;
+        }
+        float d = sqrtf((float)best) * PLASMA_CELL;
+        dist[idx] = (uint8_t)(d > 255 ? 255 : d);
+    }
+}
+
+static void build_icon_field(const uint8_t *icon) {
+    memset(s_seed_bits, 0, sizeof(s_seed_bits));
+    for (int j = 0; j < ATTRACT_ICON; j++) {
+        for (int i = 0; i < ATTRACT_ICON; i++) {
+            const uint8_t *px = icon + (j * ATTRACT_ICON + i) * 2;
+            if (px[0] == 0 && px[1] == 0) continue; // black = transparent (image565 skips it)
+            int sx = ATTRACT_ICON_X + i * ATTRACT_ICON_SCALE, sy = ATTRACT_ICON_Y + j * ATTRACT_ICON_SCALE;
+            int idx = (sy / PLASMA_CELL) * PLASMA_N + sx / PLASMA_CELL;
+            s_seed_bits[idx >> 3] |= (uint8_t)(1 << (idx & 7));
+        }
+    }
+    build_field(s_dist_icon);
+    s_dist_icon_for = icon;
+}
+
+void fx_attract(uint32_t t_ms, const uint8_t *icon48) {
+    if (icon48 != nullptr) {
+        if (icon48 != s_dist_icon_for) build_icon_field(icon48);
+        plasma(t_ms, s_dist_icon);
+        image565(ATTRACT_ICON_X, ATTRACT_ICON_Y, ATTRACT_ICON, ATTRACT_ICON, icon48, 1.0f, ATTRACT_ICON_SCALE);
+    } else {
+        plasma(t_ms, s_dist_word);
+        text(ATTRACT_WORD, CX, ATTRACT_WORD_Y, WHITE, ATTRACT_WORD_SCALE, CENTER);
+    }
 }
 
 void fx_init() {
@@ -153,7 +220,7 @@ void fx_init() {
                 if (d2 < best) best = d2;
             }
             float d = sqrtf(best);
-            s_plasma_dist[idx] = (uint8_t)(d > 255 ? 255 : d);
+            s_dist_word[idx] = (uint8_t)(d > 255 ? 255 : d);
         }
     }
 }

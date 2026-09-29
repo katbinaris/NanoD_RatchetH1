@@ -284,9 +284,13 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_BOOTMODE:
             ui::draw_boot_mode(snap, menu_get_boot_mode(), ui_state_get_usb_serial_active(), blink_on);
             break;
-        case V_ATTRACT:
-            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000));
+        case V_ATTRACT: {
+            // APP mode: the plasma emits from the active profile's icon instead of QUADRA.
+            const uint8_t *icon = nullptr;
+            if (menu_get_hid_type() == MENU_HID_APP) icon = app_profiles_get(menu_get_app_profile())->icon48;
+            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000), icon);
             break;
+        }
     }
     if (is_settings_view(v) && now < s_toast_until_us) {
         ui::draw_saved_toast();

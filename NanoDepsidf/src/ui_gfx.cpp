@@ -113,7 +113,7 @@ void sprite(const Sprite &s, float x, float y, uint32_t c, int scale) {
     }
 }
 
-void image565(int x, int y, int w, int h, const uint8_t *be, float brightness) {
+void image565(int x, int y, int w, int h, const uint8_t *be, float brightness, int scale) {
     for (int j = 0; j < h; j++) {
         const uint8_t *row = be + j * w * 2;
         int i = 0;
@@ -131,7 +131,7 @@ void image565(int x, int y, int w, int h, const uint8_t *be, float brightness) {
                     g = (uint32_t)(g * brightness);
                     b = (uint32_t)(b * brightness);
                 }
-                rect(x + i, y + j, run, 1, (r << 16) | (g << 8) | b);
+                rect(x + i * scale, y + j * scale, run * scale, scale, (r << 16) | (g << 8) | b);
             }
             i += run;
         }

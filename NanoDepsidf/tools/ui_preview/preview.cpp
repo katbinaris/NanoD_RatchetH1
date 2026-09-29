@@ -168,6 +168,10 @@ int main() {
     keep("plasma 3s");
     ui::fx_attract(9000);
     keep("plasma 9s");
+    ui::fx_attract(3000, app_icon_figma_48);
+    keep("plasma figma 3s");
+    ui::fx_attract(6000, app_icon_plasticity_48);
+    keep("plasma plasticity 6s");
 
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.
     const int cols = 4, sc = 2, cell = 240 * sc + 16;
