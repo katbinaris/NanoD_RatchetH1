@@ -93,6 +93,15 @@ static int app_badge(const char *name, const uint8_t *icon, float cx, float cy, 
 static void draw_app_top(const AppView &app) {
     app_badge(app.name, app.icon24, CX, 36, WHITE);
     rect(56, 52, 128, 1, DARK);
+    if (app.shape != nullptr) {
+        // Micro-interaction: the shape follows the knob; under it, key (grey) + action.
+        shape_scene(*app.shape);
+        int kw = text_width(app.action_key), aw = text_width(app.action);
+        float lx = lroundf(CX - (kw + 7 + aw) / 2.0f);
+        text(app.action_key, lx, 131, GREY);
+        text(app.action, lx + kw + 7, 131, app.flash ? AMBER : WHITE);
+        return;
+    }
     text(app.action_via, CX, 82, GREY, 1, CENTER);
     text(app.action, CX, 98, WHITE, fit_scale(app.action, 176, 3), CENTER);
 }

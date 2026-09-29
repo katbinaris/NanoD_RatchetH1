@@ -890,6 +890,15 @@ static void control_task_fn(void *arg) {
                     float delta = wrap_pi(mech_rad - s_prev_mech_rad);
                     velocity = delta / (CONTROL_LOOP_PERIOD_US / 1000000.0f);
                     app_mode_motion(delta, esp_timer_get_time()); // no-op outside APP mode
+                    // Unwrapped knob travel for the display's 3D shape, in 1e-4 rad: an integer
+                    // total plus a float remainder, so it never loses precision over many turns.
+                    static int32_t s_knob_total = 0;
+                    static float s_knob_frac = 0.0f;
+                    s_knob_frac += delta * 10000.0f;
+                    int32_t whole = (int32_t)s_knob_frac;
+                    s_knob_frac -= (float)whole;
+                    s_knob_total += whole;
+                    ui_state_set_knob_angle(s_knob_total);
                 }
                 s_prev_mech_rad = mech_rad;
                 s_prev_mech_rad_valid = true;

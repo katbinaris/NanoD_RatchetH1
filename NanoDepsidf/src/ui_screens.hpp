@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include "haptic_params.h"
+#include "ui_shape.hpp"
 extern "C" {
 #include "menu.h"
 #include "audio_trigger.h"
@@ -21,6 +22,9 @@ struct AppView {
     const char *legend[4];    // under the F1-F4 keycaps
     const char *action;       // what the knob does right now ("ZOOM", "UNDO/REDO")
     const char *action_via;   // how: "KNOB" or "F1 + KNOB"
+    const char *action_key;   // short form under a shape: "KNOB", "F2"
+    const ShapeView *shape;   // profile shows a 3D shape instead of the label, or nullptr
+    bool flash;               // a tap action just fired (the shape's action line goes amber)
 };
 
 struct MainInputs {

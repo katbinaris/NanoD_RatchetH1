@@ -32,6 +32,15 @@ typedef enum {
     APP_ACT_TAP,
 } app_action_kind_t;
 
+// What the Main Screen's middle shows in APP mode: the live action as large text, or a 3D
+// shape that follows the knob (micro-interactions, DEVELOPMENT_PLAN.md "Plasticity").
+typedef enum { APP_VISUAL_LABEL = 0, APP_VISUAL_SHAPE } app_visual_t;
+typedef enum { APP_SHAPE_CUBE = 0, APP_SHAPE_PYRAMID, APP_SHAPE_OCTA } app_shape_t;
+// How the shape is drawn (preview styles R3C / R2C / R4A).
+typedef enum { APP_SHAPE_STYLE_SELECTED_FACE = 0, APP_SHAPE_STYLE_CAD_GRIPS, APP_SHAPE_STYLE_THICK } app_shape_style_t;
+// What an action does to the shape: zoom through nested copies, turn it, slide it, or flash.
+typedef enum { APP_FX_NONE = 0, APP_FX_ZOOM, APP_FX_ORBIT, APP_FX_PAN, APP_FX_FLASH } app_fx_t;
+
 typedef struct {
     uint8_t modifier; // KEYBOARD_MODIFIER_* bits
     uint8_t keycode;  // HID_KEY_*
@@ -52,6 +61,7 @@ typedef struct {
     // Feel while this action is live. detents 0 = the Haptics menu's STEPS value.
     haptic_type_t feel;
     uint16_t detents;
+    app_fx_t fx;         // APP_VISUAL_SHAPE: what this action does to the shape
 } app_action_t;
 
 // Slots: what each input does. KNOB = turning with no key held; F1/F2/F4 = turning while
@@ -73,5 +83,9 @@ typedef struct {
     const uint8_t *icon24;     // 24x24 RGB565 BE status-bar icon (app_icons.h), or NULL
     const uint8_t *icon48;     // 48x48 RGB565 BE icon for the PROFILE screen, or NULL
     const char *legend[4];     // under the F1-F4 keycaps, <= 5 chars
+    app_visual_t visual;       // Main Screen middle (LABEL unless set)
+    app_shape_t shape;         // APP_VISUAL_SHAPE: which shape
+    app_shape_style_t shape_style; // ...and how it's drawn
+    bool shape_stepped;        // show only clean poses: 32 per turn, zoom in 1/8 doublings, pan in 2px
     app_action_t slot[APP_SLOT_COUNT];
 } app_profile_t;

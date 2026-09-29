@@ -12,7 +12,7 @@ mkdir -p "$BUILD/fonts" "$(dirname "$OUT")"
 # Copy (not include-path) the sources: a quoted #include resolves next to the including file
 # first, which would pick up the real lgfx_config.hpp from src/ instead of the stub.
 cp "$SRC"/ui_gfx.cpp "$SRC"/ui_gfx.hpp "$SRC"/ui_screens.cpp "$SRC"/ui_screens.hpp \
-   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/menu.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
+   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/ui_shape.cpp "$SRC"/ui_shape.hpp "$SRC"/menu.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
    "$SRC"/audio_trigger.h "$SRC"/boot_mode.h "$BUILD/"
 cp "$SRC"/fonts/*.cpp "$SRC"/fonts/*.h "$BUILD/fonts/"
 mkdir -p "$BUILD/icons"
@@ -28,7 +28,7 @@ open(sys.argv[3], 'wb').write(to_rgb565_be(fit_icon(Image.open(sys.argv[2]))))" 
     "$HERE/.." "$HERE/../icons/figma_pixel_48.png" "$BUILD/icon.raw"
 
 c++ -std=c++17 -O2 -I"$BUILD" -o "$BUILD/preview" "$HERE/preview.cpp" \
-    "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_fx.cpp "$BUILD"/fonts/*.cpp \
+    "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_fx.cpp "$BUILD"/ui_shape.cpp "$BUILD"/fonts/*.cpp \
     -x c++ "$BUILD"/icons/*.c
 ICON_RAW="$BUILD/icon.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
 "$HERE/../.venv/bin/python" -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" \

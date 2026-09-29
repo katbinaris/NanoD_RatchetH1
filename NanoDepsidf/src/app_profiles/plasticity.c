@@ -16,7 +16,7 @@
     .kind = APP_ACT_DRAG, .label = "ZOOM",                                     \
     .buttons = MOUSE_BUTTON_MIDDLE, .modifier = KEYBOARD_MODIFIER_LEFTCTRL,    \
     .axis_y = true, .px_per_rad = PX_PER_RAD, .sign = -1,                      \
-    .feel = HAPTIC_TYPE_VISCOSE,                                               \
+    .feel = HAPTIC_TYPE_VISCOSE, .fx = APP_FX_ZOOM,                            \
 }
 
 const app_profile_t app_profile_plasticity = {
@@ -26,23 +26,31 @@ const app_profile_t app_profile_plasticity = {
     .icon24 = app_icon_plasticity_24,
     .icon48 = app_icon_plasticity_48,
     .legend = {"ZOOM", "ORBIT", "UNDO", "PAN"},
+    // The demo visual: an isometric pyramid chained to the knob (preview rounds 1-4,
+    // https://claude.ai/artifact/9x5URCUiMgJPqHDDtFeZWj). Style: R4A "Thick" -- chosen after
+    // 1px CAD grips (R2C) and "Selected face" (R3C) read too thin and shimmered on hardware.
+    // Stepped motion keeps every frame a clean pose.
+    .visual = APP_VISUAL_SHAPE,
+    .shape = APP_SHAPE_PYRAMID,
+    .shape_style = APP_SHAPE_STYLE_THICK,
+    .shape_stepped = true,
     .slot = {
         [APP_SLOT_KNOB] = ZOOM,
         [APP_SLOT_F1] = ZOOM,
         [APP_SLOT_F2] = {
             .kind = APP_ACT_DRAG, .label = "ORBIT",
             .buttons = MOUSE_BUTTON_MIDDLE, .px_per_rad = PX_PER_RAD, .sign = 1,
-            .feel = HAPTIC_TYPE_VISCOSE,
+            .feel = HAPTIC_TYPE_VISCOSE, .fx = APP_FX_ORBIT,
         },
         // Cmd+Z for macOS (HID Left GUI = Cmd; KEYBOARD_MODIFIER_LEFTCTRL on Windows).
         [APP_SLOT_F3] = {
             .kind = APP_ACT_TAP, .label = "UNDO",
-            .cw = {KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_Z},
+            .cw = {KEYBOARD_MODIFIER_LEFTGUI, HID_KEY_Z}, .fx = APP_FX_FLASH,
         },
         [APP_SLOT_F4] = {
             .kind = APP_ACT_DRAG, .label = "PAN",
             .buttons = MOUSE_BUTTON_RIGHT, .px_per_rad = PX_PER_RAD, .sign = 1,
-            .feel = HAPTIC_TYPE_VISCOSE,
+            .feel = HAPTIC_TYPE_VISCOSE, .fx = APP_FX_PAN,
         },
     },
 };

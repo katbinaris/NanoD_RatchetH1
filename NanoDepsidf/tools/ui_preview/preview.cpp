@@ -2,6 +2,7 @@
 // against the stubs in stub/) into one contact sheet, each screen masked to the round panel
 // and shown at 2x. Build and run with tools/ui_preview/run.sh.
 #include <stdio.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
@@ -85,9 +86,26 @@ int main() {
     figma_f1.action_via = "F1 + KNOB";
     ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F1, nullptr, &figma_f1});
     keep("main APP figma, F1 held");
-    ui::AppView plast = {"PLASTICITY", app_icon_plasticity_24, {"ZOOM", "ORBIT", "UNDO", "PAN"}, "ORBIT", "F2 + KNOB"};
+    // Plasticity's micro-interaction: an isometric pyramid in each scene.
+    ui::ShapeView sv = {ui::SHAPE_PYRAMID, ui::STYLE_THICK, ui::SCENE_ZOOM, (float)M_PI / 4, 0.375f, 0, false};
+    ui::AppView plast = {"PLASTICITY", app_icon_plasticity_24, {"ZOOM", "ORBIT", "UNDO", "PAN"}, "ZOOM", "KNOB", "KNOB", &sv, false};
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &plast});
+    keep("plasticity ZOOM");
+    sv.scene = ui::SCENE_ORBIT;
+    plast.action = "ORBIT";
+    plast.action_key = "F2";
     ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F2, nullptr, &plast});
-    keep("main APP plasticity, F2 held");
+    keep("plasticity ORBIT at rest (45 deg)");
+    sv.yaw = (float)M_PI / 4 + 2 * (float)M_PI / 32 * 3; // a stepped pose
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F2, nullptr, &plast});
+    keep("plasticity ORBIT turning");
+    sv.yaw = (float)M_PI / 4;
+    sv.scene = ui::SCENE_PAN;
+    sv.pan = 20;
+    plast.action = "PAN";
+    plast.action_key = "F4";
+    ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F4, nullptr, &plast});
+    keep("plasticity PAN");
     // Uploaded icon: raw RGB565 BE written by run.sh from tools/icons/figma_pixel_48.png.
     if (FILE *f = fopen(getenv("ICON_RAW") ? getenv("ICON_RAW") : "", "rb")) {
         static uint8_t icon[48 * 48 * 2];

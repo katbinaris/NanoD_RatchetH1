@@ -3,6 +3,7 @@
 
 static _Atomic int32_t s_detent = 0;
 static _Atomic uint8_t s_buttons = 0;
+static _Atomic int32_t s_knob_angle = 0;
 static _Atomic bool s_usb_serial_active = false;
 static _Atomic bool s_screensaver = false;
 
@@ -19,6 +20,14 @@ void ui_state_set_detent(int32_t wrapped_index) {
 
 int32_t ui_state_get_detent(void) {
     return atomic_load_explicit(&s_detent, memory_order_relaxed);
+}
+
+void ui_state_set_knob_angle(int32_t angle_1e4_rad) {
+    atomic_store_explicit(&s_knob_angle, angle_1e4_rad, memory_order_relaxed);
+}
+
+int32_t ui_state_get_knob_angle(void) {
+    return atomic_load_explicit(&s_knob_angle, memory_order_relaxed);
 }
 
 void ui_state_set_buttons(uint8_t held_mask) {

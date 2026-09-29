@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "driver/ledc.h"
+#include <math.h>
 #include <string.h>
 
 // Plain-C model layer -- linkage fixed here at the include site so menu.h/ui_state.h
@@ -202,19 +203,133 @@ static void list_retarget(const menu_render_snapshot_t &snap, int64_t now) {
     }
 }
 
-// APP mode: the active profile as the screens see it. `slot` is the live slot; a slot with
-// no turn action (a TAP, or nothing) shows the knob's own action instead.
-static ui::AppView app_view(int slot) {
-    static const char *const VIA[APP_SLOT_COUNT] = {"KNOB", "F1 + KNOB", "F2 + KNOB", "F3 + KNOB", "F4 + KNOB"};
+// --- APP-mode 3D shape (profiles with APP_VISUAL_SHAPE, e.g. Plasticity) ---
+// The shape follows the knob's continuous travel (ui_state_get_knob_angle) into whichever
+// channel the live action drives: orbit turns it one-for-one, zoom slides the nested copies
+// (one doubling per quarter turn), pan scrolls the floor (~380px per turn). Letting go of
+// orbit eases it to the nearest 45 + k*90 deg pose -- the clean 2:1 isometric view.
+#define SHAPE_SETTLE_MS 220
+#define SHAPE_FLASH_MS 260
+#define SHAPE_ACTIVE_MS 120     // keep frames coming this long after the knob last moved
+#define SHAPE_DEADBAND 20       // knob travel below 0.002 rad is sensor noise, not a move
+#define SHAPE_KNOB_SIGN 1       // flip if the shape turns against the knob
+static float s_shape_yaw = (float)M_PI / 4, s_shape_zoom = 0, s_shape_pan = 0;
+static int32_t s_shape_last_angle = 0;
+static bool s_shape_have_angle = false;
+static app_fx_t s_shape_last_fx = APP_FX_NONE;
+static bool s_settling = false;
+static float s_settle_from = 0, s_settle_to = 0;
+static int64_t s_settle_start_us = 0;
+static int64_t s_flash_until_us = 0;
+static int s_flash_slot = APP_SLOT_F3;
+static int64_t s_shape_moved_us = -(1LL << 40);
+static uint8_t s_shape_prev_buttons = 0;
+
+static const app_profile_t *shape_profile(void) {
+    if (menu_get_hid_type() != MENU_HID_APP) return nullptr;
     const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    return p->visual == APP_VISUAL_SHAPE ? p : nullptr;
+}
+
+// A slot with no turn action (a TAP, or nothing) leaves the knob's own action live.
+static int turn_slot(const app_profile_t *p, int slot) {
     app_action_kind_t k = p->slot[slot].kind;
-    if (k == APP_ACT_NONE || k == APP_ACT_TAP) slot = APP_SLOT_KNOB;
+    return (k == APP_ACT_NONE || k == APP_ACT_TAP) ? APP_SLOT_KNOB : slot;
+}
+
+// Every tick. Returns true while the shape needs frames (moving, settling or flashing).
+static bool shape_tick(int64_t now, uint8_t buttons) {
+    int32_t angle = ui_state_get_knob_angle();
+    if (!s_shape_have_angle) {
+        s_shape_last_angle = angle;
+        s_shape_have_angle = true;
+    }
+    int32_t diff = angle - s_shape_last_angle;
+    float d = 0;
+    if (diff >= SHAPE_DEADBAND || diff <= -SHAPE_DEADBAND) {
+        d = diff * 1e-4f * SHAPE_KNOB_SIGN;
+        s_shape_last_angle = angle;
+    }
+    uint8_t pressed = buttons & ~s_shape_prev_buttons;
+    s_shape_prev_buttons = buttons;
+    const app_profile_t *p = shape_profile();
+    if (p == nullptr || menu_is_open()) return false;
+
+    app_fx_t fx = p->slot[turn_slot(p, app_mode_live_slot())].fx;
+    if (d != 0) {
+        s_shape_moved_us = now;
+        switch (fx) {
+            case APP_FX_ORBIT: s_shape_yaw += d; s_settling = false; break;
+            case APP_FX_PAN: s_shape_pan += d * 60.0f; break;
+            case APP_FX_ZOOM: s_shape_zoom += d / ((float)M_PI / 2); break;
+            default: break;
+        }
+    }
+    if (s_shape_last_fx == APP_FX_ORBIT && fx != APP_FX_ORBIT) {
+        const float q = (float)M_PI / 2, rest = (float)M_PI / 4;
+        s_settle_from = s_shape_yaw;
+        s_settle_to = roundf((s_shape_yaw - rest) / q) * q + rest;
+        s_settle_start_us = now;
+        s_settling = true;
+    }
+    s_shape_last_fx = fx;
+    for (int slot = APP_SLOT_F1; slot < APP_SLOT_COUNT; slot++) {
+        static const uint8_t KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
+        if ((pressed & KEY[slot]) && p->slot[slot].kind == APP_ACT_TAP && p->slot[slot].fx == APP_FX_FLASH) {
+            s_flash_until_us = now + SHAPE_FLASH_MS * 1000LL;
+            s_flash_slot = slot;
+        }
+    }
+    if (s_settling) {
+        float k = (now - s_settle_start_us) / (SHAPE_SETTLE_MS * 1000.0f);
+        if (k >= 1) {
+            k = 1;
+            s_settling = false;
+        }
+        float e = 1 - (1 - k) * (1 - k) * (1 - k);
+        s_shape_yaw = s_settle_from + (s_settle_to - s_settle_from) * e;
+    }
+    return s_settling || now < s_flash_until_us || now - s_shape_moved_us < SHAPE_ACTIVE_MS * 1000LL;
+}
+
+// APP mode: the active profile as the screens see it. `slot` is the live slot.
+static ui::AppView app_view(int slot, int64_t now) {
+    static const char *const VIA[APP_SLOT_COUNT] = {"KNOB", "F1 + KNOB", "F2 + KNOB", "F3 + KNOB", "F4 + KNOB"};
+    static const char *const KEY[APP_SLOT_COUNT] = {"KNOB", "F1", "F2", "F3", "F4"};
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    slot = turn_slot(p, slot);
     ui::AppView v = {};
     v.name = p->name;
     v.icon24 = p->icon24;
     for (int i = 0; i < 4; i++) v.legend[i] = p->legend[i];
     v.action = p->slot[slot].label ? p->slot[slot].label : "";
     v.action_via = VIA[slot];
+    v.action_key = KEY[slot];
+    if (p->visual == APP_VISUAL_SHAPE) {
+        static ui::ShapeView sv;
+        app_fx_t fx = p->slot[slot].fx;
+        sv.shape = (ui::ShapeKind)p->shape;
+        sv.style = (ui::ShapeStyle)p->shape_style;
+        sv.scene = fx == APP_FX_ORBIT ? ui::SCENE_ORBIT : fx == APP_FX_PAN ? ui::SCENE_PAN : ui::SCENE_ZOOM;
+        sv.yaw = s_shape_yaw;
+        sv.zoom = s_shape_zoom;
+        sv.pan = s_shape_pan;
+        if (p->shape_stepped) {
+            // Only clean poses: 32 per turn (45 deg is one), zoom in 1/8 doublings, pan in
+            // 2px -- no sub-pixel crawl between frames.
+            const float step = 2 * (float)M_PI / 32;
+            sv.yaw = roundf(sv.yaw / step) * step;
+            sv.zoom = roundf(sv.zoom * 8) / 8;
+            sv.pan = roundf(sv.pan / 2) * 2;
+        }
+        sv.flash = now < s_flash_until_us;
+        v.shape = &sv;
+        if (sv.flash) { // the tap's own key + label under the shape while it flashes
+            v.flash = true;
+            v.action_key = KEY[s_flash_slot];
+            v.action = p->slot[s_flash_slot].label ? p->slot[s_flash_slot].label : "";
+        }
+    }
     return v;
 }
 
@@ -234,7 +349,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
         case V_MAIN: {
             bool app = menu_get_hid_type() == MENU_HID_APP;
-            ui::AppView av = app ? app_view(app_mode_live_slot()) : ui::AppView{};
+            ui::AppView av = app ? app_view(app_mode_live_slot(), now) : ui::AppView{};
             ui::MainInputs in = {
                 ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
                 menu_get_haptic_type(), // the feel line isn't shown in APP mode
@@ -397,6 +512,7 @@ static Pace update_ui(void) {
     int app_slot = app_mode_live_slot();
     bool app_slot_changed = app_slot != s_last_app_slot;
     s_last_app_slot = app_slot;
+    bool shape_live = shape_tick(now, buttons);
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed;
     if (target != s_view) {
         s_iris_from = s_view;
@@ -418,7 +534,8 @@ static Pace update_ui(void) {
              || (s_view == V_ROOT && s_list_anim)
              || (s_view == V_HAPTIC && now - s_morph_start_us < FEEL_MORPH_MS * 1000LL)
              || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL)
-             || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL);
+             || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL)
+             || (s_view == V_MAIN && shape_live);
     bool looping = s_booting || s_view == V_ATTRACT
                 || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
     bool blink_on = ((now / 1000) % 900) < 600;

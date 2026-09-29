@@ -28,7 +28,13 @@ void ui_state_set_detent(int32_t wrapped_index); // 0..(num_detents-1) -- alread
 #define UI_BTN_F4 (1u << 3)
 void ui_state_set_buttons(uint8_t held_mask);
 
+// The knob's total (unwrapped) travel since boot, in 1e-4 rad units, every control tick --
+// for visuals that follow the knob continuously rather than per detent (APP-mode 3D shape).
+// int32 at 1e-4 rad covers ~34,000 turns before wrapping; consumers only use differences.
+void ui_state_set_knob_angle(int32_t angle_1e4_rad);
+
 // Consumer side (Core 1)
+int32_t ui_state_get_knob_angle(void);
 int32_t ui_state_get_detent(void); // no longer drawn, but a change means "knob turned"
 uint8_t ui_state_get_buttons(void);
 
