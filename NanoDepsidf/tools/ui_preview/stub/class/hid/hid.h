@@ -14,6 +14,8 @@
 #define HID_KEY_G 0x0A
 #define HID_KEY_H 0x0B
 #define HID_KEY_K 0x0E
+#define HID_KEY_L 0x0F
+#define HID_KEY_M 0x10
 #define HID_KEY_N 0x11
 #define HID_KEY_P 0x13
 #define HID_KEY_R 0x15
@@ -37,6 +39,8 @@
 #define HID_KEY_X 0x1B
 #define HID_KEY_3 0x20
 #define HID_KEY_4 0x21
+#define HID_KEY_5 0x22
+#define HID_KEY_7 0x24
 #define HID_KEY_PERIOD 0x37
 #define HID_KEY_SLASH 0x38
 #define HID_KEY_KEYPAD_1 0x59

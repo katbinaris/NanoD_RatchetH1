@@ -16,6 +16,7 @@ extern "C" {
 #include "app_profiles/app_profile.h"
 extern const app_profile_t app_profile_figma;
 extern const app_profile_t app_profile_plasticity;
+extern const app_profile_t app_profile_onshape;
 }
 
 static LGFX_Sprite g;
@@ -81,7 +82,7 @@ int main() {
     keep("main mouse");
     ui::draw_main({true, AUDIO_TIMBRE_TICK_THUD, MENU_HID_KEYBOARD, HAPTIC_TYPE_VISCOSE, UI_BTN_F4, nullptr});
     keep("main keyboard, F4 held");
-    ui::AppView figma = {"FIGMA", app_icon_figma_24, {"UNDO", "LAYER", "FOCUS", "NUDGE"}, "ZOOM", "KNOB"};
+    ui::AppView figma = {"FIGMA", app_icon_figma_24, {"UNDO", "DEPTH", "WHEEL", "FRAME"}, "ZOOM", "KNOB"};
     ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &figma});
     keep("main APP figma");
     ui::AppView figma_f1 = figma;
@@ -91,7 +92,7 @@ int main() {
     keep("main APP figma, F1 held");
     // Plasticity's micro-interaction: an isometric pyramid in each scene.
     ui::ShapeView sv = {ui::SHAPE_PYRAMID, ui::STYLE_THICK, ui::SCENE_ZOOM, (float)M_PI / 4, 0.375f, 0, false};
-    ui::AppView plast = {"PLASTICITY", app_icon_plasticity_24, {"ZOOM", "ORBIT", "UNDO", "PAN"}, "ZOOM", "KNOB", "KNOB", &sv, false};
+    ui::AppView plast = {"PLASTICITY", app_icon_plasticity_24, {"ZOOM", "ORBIT", "WHEEL", "PAN"}, "ZOOM", "KNOB", "KNOB", &sv, false};
     ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &plast});
     keep("plasticity ZOOM");
     sv.scene = ui::SCENE_ORBIT;
@@ -151,20 +152,23 @@ int main() {
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
     keep("hid APP");
 
-    static const ui::ProfileItem profiles[2] = {
-        {"PLASTICITY", app_icon_plasticity_24, app_icon_plasticity_48, {"ZOOM", "ORBIT", "UNDO", "PAN"}},
-        {"FIGMA", app_icon_figma_24, app_icon_figma_48, {"UNDO", "LAYER", "FOCUS", "NUDGE"}},
+    static const ui::ProfileItem profiles[3] = {
+        {"PLASTICITY", app_icon_plasticity_24, app_icon_plasticity_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
+        {"FIGMA", app_icon_figma_24, app_icon_figma_48, {"UNDO", "DEPTH", "WHEEL", "FRAME"}},
+        {"ONSHAPE", app_icon_onshape_24, app_icon_onshape_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
     };
     menu_render_snapshot_t prof = {};
     prof.open = true;
     prof.screen = MENU_SCREEN_APP_PROFILE;
     prof.rows[0] = row("PROFILE", "", "FIGMA", true);
     prof.row_count = 1;
-    ui::draw_app_profile(prof, {profiles, 2, 0, 0, true});
+    ui::draw_app_profile(prof, {profiles, 3, 0, 0, true});
     keep("profile PLASTICITY, saved");
     prof.dirty = true;
-    ui::draw_app_profile(prof, {profiles, 2, 1, 0, true});
+    ui::draw_app_profile(prof, {profiles, 3, 1, 0, true});
     keep("profile FIGMA, unsaved");
+    ui::draw_app_profile(prof, {profiles, 3, 2, 0, true});
+    keep("profile ONSHAPE, unsaved");
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("HID TYPE", "", "MIDI", false);
@@ -185,7 +189,7 @@ int main() {
 
     // Command wheel (Figma): each card on its resting (last) keyframe, one mid-animation,
     // cancel, a slide in flight, and the Main Screen echo after a run.
-    for (const app_profile_t *pp : {&app_profile_figma, &app_profile_plasticity}) {
+    for (const app_profile_t *pp : {&app_profile_figma, &app_profile_plasticity, &app_profile_onshape}) {
         const app_profile_t &p = *pp;
         auto rest_ms = [](const app_scene_t *s) {
             uint32_t t = 0;
@@ -260,6 +264,23 @@ int main() {
             {"ROTATE", "ANGLE", 35, 0, true, APP_PV_ROTATE, 8, true, 1, 0, -1, -1, 1, 5, 15},
             {"SCALE", "FACTOR", 1.4f, 2, false, APP_PV_SCALE, 8, true, 7, 0, 0, 0.7f, 0.05f, 0.1f, 1},
         };
+        // Onshape (number field): A scroll shows the signed change, B type the value.
+        struct F { const char *name, *label; float v, drawn; uint8_t vis; bool typed; int step; float f3; };
+        const F fcases[] = {
+            {"FILLET", "RADIUS", 0.3f, 1.3f, APP_PV_FILLET, false, 1, -1},
+            {"EXTRUDE", "DEPTH", 26.0f, 26.0f, APP_PV_EXTRUDE, true, 2, -1},
+            {"CHAMFER", "DISTANCE", -0.05f, 0.95f, APP_PV_CHAMFER, false, 0, 0.5f},
+            {"TRANSFORM", "DISTANCE", 8.0f, 8.0f, APP_PV_SLIDE, true, 1, -1},
+        };
+        for (const F &c : fcases) {
+            ui::ParamView v = {};
+            v.name = c.name; v.label = c.label; v.value = c.v; v.drawn = c.drawn; v.decimals = 2;
+            v.steps[0] = 0.01f; v.steps[1] = 0.1f; v.steps[2] = 1; v.step = c.step; v.visual = c.vis;
+            v.field = true; v.typed = c.typed; v.f3 = c.f3;
+            ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, nullptr, nullptr, &v};
+            ui::draw_main(in);
+            keep(c.name);
+        }
         for (const T &c : cases) {
             ui::ParamView v = {};
             v.name = c.name; v.label = c.label; v.value = c.v; v.decimals = c.dec; v.degrees = c.deg;
@@ -291,6 +312,10 @@ int main() {
     }
     ui::fx_attract(6000, app_icon_plasticity_48);
     keep("plasma plasticity 6s");
+    for (uint32_t ms : {1000u, 3000u, 5500u}) {
+        ui::fx_attract(ms, app_icon_onshape_48, app_profile_onshape.plasma_heat);
+        keep("plasma onshape");
+    }
 
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.
     const int cols = 4, sc = 2, cell = 240 * sc + 16;

@@ -75,6 +75,8 @@ typedef struct {
     int axis;              // 0-2 X / Y / Z (with APP_PARAM_AXES)
     bool plane, uniform;
     bool exact;            // a step was used: the value will be typed in on confirm
+    bool field;            // number-field input: step = F1 / alone / F4
+    bool typed;            // ...B (type): `value` is the value; A (scroll): value - start = the change
     uint32_t f3_ms;        // F3 held this long (0 = up): past 600ms, release cancels
     uint32_t bump;         // counts end-stop hits (the card nudges)
 } app_param_state_t;

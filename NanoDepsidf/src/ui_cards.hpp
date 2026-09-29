@@ -54,6 +54,9 @@ struct ParamView {
     int axis;                   // the constrained axis (rotate)
     float f3;                   // F3 held: 0..1 towards cancel, -1 = up
     int nudge;                  // end-stop nudge, px
+    bool field;                 // number-field input (Onshape): feature list, F1 / KNOB / F4 steps
+    bool typed;                 // ...B (type) shows the value; A (scroll) shows the change, signed
+    float drawn;                // number field: the value the card draws (A: start + the change)
 };
 void draw_param(const ParamView &v);
 

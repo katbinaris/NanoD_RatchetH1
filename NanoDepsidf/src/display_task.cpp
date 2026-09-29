@@ -487,6 +487,13 @@ static bool param_view(int64_t now, ui::ParamView *v) {
     v->axis_bits = s.uniform ? 7 : s.plane ? (uint8_t)(7 & ~(1 << s.axis)) : (uint8_t)(1 << s.axis);
     v->f3 = s.f3_ms ? (s.f3_ms - 1) / 600.0f : -1.0f;
     v->nudge = now - s_bump_at < PARAM_NUDGE_MS * 1000LL ? 3 : 0;
+    v->field = s.field;
+    v->typed = s.typed;
+    v->drawn = s.value;
+    if (s.field && !s.typed) { // A: only the change is known
+        v->value = s.value - pr->start;
+        v->label = pr->label;
+    }
     return true;
 }
 

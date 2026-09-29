@@ -107,8 +107,16 @@ typedef enum {
     // the front vertical edge, flags = APP_ISO_*.
     APP_EL_ISO,
     APP_EL_MODES,    // Plasticity's selection-mode strip (point / edge / face / solid), arg = active bits
-    APP_EL_ARC,      // iso-ellipse arc: centre (x, y), radius w, from arg/10 to d/10 rad, head at the end
+    // Arc: centre (x, y), radius w, from arg/10 to d/10 rad. An iso ellipse (r x r/2, 0..pi =
+    // the front half) with a head at the end unless flags say otherwise (APP_ARC_*).
+    APP_EL_ARC,
+    APP_EL_NUM,      // the number `arg` in the UI font, centred on x, top at y
+    APP_EL_ROLLBACK, // Onshape's rollback bar under feature-list row y - 1 (rows as APP_EL_ROW, `d` offset)
 } app_el_op_t;
+// APP_EL_ARC flags
+#define APP_ARC_ROUND 0x01   // a circle (r x r, 0..pi = the upper half), not an iso ellipse
+#define APP_ARC_NO_HEAD 0x02
+#define APP_ARC_DOTTED 0x04
 // APP_EL_ISO flags
 #define APP_ISO_SOLID 0x01   // whole body selected (amber edges)
 #define APP_ISO_FACE 0x02    // top face selected / changed (amber dots + edges)
@@ -118,6 +126,9 @@ typedef enum {
 #define APP_ISO_NO_BOTTOM 0x20 // no bottom edges (sits merged on another body)
 #define APP_ISO_GRIPS 0x40   // scale grips on the corners
 #define APP_ISO_HOLLOW 0x80  // shelled: an inset rim on the top face
+// APP_EL_ISO arg bits above the radius (0-63)
+#define APP_ISO_ARG_CUT 0x40     // the x = a face is a section cut (amber dots)
+#define APP_ISO_ARG_CHAMFER 0x80 // the rounded edge is a chamfer
 // APP_EL_LINE arg
 #define APP_LINE_HEAD 0x01   // 3x3 head at the end (an arrow)
 #define APP_LINE_DASHED 0x02
@@ -125,7 +136,8 @@ typedef enum { APP_C_BLACK = 0, APP_C_DARK, APP_C_GREY, APP_C_WHITE, APP_C_AMBER
 typedef enum {
     APP_GLYPH_RECT = 0, APP_GLYPH_CIRCLE, APP_GLYPH_FRAME, APP_GLYPH_AUTO, APP_GLYPH_GROUP,
     APP_GLYPH_COMP, APP_GLYPH_INST, APP_GLYPH_TEXT,
-    APP_GLYPH_SOLID, APP_GLYPH_SHEET, // Plasticity outliner
+    APP_GLYPH_SOLID, APP_GLYPH_SHEET, // Plasticity outliner (Onshape: feature, plane)
+    APP_GLYPH_SKETCH,                 // Onshape feature list: a sketch
 } app_glyph_t;
 // APP_EL_ROW flags
 #define APP_ROW_SEL 0x01      // selected (dark band)
@@ -178,6 +190,13 @@ typedef struct {
 #define EL_ISO_FILLET(x, y, a, b, h, r, flags) {APP_EL_ISO, K_W, x, y, a, b, r, h, flags}
 #define EL_MODES(bits) {APP_EL_MODES, K_A, 0, 0, 0, 0, bits, 0, 0}
 #define EL_ARC(x, y, r, t0, t1, c) {APP_EL_ARC, c, x, y, r, 0, t0, t1, 0}
+#define EL_ELLIPSE(x, y, r, t0, t1, c, flags) {APP_EL_ARC, c, x, y, r, 0, t0, t1, (APP_ARC_NO_HEAD | (flags))}
+#define EL_CIRCLE(x, y, r, c) {APP_EL_ARC, c, x, y, r, 0, 0, 63, (APP_ARC_ROUND | APP_ARC_NO_HEAD)}
+#define EL_CARC(x, y, r, t0, t1, c) {APP_EL_ARC, c, x, y, r, 0, t0, t1, (APP_ARC_ROUND | APP_ARC_NO_HEAD)}
+#define EL_NUM(x, y, n, c) {APP_EL_NUM, c, x, y, 0, 0, n, 0, 0}
+// Onshape's feature list: rows from the top of the right pane, the rollback bar under row i - 1.
+#define EL_FROW(i, glyph, len, c, flags) {APP_EL_ROW, c, 0, i, len, flags, glyph, 2, 0}
+#define EL_ROLLBACK(i) {APP_EL_ROLLBACK, K_G, 0, i, 0, 0, 0, 2, 0}
 #define EL_ARROW(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, APP_LINE_HEAD, 0, 0}
 #define EL_DLINE(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, APP_LINE_DASHED, 0, 0}
 // Outliner row under the mode strip.
@@ -194,9 +213,19 @@ typedef enum { APP_CMD_KEYS = 0, APP_CMD_ACTIONS } app_cmd_kind_t;
 // handle follows; F1 / F2 / F4 held = exact steps, typed in on confirm. With APP_PARAM_AXES, tapping F1 / F2 /
 // F4 constrains to X / Y / Z (again: the plane, then uniform). The card follows the value
 // through one of the renderer's parametric visuals.
+//
+// Profiles with `param_keys.field` (Onshape) drive the dialog's number field instead of a
+// handle: every knob click is one step -- steps[0] with F1 held, steps[1] alone, steps[2] with
+// F4 -- sent one of two ways, switched by tapping F2 (remembered):
+//   A, scroll: a wheel notch over the field the user points at, with `step_mod[i]` held (Onshape:
+//      Ctrl 0.01, none 0.1, Shift 1.0). The device can't read the field: it shows the change.
+//   B, type: the device holds the value (from `start`) and retypes it -- `select_all`, digits --
+//      once the knob rests. It shows the value.
 typedef enum {
     APP_PV_NONE = 0, APP_PV_FILLET, APP_PV_EXTRUDE, APP_PV_OFFSET, APP_PV_HOLLOW,
     APP_PV_MOVE, APP_PV_ROTATE, APP_PV_SCALE,
+    APP_PV_CHAMFER, // an edge chamfer growing (no sign flip)
+    APP_PV_SLIDE,   // a body sliding along one direction, no axis choice
 } app_param_visual_t;
 #define APP_PARAM_DEG 0x01     // an angle (degree mark, steps in degrees)
 #define APP_PARAM_AXES 0x02    // X / Y / Z constraint by tapping F1 / F2 / F4
@@ -226,6 +255,11 @@ typedef struct {
     app_key_t cancel;       // Esc
     app_key_t axis[3];      // X / Y / Z constraint keys (the plane = the same + Shift)
     app_key_t uniform;      // S
+    // Number-field input (see "Parameter mode" above); false = the pointer drives a handle.
+    bool field;
+    uint8_t step_mod[3];    // A: modifier held for each step's scroll notch
+    int8_t scroll_sign;     // A: +1 = wheel up raises the value
+    app_key_t select_all;   // B: before the digits (Cmd+A)
 } app_param_keys_t;
 
 typedef struct {

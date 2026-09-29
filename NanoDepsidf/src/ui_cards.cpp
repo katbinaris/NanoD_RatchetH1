@@ -18,7 +18,8 @@ static const Sprite GLYPHS[] = {
     {7, 7, "...#..." "..#.#.." ".#...#." "#.....#" ".#...#." "..#.#.." "...#..."}, // instance
     {7, 7, "#######" "...#..." "...#..." "...#..." "...#..." "...#..." "...#..."}, // text
     {7, 7, "..###.." ".#...#." "#######" "#.....#" "#.....#" "#.....#" "#######"}, // solid (Plasticity)
-    {7, 7, "......." "..#####" ".#...#." "#####.." "......." "......." "......."}, // sheet
+    {7, 7, "......." "..#####" ".#...#." "#####.." "......." "......." "......."}, // sheet / plane
+    {7, 7, ".....##" "....#.#" "...#.#." "..#.#.." ".#.#..." "##....." "#......"}, // sketch (Onshape)
 };
 
 // Plasticity's selection modes: control point, edge, face, solid (5x5, in 11x9 chips).
@@ -109,8 +110,8 @@ static void poly(const int (*p)[2], int n, uint32_t c, bool dots) {
 // faces show; the three edges meeting at (0,0,0) are hidden (dotted dark).
 static void iso_box(const app_el_t &e, int x0, int y0) {
     const int ox = x0 + e.x, oy = y0 + e.y, a = e.w, b = e.h, h = e.d, f = e.flags;
-    const int r = (f & APP_ISO_HOLLOW) ? 0 : (e.arg & 0x7F); // arg bit 7: the strip is a chamfer
-    const bool chamfer = e.arg & 0x80;
+    const int r = (f & APP_ISO_HOLLOW) ? 0 : (e.arg & 0x3F); // arg bits 6-7: APP_ISO_ARG_*
+    const bool chamfer = e.arg & APP_ISO_ARG_CHAMFER;
     auto P = [&](int X, int Y, int Z, int *o) { o[0] = ox + X - Y; o[1] = oy + ((X + Y + 1) >> 1) - Z; };
     auto E = [&](int X0, int Y0, int Z0, int X1, int Y1, int Z1, uint32_t c, int pat) {
         int p0[2], p1[2];
@@ -121,6 +122,11 @@ static void iso_box(const app_el_t &e, int x0, int y0) {
     const bool ghost = f & APP_ISO_GHOST;
     const uint32_t edge = ghost ? DARK : (f & APP_ISO_SOLID) ? AMBER : color(e.color);
     const int pat = ghost ? 2 : 0;
+    if (!ghost && (e.arg & APP_ISO_ARG_CUT) && !(f & APP_ISO_HOLLOW)) { // a section cut: the x = a face
+        int s[4][2];
+        P(a, 0, 0, s[0]); P(a, b, 0, s[1]); P(a, b, h, s[2]); P(a, 0, h, s[3]);
+        poly(s, 4, AMBER, true);
+    }
     if (!ghost) {
         E(0, 0, 0, a, 0, 0, DARK, 1);
         E(0, 0, 0, 0, b, 0, DARK, 1);
@@ -198,19 +204,22 @@ static void modes(uint8_t bits, int x0, int y0) {
     }
 }
 
-// Iso-ellipse arc (rotate), a 3x3 head at the end.
-static void iso_arc(int cx, int cy, int r, float t0, float t1, uint32_t c) {
+// Arc (APP_EL_ARC): an iso ellipse (rotate, revolve) or, with APP_ARC_ROUND, a circle (a sketch);
+// a 3x3 head at the end unless APP_ARC_NO_HEAD. Dotted: every other point along the walk.
+static void iso_arc(int cx, int cy, int r, float t0, float t1, uint32_t c, uint8_t flags = 0) {
+    const bool round = flags & APP_ARC_ROUND;
     int lx = 0, ly = 0;
     bool have = false;
-    float step = t1 > t0 ? 0.05f : -0.05f;
-    for (float t = t0; step > 0 ? t <= t1 : t >= t1; t += step) {
-        int x = (int)lroundf(cx + r * cosf(t)), y = (int)lroundf(cy + r / 2.0f * sinf(t));
-        if (have) line(lx, ly, x, y, c);
+    float step = t1 > t0 ? 0.04f : -0.04f;
+    for (float t = t0; step > 0 ? t <= t1 + 1e-4f : t >= t1 - 1e-4f; t += step) {
+        int x = (int)lroundf(cx + r * cosf(t));
+        int y = (int)lroundf(round ? cy - r * sinf(t) : cy + r / 2.0f * sinf(t));
+        if (have && (x != lx || y != ly)) line(lx, ly, x, y, c, (flags & APP_ARC_DOTTED) ? 1 : 0);
         lx = x;
         ly = y;
         have = true;
     }
-    if (have) rect(lx - 1, ly - 1, 3, 3, c);
+    if (have && !(flags & APP_ARC_NO_HEAD)) rect(lx - 1, ly - 1, 3, 3, c);
 }
 
 // A layers-panel row. `x0, y0` = the card's top-left.
@@ -238,6 +247,12 @@ static void element(const app_el_t &e, int x0, int y0) {
     }
     if (e.op == APP_EL_MODES) {
         modes(e.arg, x0, y0);
+        return;
+    }
+    if (e.op == APP_EL_ROLLBACK) { // a grey rule with a grip, just under the previous row
+        int ry = y0 + 5 + e.d + e.y * 11 - 2;
+        rect(x0 + 67, ry, 49, 1, GREY);
+        rect(x0 + 67, ry - 1, 3, 3, GREY);
         return;
     }
     uint32_t c = color(e.color);
@@ -270,7 +285,13 @@ static void element(const app_el_t &e, int x0, int y0) {
             break;
         }
         case APP_EL_ISO: iso_box(e, x0, y0); break;
-        case APP_EL_ARC: iso_arc(x, y, e.w, e.arg / 10.0f, e.d / 10.0f, c); break;
+        case APP_EL_ARC: iso_arc(x, y, e.w, e.arg / 10.0f, e.d / 10.0f, c, e.flags); break;
+        case APP_EL_NUM: {
+            char n[4];
+            snprintf(n, sizeof(n), "%u", e.arg);
+            text(n, x, y, c, 1, CENTER);
+            break;
+        }
         case APP_EL_CLIPBOARD:
             frame_box(x, y + 3, 13, 14, c);
             cut(x + 3, y, 7, 5, GREY);
@@ -383,13 +404,25 @@ static void tripod(int x0, int y0, uint8_t bits) {
 static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 static void param_visual(const ParamView &v, int x0, int y0) {
-    const float val = v.value;
+    const float val = v.field ? v.drawn : v.value;
     int bits = v.axis_bits;
     switch (v.visual) {
         case APP_PV_FILLET: {
             int r = (int)clampf(lroundf(fabsf(val) * 4), 0, 12);
-            app_el_t e = r ? iso_el(32, 30, 16, 16, 12, 0, (uint8_t)(r | (val < 0 ? 0x80 : 0))) : iso_el(32, 30, 16, 16, 12, APP_ISO_EDGE);
+            app_el_t e = r ? iso_el(32, 30, 16, 16, 12, 0, (uint8_t)(r | (val < 0 ? APP_ISO_ARG_CHAMFER : 0))) : iso_el(32, 30, 16, 16, 12, APP_ISO_EDGE);
             iso_box(e, x0, y0);
+            break;
+        }
+        case APP_PV_CHAMFER: {
+            int r = (int)clampf(lroundf(fabsf(val) * 2), 0, 12);
+            app_el_t e = r ? iso_el(32, 30, 16, 16, 12, 0, (uint8_t)(r | APP_ISO_ARG_CHAMFER)) : iso_el(32, 30, 16, 16, 12, APP_ISO_EDGE);
+            iso_box(e, x0, y0);
+            break;
+        }
+        case APP_PV_SLIDE: {
+            int d = (int)clampf(lroundf(val), -14, 14);
+            iso_box(iso_el(26, 26, 12, 12, 10, APP_ISO_GHOST), x0, y0);
+            iso_box(iso_el(26 + d, 26 + d / 2, 12, 12, 10, APP_ISO_SOLID), x0, y0);
             break;
         }
         case APP_PV_EXTRUDE: {
@@ -464,8 +497,18 @@ void draw_param(const ParamView &v) {
     clip(x0 + 4, y0 + 4, 57, 56);
     param_visual(v, x0, y0);
     unclip();
-    modes(v.modes, x0, y0);
-    if (v.axes) {
+    if (v.field) { // Onshape: the feature list, the new feature amber above the rollback bar
+        static const uint8_t G[3] = {APP_GLYPH_SKETCH, APP_GLYPH_SOLID, APP_GLYPH_SOLID};
+        static const uint8_t LEN[3] = {14, 18, 16};
+        for (int i = 0; i < 3; i++) {
+            app_el_t r = EL_FROW(0, 0, 0, 0, 0);
+            r.y = (int8_t)i; r.arg = G[i]; r.w = LEN[i]; r.color = i == 2 ? APP_C_AMBER : APP_C_GREY;
+            row(r, x0, y0);
+        }
+        app_el_t rb = EL_ROLLBACK(3);
+        element(rb, x0, y0);
+    } else if (v.axes) {
+        modes(v.modes, x0, y0);
         static const char *const XYZ[3] = {"X", "Y", "Z"};
         for (int i = 0; i < 3; i++) {
             bool on = v.axis_bits & (1 << i);
@@ -474,6 +517,7 @@ void draw_param(const ParamView &v) {
             text(XYZ[i], x + 7, y0 + 22, on ? BLACK : GREY, 1, CENTER);
         }
     } else {
+        modes(v.modes, x0, y0);
         app_el_t row_el = {};
         row_el.op = APP_EL_ROW; row_el.color = APP_C_WHITE; row_el.w = 18; row_el.h = APP_ROW_SEL;
         row_el.arg = APP_GLYPH_SOLID; row_el.d = 14;
@@ -483,26 +527,33 @@ void draw_param(const ParamView &v) {
     text(v.label, CX, 114, AMBER, 1, CENTER);
     char val[40];
     format_value(val, sizeof(val), v.value, v.decimals);
+    if (v.field && !v.typed && v.value > 0) { // A shows the change: +0.30
+        char plus[44];
+        snprintf(plus, sizeof(plus), "+%s", val);
+        strcpy(val, plus);
+    }
     int w = text(val, CX, 126, WHITE, 3, CENTER);
     if (v.degrees) frame_box((int)lroundf(CX + w / 2.0f) + 3, 126, 5, 5, WHITE);
 
-    // FREE / F1 .05 / F2 .10 / F4 1.0 -- the held one amber.
+    // FREE / F1 .05 / F2 .10 / F4 1.0 -- the held one amber. Number field: F1 / KNOB / F4.
     char labels[4][48];
-    snprintf(labels[0], sizeof(labels[0]), "FREE");
+    int n = 0;
+    if (!v.field) snprintf(labels[n++], sizeof(labels[0]), "FREE");
     static const char *const KEYS[3] = {"F1", "F2", "F4"};
     for (int i = 0; i < 3; i++) {
         char st[40];
         if (v.degrees) snprintf(st, sizeof(st), "%d", (int)lroundf(v.steps[i]));
         else if (v.steps[i] < 1) format_value(st, sizeof(st), v.steps[i], 2);
         else snprintf(st, sizeof(st), "%.1f", (double)v.steps[i]);
-        snprintf(labels[i + 1], sizeof(labels[i + 1]), "%s %s", KEYS[i], st);
+        snprintf(labels[n++], sizeof(labels[0]), "%s %s", v.field && i == 1 ? "KNOB" : KEYS[i], st);
     }
+    const int lit = v.field ? v.step : v.step + 1;
     const int GAP = 10;
     int tw = -GAP;
-    for (auto &l : labels) tw += text_width(l) + GAP;
+    for (int i = 0; i < n; i++) tw += text_width(labels[i]) + GAP;
     float tx = lroundf(CX - tw / 2.0f);
-    for (int i = 0; i < 4; i++) {
-        text(labels[i], tx, 157, i == v.step + 1 ? AMBER : DARK);
+    for (int i = 0; i < n; i++) {
+        text(labels[i], tx, 157, i == lit ? AMBER : DARK);
         tx += text_width(labels[i]) + GAP;
     }
     if (v.f3 >= 0) {
@@ -512,6 +563,7 @@ void draw_param(const ParamView &v) {
     } else {
         text("F3 OK  HOLD F3 CANCEL", CX, 175, GREY, 1, CENTER);
         if (v.axes) text("TAP F1 F2 F4: X Y Z", CX, 189, GREY, 1, CENTER);
+        if (v.field) text(v.typed ? "F2  B: TYPE" : "F2  A: SCROLL", CX, 189, GREY, 1, CENTER);
     }
 }
 

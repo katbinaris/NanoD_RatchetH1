@@ -26,6 +26,7 @@
 #define APP_PARAM_STEP_DETENTS 16    // haptic detents per turn while stepping
 #define APP_PARAM_FINE_DETENTS 48    // ...and in free mode: fine clicks. A continuous value
                                      // jittered in its last digit with sensor noise (hardware)
+#define APP_PARAM_TYPE_PAUSE_US 350000 // number field, B (type): retype once the knob rests this long
 #define WANT_HOVER (1u << 17)        // s_want: pointer travel with no button held
 
 static const uint8_t SLOT_KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
@@ -77,8 +78,13 @@ static float s_pkey_travel[APP_SLOT_COUNT];
 static float s_paccum_px = 0.0f;
 static uint8_t s_pring = 0, s_pentry = 0;
 static uint8_t s_paxis_memo[8];      // last constraint per visual: bit 7 set, axis | plane << 2 | uniform << 3
-// Published: bit 31 active, 16-23 ring, 8-15 entry, 0-1 axis, 2 plane, 3 uniform, 4-5 step + 1,
-// 6 exact. Plus the value (x1000), F3 held time and an end-stop bump counter.
+// Number-field input (param_keys.field): B = type instead of scroll (F2 tap, kept across commands).
+static bool s_ptype = false;
+static bool s_ptype_dirty = false;   // B: the value changed since it was last typed
+static int64_t s_pstep_at = 0;       // B: last click
+// Published: bit 31 active, 24 number field, 25 typed (B), 16-23 ring, 8-15 entry, 0-1 axis,
+// 2 plane, 3 uniform, 4-5 step + 1, 6 exact. Plus the value (x1000), F3 held time and an
+// end-stop bump counter.
 static _Atomic uint32_t s_pword = 0;
 static _Atomic int32_t s_pvalue_milli = 0;
 static _Atomic uint32_t s_pf3_ms = 0;
@@ -164,17 +170,34 @@ static void wheel_open(const app_action_t *a) {
 
 // --- parameter mode ---
 
-// The held F key's step: F4 > F2 > F1, -1 = free.
+static bool param_field(void) {
+    return s_profile->param_keys.field;
+}
+
+// B (type) is on and the value is ours to hold; A (scroll) only knows the change.
+static bool param_typed(void) {
+    return param_field() && s_ptype;
+}
+
+// The held F key's step: F4 > F2 > F1, -1 = free. Number field: F1 / alone / F4 (F2 = A/B).
 static int param_step(void) {
     uint8_t h = s_stable_held;
+    if (s_param && param_field()) return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F1) ? 0 : 1;
     return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F2) ? 1 : (h & UI_BTN_F1) ? 0 : -1;
+}
+
+// Fine clicks (48 per turn, a higher click): Plasticity's free mode, or the number field's
+// finest step (Onshape: F1 = 0.01).
+static bool param_fine(void) {
+    return param_field() ? param_step() == 0 : param_step() < 0;
 }
 
 static void param_publish(void) {
     uint32_t w = 0;
     if (s_param) {
         w = 1u << 31 | (uint32_t)s_pring << 16 | (uint32_t)s_pentry << 8 | s_paxis | (s_pplane ? 4u : 0u)
-          | (s_puniform ? 8u : 0u) | (uint32_t)(param_step() + 1) << 4 | (s_pexact ? 64u : 0u);
+          | (s_puniform ? 8u : 0u) | (uint32_t)(param_step() + 1) << 4 | (s_pexact ? 64u : 0u)
+          | (param_field() ? 1u << 24 : 0u) | (param_typed() ? 1u << 25 : 0u);
     }
     atomic_store(&s_pvalue_milli, (int32_t)lroundf(s_pvalue * 1000.0f));
     atomic_store(&s_pword, w);
@@ -190,6 +213,10 @@ static app_key_t param_constraint_key(void) {
 }
 
 static void param_set(float v) {
+    if (param_field() && !s_ptype) { // A: the field's real value is unknown -- no limits
+        s_pvalue = v;
+        return;
+    }
     if (v < s_param->min || v > s_param->max) atomic_fetch_add(&s_pbump, 1);
     s_pvalue = v < s_param->min ? s_param->min : v > s_param->max ? s_param->max : v;
     if (fabsf(s_pvalue) < 1e-6f) s_pvalue = 0.0f;
@@ -219,8 +246,25 @@ static void param_start(const app_param_t *p, uint8_t ring, uint8_t entry) {
         }
         push_tap(param_constraint_key());
     }
-    atomic_store(&s_want, WANT_HOVER); // knob alone moves the pointer: the app's handle follows it
+    s_ptype_dirty = false;
+    // Pointer: the knob alone moves it and the app's handle follows. Number field: nothing
+    // held until a step needs its modifier (param_keys()).
+    atomic_store(&s_want, param_field() ? 0 : WANT_HOVER);
     param_publish();
+}
+
+// B: select the field's text and type the value over it.
+static void param_type_value(void) {
+    const app_param_keys_t *k = &s_profile->param_keys;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.*f", s_param->decimals, (double)s_pvalue);
+    if (tap_room() < strlen(buf) + 1) return; // retried on the next tick
+    push_tap_wait(k->select_all, 2);
+    for (const char *c = buf; *c; c++) {
+        app_key_t key;
+        if (ascii_key(*c, &key)) push_tap(key);
+    }
+    s_ptype_dirty = false;
 }
 
 // Tap F1 / F2 / F4 = X / Y / Z; the active one again = its plane, then (scale) uniform.
@@ -247,6 +291,7 @@ static void param_axis_tap(uint8_t axis) {
 static void param_end(bool ok) {
     if (s_param == NULL) return;
     const app_param_keys_t *k = &s_profile->param_keys;
+    if (ok && param_typed() && s_ptype_dirty) param_type_value();
     if (ok && s_pexact && k->numeric.keycode) {
         char buf[16];
         snprintf(buf, sizeof(buf), "%.*f", s_param->decimals, (double)s_pvalue);
@@ -285,10 +330,21 @@ static void param_keys(int64_t now_us, uint8_t pressed, uint8_t released) {
             s_pkey_at[slot] = now_us;
             s_pkey_travel[slot] = 0.0f;
         }
-        if ((released & key) && (s_param->flags & APP_PARAM_AXES) && s_pkey_travel[slot] < APP_PARAM_TAP_TRAVEL
-            && now_us - s_pkey_at[slot] < APP_PARAM_AXIS_TAP_US) {
+        bool tapped = (released & key) && s_pkey_travel[slot] < APP_PARAM_TAP_TRAVEL
+                   && now_us - s_pkey_at[slot] < APP_PARAM_AXIS_TAP_US;
+        if (tapped && param_field() && slot == APP_SLOT_F2) {
+            s_ptype = !s_ptype; // A <-> B
+            s_ptype_dirty = false;
+        } else if (tapped && (s_param->flags & APP_PARAM_AXES)) {
             param_axis_tap(a);
         }
+    }
+    if (param_field()) {
+        // A: hold the step's modifier so the wheel notches land as that step. B: nothing held;
+        // retype once the knob rests.
+        uint8_t mod = s_ptype ? 0 : s_profile->param_keys.step_mod[param_step()];
+        atomic_store(&s_want, WANT(0, mod, false));
+        if (s_ptype && s_ptype_dirty && now_us - s_pstep_at >= APP_PARAM_TYPE_PAUSE_US) param_type_value();
     }
     param_publish();
 }
@@ -471,6 +527,21 @@ void app_mode_motion(float delta_rad, int64_t now_us) {
 void app_mode_detent(int8_t dir, int64_t now_us) {
     if (s_param && s_active) {
         int i = param_step();
+        if (param_field()) {
+            // One click = one step: A a wheel notch (the modifier is already held, see
+            // param_keys()), B a new value to retype.
+            float st = s_param->steps[i];
+            param_set(roundf((s_pvalue + dir * st) * 1000.0f) / 1000.0f);
+            if (s_ptype) {
+                s_ptype_dirty = true;
+                s_pstep_at = now_us;
+            } else {
+                atomic_store(&s_want, WANT(0, s_profile->param_keys.step_mod[i], false));
+                atomic_fetch_add(&s_wheel_steps, dir * s_profile->param_keys.scroll_sign);
+            }
+            param_publish();
+            return;
+        }
         if (i < 0) { // free: one fine click = one small increment + a fixed bit of pointer travel
             param_set(s_pvalue + dir * s_param->free_step);
             s_paccum_px += dir * s_param->px_per_step;
@@ -532,16 +603,19 @@ uint32_t app_mode_last_tap(int *slot) {
 }
 
 bool app_mode_at_end(int8_t dir) {
-    if (s_active && s_param) return dir > 0 ? s_pvalue >= s_param->max : s_pvalue <= s_param->min;
+    if (s_active && s_param) {
+        if (param_field() && !s_ptype) return false; // A: the real value is unknown
+        return dir > 0 ? s_pvalue >= s_param->max : s_pvalue <= s_param->min;
+    }
     if (!s_active || !s_wheel_open || !s_wheel_shown || s_profile == NULL) return false;
     return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
 void app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
     if (s_profile == NULL) return;
-    if (s_param) { // one click per step; free = fine clicks
+    if (s_param) { // one click per step; free (number field: the 0.01 step) = fine clicks
         *type = HAPTIC_TYPE_SAW;
-        *detents = param_step() >= 0 ? APP_PARAM_STEP_DETENTS : APP_PARAM_FINE_DETENTS;
+        *detents = param_fine() ? APP_PARAM_FINE_DETENTS : APP_PARAM_STEP_DETENTS;
         return;
     }
     const app_action_t *a = action(s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
@@ -592,7 +666,7 @@ uint32_t app_mode_last_run(int *ring, int *entry) {
 }
 
 bool app_mode_fine_clicks(void) {
-    return s_active && s_param && param_step() < 0;
+    return s_active && s_param && param_fine();
 }
 
 bool app_mode_hover(void) {
@@ -609,6 +683,8 @@ bool app_mode_param(app_param_state_t *s) {
     s->uniform = (w & 8) != 0;
     s->step = (int)((w >> 4) & 3) - 1;
     s->exact = (w & 64) != 0;
+    s->field = (w >> 24) & 1;
+    s->typed = (w >> 25) & 1;
     s->value = atomic_load(&s_pvalue_milli) / 1000.0f;
     s->f3_ms = atomic_load(&s_pf3_ms);
     s->bump = atomic_load(&s_pbump);
