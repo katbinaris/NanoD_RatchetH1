@@ -263,6 +263,10 @@ static void i2s_task_fn(void *arg) {
                         // an already-started click into a different timbre partway through.
                         active_timbre = menu_get_haptic_sound();
                         active_pitch = menu_get_haptic_pitch();
+                        if (type == AUDIO_CLICK_FINE) {
+                            active_pitch *= AUDIO_CLICK_FINE_PITCH;
+                            active_click_type = AUDIO_CLICK_NORMAL; // renders as the detent click
+                        }
                         active_click_duration_s = (active_timbre == AUDIO_TIMBRE_TICK_THUD)
                                                  ? TICK_THUD_DURATION_S : WOOD_TOCK_DURATION_S;
                     }

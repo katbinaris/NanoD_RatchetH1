@@ -1,7 +1,9 @@
 #include "ui_cards.hpp"
 #include "ui_gfx.hpp"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 namespace ui {
 
@@ -15,6 +17,16 @@ static const Sprite GLYPHS[] = {
     {7, 7, "...#..." "..###.." "#..#..#" "##...##" "#..#..#" "..###.." "...#..."}, // component
     {7, 7, "...#..." "..#.#.." ".#...#." "#.....#" ".#...#." "..#.#.." "...#..."}, // instance
     {7, 7, "#######" "...#..." "...#..." "...#..." "...#..." "...#..." "...#..."}, // text
+    {7, 7, "..###.." ".#...#." "#######" "#.....#" "#.....#" "#.....#" "#######"}, // solid (Plasticity)
+    {7, 7, "......." "..#####" ".#...#." "#####.." "......." "......." "......."}, // sheet
+};
+
+// Plasticity's selection modes: control point, edge, face, solid (5x5, in 11x9 chips).
+static const Sprite MODE_GLYPHS[4] = {
+    {5, 5, "....." ".###." ".###." ".###." "....."},
+    {5, 5, "....#" "...#." "..#.." ".#..." "#...."},
+    {5, 5, "..###" ".####" "#####" "####." "###.."},
+    {5, 5, ".###." "#####" "#####" "#####" ".###."},
 };
 
 // macOS modifier glyphs for the shortcut keycaps (the font has none).
@@ -33,10 +45,11 @@ static uint32_t color(uint8_t c) {
     }
 }
 
-static void line(int x0, int y0, int x1, int y1, uint32_t c) {
+// pattern: 0 solid, 1 dotted (1 on 1 off), 2 dashed (2 on 2 off)
+static void line(int x0, int y0, int x1, int y1, uint32_t c, int pattern = 0) {
     int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
-    for (;;) {
-        rect(x0, y0, 1, 1, c);
+    for (int n = 0;; n++) {
+        if (pattern == 0 || (pattern == 1 ? (n & 1) == 0 : (n & 3) < 2)) rect(x0, y0, 1, 1, c);
         if (x0 == x1 && y0 == y1) break;
         int e2 = 2 * err;
         if (e2 >= dy) { err += dy; x0 += sx; }
@@ -69,9 +82,140 @@ static void round_frame(int x, int y, int w, int h, uint32_t c) {
     }
 }
 
+// Convex polygon, filled at pixel centres; `dots` = every other pixel (a selected face in
+// the wireframe, lighter than solid).
+static void poly(const int (*p)[2], int n, uint32_t c, bool dots) {
+    int y0 = p[0][1], y1 = p[0][1];
+    for (int i = 1; i < n; i++) { if (p[i][1] < y0) y0 = p[i][1]; if (p[i][1] > y1) y1 = p[i][1]; }
+    for (int y = y0; y <= y1; y++) {
+        float py = y + 0.5f, lo = 1e9f, hi = -1e9f;
+        for (int i = 0; i < n; i++) {
+            float ax = p[i][0], ay = p[i][1], bx = p[(i + 1) % n][0], by = p[(i + 1) % n][1];
+            if ((ay <= py && by > py) || (by <= py && ay > py)) {
+                float x = ax + (py - ay) / (by - ay) * (bx - ax);
+                if (x < lo) lo = x;
+                if (x > hi) hi = x;
+            }
+        }
+        if (lo > hi) continue;
+        for (int x = (int)ceilf(lo - 0.5f); x <= (int)floorf(hi - 0.5f); x++) {
+            if (dots && ((x + y) & 1)) continue;
+            rect(x, y, 1, 1, c);
+        }
+    }
+}
+
+// Isometric 2:1 wireframe box (APP_EL_ISO). Viewed from +x +y +z: the top, x = a and y = b
+// faces show; the three edges meeting at (0,0,0) are hidden (dotted dark).
+static void iso_box(const app_el_t &e, int x0, int y0) {
+    const int ox = x0 + e.x, oy = y0 + e.y, a = e.w, b = e.h, h = e.d, f = e.flags;
+    const int r = (f & APP_ISO_HOLLOW) ? 0 : (e.arg & 0x7F); // arg bit 7: the strip is a chamfer
+    const bool chamfer = e.arg & 0x80;
+    auto P = [&](int X, int Y, int Z, int *o) { o[0] = ox + X - Y; o[1] = oy + ((X + Y + 1) >> 1) - Z; };
+    auto E = [&](int X0, int Y0, int Z0, int X1, int Y1, int Z1, uint32_t c, int pat) {
+        int p0[2], p1[2];
+        P(X0, Y0, Z0, p0);
+        P(X1, Y1, Z1, p1);
+        line(p0[0], p0[1], p1[0], p1[1], c, pat);
+    };
+    const bool ghost = f & APP_ISO_GHOST;
+    const uint32_t edge = ghost ? DARK : (f & APP_ISO_SOLID) ? AMBER : color(e.color);
+    const int pat = ghost ? 2 : 0;
+    if (!ghost) {
+        E(0, 0, 0, a, 0, 0, DARK, 1);
+        E(0, 0, 0, 0, b, 0, DARK, 1);
+        if (h > 0) E(0, 0, 0, 0, 0, h, DARK, 1);
+    }
+    int top[5][2];
+    int nt = 0;
+    P(0, 0, h, top[nt++]);
+    P(a, 0, h, top[nt++]);
+    if (r) { P(a, b - r, h, top[nt++]); P(a - r, b, h, top[nt++]); } else P(a, b, h, top[nt++]);
+    P(0, b, h, top[nt++]);
+    if (r && !ghost) {
+        int s[4][2];
+        P(a, b - r, 0, s[0]); P(a - r, b, 0, s[1]); P(a - r, b, h, s[2]); P(a, b - r, h, s[3]);
+        if (chamfer) for (int i = 0; i < 4; i++) line(s[i][0], s[i][1], s[(i + 1) % 4][0], s[(i + 1) % 4][1], AMBER);
+        else poly(s, 4, AMBER, true);
+    }
+    const bool face = f & APP_ISO_FACE;
+    if (face && !ghost) poly(top, nt, AMBER, true);
+    for (int i = 0; i < nt; i++) {
+        const int *p0 = top[i], *p1 = top[(i + 1) % nt];
+        line(p0[0], p0[1], p1[0], p1[1], face ? AMBER : edge, pat);
+    }
+    if (h > 0) {
+        E(a, 0, 0, a, 0, h, edge, pat);
+        E(0, b, 0, 0, b, h, edge, pat);
+        if (!(f & APP_ISO_NO_BOTTOM)) {
+            E(a, 0, 0, a, b - r, 0, edge, pat);
+            E(0, b, 0, a - r, b, 0, edge, pat);
+        }
+        if (r) {
+            E(a, b - r, 0, a, b - r, h, edge, pat);
+            E(a - r, b, 0, a - r, b, h, edge, pat);
+            if (!(f & APP_ISO_NO_BOTTOM)) E(a, b - r, 0, a - r, b, 0, edge, pat);
+        } else {
+            bool sel = f & APP_ISO_EDGE;
+            E(a, b, 0, a, b, h, sel ? AMBER : edge, pat);
+            if (sel) {
+                int p0[2], p1[2];
+                P(a, b, 0, p0);
+                P(a, b, h, p1);
+                line(p0[0] + 1, p0[1], p1[0] + 1, p1[1], AMBER);
+            }
+        }
+    }
+    if (f & APP_ISO_HOLLOW) {
+        const int in = r ? r : 3; // HOLLOW: `arg` is the rim inset (no fillet then)
+        int q[4][2];
+        P(in, in, h, q[0]); P(a - in, in, h, q[1]); P(a - in, b - in, h, q[2]); P(in, b - in, h, q[3]);
+        for (int i = 0; i < 4; i++) line(q[i][0], q[i][1], q[(i + 1) % 4][0], q[(i + 1) % 4][1], AMBER);
+        E(in, in, h, in, in, h > 6 ? h - 6 : 0, DARK, 0);
+    }
+    if (f & APP_ISO_POINTS) {
+        const int pts[7][3] = {{0, 0, h}, {a, 0, h}, {a, b, h}, {0, b, h}, {a, 0, 0}, {a, b, 0}, {0, b, 0}};
+        for (auto &q : pts) { int p[2]; P(q[0], q[1], q[2], p); rect(p[0] - 1, p[1] - 1, 3, 3, AMBER); }
+    }
+    if (f & APP_ISO_GRIPS) {
+        const int pts[4][3] = {{0, 0, h}, {a, 0, h}, {a, b, 0}, {0, b, h}};
+        for (auto &q : pts) {
+            int p[2];
+            P(q[0], q[1], q[2], p);
+            rect(p[0] - 2, p[1] - 2, 5, 5, AMBER);
+            rect(p[0] - 1, p[1] - 1, 3, 3, BLACK);
+        }
+    }
+}
+
+// Plasticity's selection-mode strip, top of the right pane; `bits` = active modes.
+static void modes(uint8_t bits, int x0, int y0) {
+    for (int i = 0; i < 4; i++) {
+        bool on = bits & (1 << i);
+        int x = x0 + 67 + i * 13;
+        cut(x, y0 + 5, 11, 9, on ? AMBER : DARK);
+        sprite(MODE_GLYPHS[i], x + 3, y0 + 7, on ? BLACK : GREY);
+    }
+}
+
+// Iso-ellipse arc (rotate), a 3x3 head at the end.
+static void iso_arc(int cx, int cy, int r, float t0, float t1, uint32_t c) {
+    int lx = 0, ly = 0;
+    bool have = false;
+    float step = t1 > t0 ? 0.05f : -0.05f;
+    for (float t = t0; step > 0 ? t <= t1 : t >= t1; t += step) {
+        int x = (int)lroundf(cx + r * cosf(t)), y = (int)lroundf(cy + r / 2.0f * sinf(t));
+        if (have) line(lx, ly, x, y, c);
+        lx = x;
+        ly = y;
+        have = true;
+    }
+    if (have) rect(lx - 1, ly - 1, 3, 3, c);
+}
+
 // A layers-panel row. `x0, y0` = the card's top-left.
 static void row(const app_el_t &e, int x0, int y0) {
-    int ry = y0 + 5 + e.y * 11, rx = x0 + 68 + e.x * 6;
+    int ry = y0 + 5 + e.d + e.y * 11, rx = x0 + 68 + e.x * 6;
     uint32_t c = color(e.color);
     if (e.h & APP_ROW_SEL) cut(x0 + 66, ry - 2, 51, 11, DARK);
     if (e.arg < sizeof(GLYPHS) / sizeof(GLYPHS[0])) sprite(GLYPHS[e.arg], rx, ry, c);
@@ -90,6 +234,10 @@ static void row(const app_el_t &e, int x0, int y0) {
 static void element(const app_el_t &e, int x0, int y0) {
     if (e.op == APP_EL_ROW) {
         row(e, x0, y0);
+        return;
+    }
+    if (e.op == APP_EL_MODES) {
+        modes(e.arg, x0, y0);
         return;
     }
     uint32_t c = color(e.color);
@@ -115,7 +263,14 @@ static void element(const app_el_t &e, int x0, int y0) {
             if (e.arg < sizeof(GLYPHS) / sizeof(GLYPHS[0])) sprite(GLYPHS[e.arg], x, y, c);
             rect(x + 10, y + 3, e.w, 2, c);
             break;
-        case APP_EL_LINE: line(x, y, x0 + (int8_t)e.w, y0 + (int8_t)e.h, c); break;
+        case APP_EL_LINE: {
+            int x1 = x0 + (int8_t)e.w, y1 = y0 + (int8_t)e.h;
+            line(x, y, x1, y1, c, (e.arg & APP_LINE_DASHED) ? 2 : 0);
+            if (e.arg & APP_LINE_HEAD) rect(x1 - 1, y1 - 1, 3, 3, c);
+            break;
+        }
+        case APP_EL_ISO: iso_box(e, x0, y0); break;
+        case APP_EL_ARC: iso_arc(x, y, e.w, e.arg / 10.0f, e.d / 10.0f, c); break;
         case APP_EL_CLIPBOARD:
             frame_box(x, y + 3, 13, 14, c);
             cut(x + 3, y, 7, 5, GREY);
@@ -154,6 +309,210 @@ void draw_card(const app_scene_t *scene, int x, int y, uint32_t t_ms) {
         m -= scene->frames[i].ms;
     }
     for (int i = 0; i < kf->n; i++) element(kf->el[i], x, y);
+}
+
+// --- parameter mode ---
+
+static app_el_t iso_el(int x, int y, int a, int b, int h, uint8_t flags, uint8_t arg = 0) {
+    app_el_t e = {};
+    e.op = APP_EL_ISO;
+    e.color = APP_C_WHITE;
+    e.x = (int8_t)x; e.y = (int8_t)y;
+    e.w = (uint8_t)a; e.h = (uint8_t)b; e.d = (uint8_t)(h < 0 ? 0 : h);
+    e.arg = arg; e.flags = flags;
+    return e;
+}
+
+// A box from its 8 corners so it can move / rotate / scale on any axis. Extents x +-a/2,
+// y +-b/2, z 0..h; transforms about its centre. Farthest corner's edges dotted dark.
+struct Box3 {
+    float scale[3] = {1, 1, 1}, move[3] = {0, 0, 0};
+    int axis = 2;
+    float angle = 0;
+    bool ghost = false, grips = false;
+};
+static void box3(int ox, int oy, float a, float b, float h, const Box3 &o) {
+    float pts[8][3];
+    const float c = cosf(o.angle), s = sinf(o.angle), zc = h / 2;
+    for (int k = 0; k < 8; k++) {
+        float x = ((k & 1) ? 1 : -1) * a * o.scale[0] / 2, y = ((k & 2) ? 1 : -1) * b * o.scale[1] / 2,
+              z = ((k & 4) ? 1 : -1) * h * o.scale[2] / 2;
+        float t;
+        if (o.axis == 0) { t = y * c - z * s; z = y * s + z * c; y = t; }
+        else if (o.axis == 1) { t = x * c + z * s; z = -x * s + z * c; x = t; }
+        else { t = x * c - y * s; y = x * s + y * c; x = t; }
+        pts[k][0] = x + o.move[0];
+        pts[k][1] = y + o.move[1];
+        pts[k][2] = z + zc + o.move[2];
+    }
+    int far = 0;
+    for (int k = 1; k < 8; k++) {
+        if (pts[k][0] + pts[k][1] + 1.2f * pts[k][2] < pts[far][0] + pts[far][1] + 1.2f * pts[far][2]) far = k;
+    }
+    int sp[8][2];
+    for (int k = 0; k < 8; k++) {
+        sp[k][0] = ox + (int)lroundf(pts[k][0] - pts[k][1]);
+        sp[k][1] = oy + (int)lroundf((pts[k][0] + pts[k][1]) / 2 - pts[k][2]);
+    }
+    for (int i = 0; i < 8; i++) {
+        for (int bit = 1; bit <= 4; bit <<= 1) {
+            int j = i | bit;
+            if (j == i) continue;
+            bool hidden = i == far || j == far;
+            if (o.ghost) line(sp[i][0], sp[i][1], sp[j][0], sp[j][1], DARK, 2);
+            else line(sp[i][0], sp[i][1], sp[j][0], sp[j][1], hidden ? DARK : AMBER, hidden ? 1 : 0);
+        }
+    }
+    if (o.grips && !o.ghost) {
+        for (int k = 4; k < 8; k++) {
+            rect(sp[k][0] - 2, sp[k][1] - 2, 5, 5, AMBER);
+            rect(sp[k][0] - 1, sp[k][1] - 1, 3, 3, BLACK);
+        }
+    }
+}
+
+// Axis marker, bottom-left of the viewport: lit axes amber.
+static void tripod(int x0, int y0, uint8_t bits) {
+    const int ox = x0 + 15, oy = y0 + 50;
+    line(ox, oy, ox + 8, oy + 4, (bits & 1) ? AMBER : DARK);
+    line(ox, oy, ox - 8, oy + 4, (bits & 2) ? AMBER : DARK);
+    line(ox, oy, ox, oy - 8, (bits & 4) ? AMBER : DARK);
+    rect(ox - 1, oy - 1, 3, 3, WHITE);
+}
+
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static void param_visual(const ParamView &v, int x0, int y0) {
+    const float val = v.value;
+    int bits = v.axis_bits;
+    switch (v.visual) {
+        case APP_PV_FILLET: {
+            int r = (int)clampf(lroundf(fabsf(val) * 4), 0, 12);
+            app_el_t e = r ? iso_el(32, 30, 16, 16, 12, 0, (uint8_t)(r | (val < 0 ? 0x80 : 0))) : iso_el(32, 30, 16, 16, 12, APP_ISO_EDGE);
+            iso_box(e, x0, y0);
+            break;
+        }
+        case APP_PV_EXTRUDE: {
+            int h = (int)lroundf(fabsf(val) * 2);
+            if (val >= 0) {
+                iso_box(iso_el(32, 40, 16, 16, (int)clampf(h, 0, 22), APP_ISO_FACE), x0, y0);
+            } else {
+                iso_box(iso_el(32, 36, 16, 16, 12, APP_ISO_GHOST), x0, y0);
+                iso_box(iso_el(32, 36, 16, 16, (int)clampf(12 - h, 0, 12), APP_ISO_FACE), x0, y0);
+            }
+            break;
+        }
+        case APP_PV_OFFSET:
+            if (val != 0) iso_box(iso_el(32, 30, 16, 16, 12, APP_ISO_GHOST), x0, y0);
+            iso_box(iso_el(32, 30, 16, 16, (int)clampf(12 + lroundf(val * 2), 2, 24), APP_ISO_FACE), x0, y0);
+            break;
+        case APP_PV_HOLLOW:
+            iso_box(iso_el(32, 30, 16, 16, 12, APP_ISO_HOLLOW, (uint8_t)clampf(1 + lroundf(val * 1.2f), 1, 7)), x0, y0);
+            break;
+        case APP_PV_MOVE: {
+            Box3 g, m;
+            g.ghost = true;
+            float d = clampf(val * 1.5f, -16, 16);
+            int n = (bits & 1) + ((bits >> 1) & 1) + ((bits >> 2) & 1);
+            for (int i = 0; i < 3; i++) {
+                if (bits & (1 << i)) m.move[i] = d * (i == 2 ? 0.8f : 1.0f) / sqrtf((float)(n ? n : 1));
+            }
+            box3(x0 + 32, y0 + 26, 12, 12, 10, g);
+            box3(x0 + 32, y0 + 26, 12, 12, 10, m);
+            tripod(x0, y0, bits);
+            break;
+        }
+        case APP_PV_ROTATE: {
+            Box3 r;
+            r.axis = v.axis;
+            r.angle = val * (float)M_PI / 180.0f;
+            box3(x0 + 32, y0 + 24, 20, 12, 10, r);
+            tripod(x0, y0, bits);
+            break;
+        }
+        case APP_PV_SCALE: {
+            Box3 g, s;
+            g.ghost = true;
+            s.grips = true;
+            float f = clampf(val, 0.2f, 2.2f);
+            for (int i = 0; i < 3; i++) if (bits & (1 << i)) s.scale[i] = f;
+            if (val != 1) box3(x0 + 32, y0 + 30, 12, 12, 10, g);
+            box3(x0 + 32, y0 + 30, 12, 12, 10, s);
+            tripod(x0, y0, bits);
+            break;
+        }
+        default: break;
+    }
+}
+
+// "1.25", ".85", "-.85", "35".
+static void format_value(char *buf, size_t n, float v, int decimals) {
+    char tmp[32];
+    if (decimals < 0) decimals = 0;
+    if (decimals > 3) decimals = 3;
+    snprintf(tmp, sizeof(tmp), "%.*f", decimals, (double)clampf(fabsf(v), 0, 99999));
+    const char *s = (decimals > 0 && tmp[0] == '0' && tmp[1] == '.') ? tmp + 1 : tmp;
+    snprintf(buf, n, "%s%s", v < 0 && strcmp(s, decimals ? ".00" : "0") ? "-" : "", s);
+}
+
+void draw_param(const ParamView &v) {
+    text(v.name, CX, 24, GREY, 1, CENTER);
+    rect(60, 40, 120, 1, DARK);
+    const int x0 = CX - CARD_W / 2 + v.nudge, y0 = 46;
+    round_frame(x0, y0, CARD_W, CARD_H, DARK);
+    rect(x0 + 63, y0 + 6, 1, 52, DARK);
+    clip(x0 + 4, y0 + 4, 57, 56);
+    param_visual(v, x0, y0);
+    unclip();
+    modes(v.modes, x0, y0);
+    if (v.axes) {
+        static const char *const XYZ[3] = {"X", "Y", "Z"};
+        for (int i = 0; i < 3; i++) {
+            bool on = v.axis_bits & (1 << i);
+            int x = x0 + 68 + i * 16;
+            cut(x, y0 + 20, 14, 11, on ? AMBER : DARK);
+            text(XYZ[i], x + 7, y0 + 22, on ? BLACK : GREY, 1, CENTER);
+        }
+    } else {
+        app_el_t row_el = {};
+        row_el.op = APP_EL_ROW; row_el.color = APP_C_WHITE; row_el.w = 18; row_el.h = APP_ROW_SEL;
+        row_el.arg = APP_GLYPH_SOLID; row_el.d = 14;
+        row(row_el, x0, y0);
+    }
+
+    text(v.label, CX, 114, AMBER, 1, CENTER);
+    char val[40];
+    format_value(val, sizeof(val), v.value, v.decimals);
+    int w = text(val, CX, 126, WHITE, 3, CENTER);
+    if (v.degrees) frame_box((int)lroundf(CX + w / 2.0f) + 3, 126, 5, 5, WHITE);
+
+    // FREE / F1 .05 / F2 .10 / F4 1.0 -- the held one amber.
+    char labels[4][48];
+    snprintf(labels[0], sizeof(labels[0]), "FREE");
+    static const char *const KEYS[3] = {"F1", "F2", "F4"};
+    for (int i = 0; i < 3; i++) {
+        char st[40];
+        if (v.degrees) snprintf(st, sizeof(st), "%d", (int)lroundf(v.steps[i]));
+        else if (v.steps[i] < 1) format_value(st, sizeof(st), v.steps[i], 2);
+        else snprintf(st, sizeof(st), "%.1f", (double)v.steps[i]);
+        snprintf(labels[i + 1], sizeof(labels[i + 1]), "%s %s", KEYS[i], st);
+    }
+    const int GAP = 10;
+    int tw = -GAP;
+    for (auto &l : labels) tw += text_width(l) + GAP;
+    float tx = lroundf(CX - tw / 2.0f);
+    for (int i = 0; i < 4; i++) {
+        text(labels[i], tx, 157, i == v.step + 1 ? AMBER : DARK);
+        tx += text_width(labels[i]) + GAP;
+    }
+    if (v.f3 >= 0) {
+        text(v.f3 >= 1 ? "RELEASE: CANCEL" : "RELEASE: OK", CX, 175, AMBER, 1, CENTER);
+        rect(80, 189, 80, 2, DARK);
+        rect(80, 189, (int)lroundf(80 * clampf(v.f3, 0, 1)), 2, AMBER);
+    } else {
+        text("F3 OK  HOLD F3 CANCEL", CX, 175, GREY, 1, CENTER);
+        if (v.axes) text("TAP F1 F2 F4: X Y Z", CX, 189, GREY, 1, CENTER);
+    }
 }
 
 void draw_chord(uint8_t modifier, const char *key, float cx, int y, const char *tail) {
@@ -197,7 +556,7 @@ void draw_wheel(const WheelView &v) {
 
     text(v.name, CX, 122, WHITE, fit_scale(v.name, 170, 2), CENTER);
     if (v.entry == 0) text("RELEASE TO CLOSE", CX, 148, GREY, 1, CENTER);
-    else if (v.search) draw_chord(0x08, "K", CX, 145, "SEARCH");
+    else if (v.search) draw_chord(v.modifier, v.key, CX, 145, "SEARCH");
     else draw_chord(v.modifier, v.key, CX, 145, nullptr);
 
     int dots_w = v.count * 8 - 4;

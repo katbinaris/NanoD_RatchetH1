@@ -15,6 +15,7 @@ extern "C" {
 #include "ui_state.h"
 #include "app_profiles/app_profile.h"
 extern const app_profile_t app_profile_figma;
+extern const app_profile_t app_profile_plasticity;
 }
 
 static LGFX_Sprite g;
@@ -184,15 +185,15 @@ int main() {
 
     // Command wheel (Figma): each card on its resting (last) keyframe, one mid-animation,
     // cancel, a slide in flight, and the Main Screen echo after a run.
-    {
-        const app_profile_t &p = app_profile_figma;
+    for (const app_profile_t *pp : {&app_profile_figma, &app_profile_plasticity}) {
+        const app_profile_t &p = *pp;
         auto rest_ms = [](const app_scene_t *s) {
             uint32_t t = 0;
             for (int i = 0; i + 1 < s->n_frames; i++) t += s->frames[i].ms;
             return t;
         };
         auto wheel = [&](int ring, int entry, uint32_t t, float slide, const app_scene_t *prev) {
-            static char key[2];
+            static char key[8];
             const app_ring_t &r = p.rings[ring];
             ui::WheelView v = {};
             v.ring_name = r.name;
@@ -204,11 +205,18 @@ int main() {
             const app_cmd_t *c = entry ? &r.cmds[entry - 1] : nullptr;
             v.name = c ? c->name : "CANCEL";
             v.scene = c ? c->scene : nullptr;
-            if (c && c->kind == APP_CMD_ACTIONS) v.search = true;
-            else if (c) {
-                v.modifier = c->key.modifier;
-                key[0] = (char)('A' + c->key.keycode - 0x04);
-                key[1] = 0;
+            if (c) {
+                const app_key_t &kk = c->kind == APP_CMD_ACTIONS ? p.search.open : c->key;
+                v.search = c->kind == APP_CMD_ACTIONS;
+                v.modifier = kk.modifier;
+                uint8_t k = kk.keycode;
+                if (k >= 0x04 && k <= 0x1D) snprintf(key, sizeof(key), "%c", 'A' + k - 0x04);
+                else if (k >= 0x1E && k <= 0x26) snprintf(key, sizeof(key), "%c", '1' + k - 0x1E);
+                else if (k >= 0x59 && k <= 0x61) snprintf(key, sizeof(key), "NUM%d", k - 0x59 + 1);
+                else if (k == 0x2B) snprintf(key, sizeof(key), "TAB");
+                else if (k == 0x38) snprintf(key, sizeof(key), "/");
+                else if (k == 0x37) snprintf(key, sizeof(key), ".");
+                else snprintf(key, sizeof(key), "?");
                 v.key = key;
             }
             v.slide = slide;
@@ -237,6 +245,30 @@ int main() {
         echo.echo_ms = rest_ms(echo.echo_scene);
         ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &echo});
         keep("echo after run");
+    }
+
+    // Parameter mode (Plasticity): the value dial for a few commands / states.
+    {
+        struct T { const char *name, *label; float v; int dec; bool deg; uint8_t vis, modes; bool axes; uint8_t bits; int axis, step; float f3; float s0, s1, s2; };
+        const T cases[] = {
+            {"FILLET", "CHAMFER", -0.85f, 2, false, APP_PV_FILLET, 2, false, 0, 0, 1, -1, 0.05f, 0.1f, 1},
+            {"FILLET", "FILLET", 1.25f, 2, false, APP_PV_FILLET, 2, false, 0, 0, -1, -1, 0.05f, 0.1f, 1},
+            {"EXTRUDE", "DISTANCE", 4.5f, 2, false, APP_PV_EXTRUDE, 4, false, 0, 0, 2, -1, 0.05f, 0.1f, 1},
+            {"HOLLOW", "THICKNESS", 1.5f, 2, false, APP_PV_HOLLOW, 8, false, 0, 0, -1, -1, 0.05f, 0.1f, 1},
+            {"MOVE", "DISTANCE", 6.0f, 2, false, APP_PV_MOVE, 8, true, 1, 0, -1, -1, 0.05f, 0.1f, 1},
+            {"MOVE", "DISTANCE", 6.0f, 2, false, APP_PV_MOVE, 8, true, 5, 1, -1, -1, 0.05f, 0.1f, 1},
+            {"ROTATE", "ANGLE", 35, 0, true, APP_PV_ROTATE, 8, true, 1, 0, -1, -1, 1, 5, 15},
+            {"SCALE", "FACTOR", 1.4f, 2, false, APP_PV_SCALE, 8, true, 7, 0, 0, 0.7f, 0.05f, 0.1f, 1},
+        };
+        for (const T &c : cases) {
+            ui::ParamView v = {};
+            v.name = c.name; v.label = c.label; v.value = c.v; v.decimals = c.dec; v.degrees = c.deg;
+            v.steps[0] = c.s0; v.steps[1] = c.s1; v.steps[2] = c.s2; v.step = c.step; v.visual = c.vis;
+            v.modes = c.modes; v.axes = c.axes; v.axis_bits = c.bits; v.axis = c.axis; v.f3 = c.f3;
+            ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, nullptr, nullptr, &v};
+            ui::draw_main(in);
+            keep(c.name);
+        }
     }
 
     menu_render_snapshot_t disp = {};

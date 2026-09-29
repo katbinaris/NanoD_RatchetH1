@@ -1056,7 +1056,7 @@ static void control_task_fn(void *arg) {
                             // safe from this real-time loop -- see audio_trigger.h. Fires
                             // unconditionally, menu open or not -- same physical click either
                             // way, only what the crossing *means* (below) changes.
-                            audio_trigger_click(AUDIO_CLICK_NORMAL);
+                            audio_trigger_click(app_on && app_mode_fine_clicks() ? AUDIO_CLICK_FINE : AUDIO_CLICK_NORMAL);
                         }
 
                         // Direction comes from the filtered rotation velocity's sign at

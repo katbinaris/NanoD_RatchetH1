@@ -27,7 +27,7 @@ struct WheelView {
     const char *name;           // "WRAP IN FRAME" / "CANCEL"
     uint8_t modifier;           // KEYS: KEYBOARD_MODIFIER_* of the shortcut
     const char *key;            // KEYS: its key ("G"); nullptr for ACTIONS / cancel
-    bool search;                // ACTIONS: shown as Cmd K SEARCH
+    bool search;                // ACTIONS: modifier + key are the app's search key, + "SEARCH"
     const app_scene_t *scene;   // this entry's card (nullptr = cancel)
     const app_scene_t *prev;    // the card sliding out, or nullptr
     bool prev_valid;            // a slide is in flight (prev may be the cancel card)
@@ -36,6 +36,26 @@ struct WheelView {
     uint32_t t_ms;              // time since this entry was chosen (card animation clock)
 };
 void draw_wheel(const WheelView &v);
+
+// Parameter mode (after e.g. FILLET runs): the command's card follows the value live, with the
+// value large, the step row (FREE / F1 / F2 / F4) and the F3 hints.
+struct ParamView {
+    const char *name;           // "FILLET"
+    const char *label;          // "FILLET" / "CHAMFER" / "DISTANCE"
+    float value;
+    int decimals;
+    bool degrees;
+    float steps[3];
+    int step;                   // -1 free, 0-2
+    uint8_t visual;             // app_param_visual_t
+    uint8_t modes;              // selection-mode strip bits
+    bool axes;                  // show X / Y / Z chips + marker
+    uint8_t axis_bits;          // lit axes: one, a plane's two, or all three (uniform)
+    int axis;                   // the constrained axis (rotate)
+    float f3;                   // F3 held: 0..1 towards cancel, -1 = up
+    int nudge;                  // end-stop nudge, px
+};
+void draw_param(const ParamView &v);
 
 // Shortcut as small dark keycaps with white legends (modifier glyphs + key), centered.
 void draw_chord(uint8_t modifier, const char *key, float cx, int y, const char *tail);

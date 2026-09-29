@@ -42,6 +42,7 @@ struct MainInputs {
     const uint8_t *icon;      // HID-uploaded 48x48 RGB565 (big-endian) icon, or nullptr
     const AppView *app;       // APP mode: the active profile, or nullptr
     const WheelView *wheel;   // APP mode, command wheel open: it takes the whole screen
+    const ParamView *param;   // APP mode, parameter mode: likewise
 };
 void draw_main(const MainInputs &in);
 

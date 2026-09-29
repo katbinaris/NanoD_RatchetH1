@@ -18,7 +18,11 @@ typedef enum {
                               // "thump" so it doesn't sound like a detent crossing, and NOT
                               // affected by audio_click_timbre_t (only the detent click has
                               // more than one timbre)
+    AUDIO_CLICK_FINE,         // a fine detent (APP parameter mode, free): the detent click at
+                              // AUDIO_CLICK_FINE_PITCH x the Pitch setting, so fine clicks
+                              // sound distinct from the coarse steps
 } audio_click_type_t;
+#define AUDIO_CLICK_FINE_PITCH 2.0f
 
 // Phase 8 step 5: which DETENT click timbre i2s_task.c renders -- was a compile-time
 // CLICK_TIMBRE #define there (step 7 audibility-test scaffolding), now the Haptic

@@ -233,7 +233,7 @@ static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
         }
     }
     int32_t move = app_mode_take_move_px();
-    if (move != 0 && want_buttons == 0) move = 0; // travel only counts during a drag
+    if (move != 0 && want_buttons == 0 && !app_mode_hover()) move = 0; // travel only counts during a drag (or parameter mode)
     if (move > 127 || move < -127) {
         int32_t clipped = move > 0 ? 127 : -127;
         app_mode_return_move_px(move - clipped);

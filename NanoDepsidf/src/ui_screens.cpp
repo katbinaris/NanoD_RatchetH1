@@ -116,6 +116,10 @@ static void draw_app_top(const AppView &app) {
 }
 
 void draw_main(const MainInputs &in) {
+    if (in.param != nullptr) {
+        draw_param(*in.param);
+        return;
+    }
     if (in.wheel != nullptr) {
         draw_wheel(*in.wheel);
         return;

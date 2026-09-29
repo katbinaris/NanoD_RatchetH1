@@ -47,6 +47,9 @@ void app_mode_detent(int8_t dir, int64_t now_us);
 // The live slot's feel: overrides *type / *detents (leaves them if the slot has no action).
 void app_mode_haptics(haptic_type_t *type, uint32_t *detents);
 
+// True while the detents are parameter mode's fine free-mode clicks (a higher click sound).
+bool app_mode_fine_clicks(void);
+
 // True when a detent in `dir` would run off the end of a list (the command wheel): the
 // control loop turns that detent into a haptic wall instead of a step.
 bool app_mode_at_end(int8_t dir);
@@ -60,6 +63,22 @@ int app_mode_live_slot(void);
 bool app_mode_wheel(int *ring, int *entry);
 // Commands run so far (a counter that moves on every run) and which one ran last.
 uint32_t app_mode_last_run(int *ring, int *entry);
+// Slot taps fired so far (a counter) and which slot fired last -- a key's quick-press `tap`.
+uint32_t app_mode_last_tap(int *slot);
+
+// Parameter mode (app_profile.h): after a command with a `param` runs from the wheel.
+typedef struct {
+    bool active;
+    int ring, entry;       // the command
+    float value;
+    int step;              // -1 free, 0-2 the held F key's step
+    int axis;              // 0-2 X / Y / Z (with APP_PARAM_AXES)
+    bool plane, uniform;
+    bool exact;            // a step was used: the value will be typed in on confirm
+    uint32_t f3_ms;        // F3 held this long (0 = up): past 600ms, release cancels
+    uint32_t bump;         // counts end-stop hits (the card nudges)
+} app_param_state_t;
+bool app_mode_param(app_param_state_t *out);
 
 // --- USB task side ---
 
@@ -71,3 +90,4 @@ void app_mode_return_move_px(int32_t px); // give back what didn't fit in one re
 int32_t app_mode_take_wheel_steps(void);  // wheel steps accumulated since the last call
 void app_mode_return_wheel_steps(int32_t steps);
 bool app_mode_take_tap(app_tap_t *key);   // next queued key tap, if any
+bool app_mode_hover(void);                 // pointer travel counts with no button held (parameter mode)

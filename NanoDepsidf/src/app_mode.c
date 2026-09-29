@@ -4,6 +4,7 @@
 #include "ui_state.h"
 #include <math.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <string.h>
 #include "class/hid/hid.h"
 
@@ -17,6 +18,15 @@
                                      // sized for one command-search macro (open + ~40 chars + Enter)
 #define APP_TAP_MAX_US 400000        // a key let go within this, without turning, was a tap
 #define APP_CANCEL 0                 // wheel entry 0 of every ring: close without running
+#define APP_WHEEL_SHOW_US 250000     // a wheel key that also taps (Plasticity F3 = undo) shows the
+                                     // wheel only after this -- a quick tap never flashes it
+#define APP_PARAM_CANCEL_US 600000   // parameter mode: F3 held this long = cancel, shorter = confirm
+#define APP_PARAM_AXIS_TAP_US 350000 // parameter mode: F1 / F2 / F4 let go within this = axis tap
+#define APP_PARAM_TAP_TRAVEL 0.05f   // ...unless the knob turned more than this (rad) meanwhile
+#define APP_PARAM_STEP_DETENTS 16    // haptic detents per turn while stepping
+#define APP_PARAM_FINE_DETENTS 48    // ...and in free mode: fine clicks. A continuous value
+                                     // jittered in its last digit with sensor noise (hardware)
+#define WANT_HOVER (1u << 17)        // s_want: pointer travel with no button held
 
 static const uint8_t SLOT_KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
 
@@ -49,14 +59,40 @@ static _Atomic uint32_t s_run = 0; // bits 16-31 count, 8-15 ring, 0-7 entry
 
 // Command wheel, control-task side.
 static bool s_wheel_open = false;
+static bool s_wheel_shown = false;  // published to the display (delayed when the key also taps)
+static _Atomic uint32_t s_tapped = 0; // bits 8-31 count, 0-7 slot: a slot's `tap` just fired
 static uint8_t s_ring = 0, s_entry = 1;
 static uint8_t s_ring_entry[8];     // last entry used per ring (opens there: hold-release repeats)
 static uint8_t s_swallow_keys = 0;  // F keys used to switch rings: their release does nothing
+
+// Parameter mode, control-task side (see app_profile.h "Parameter mode").
+static const app_param_t *s_param = NULL;
+static float s_pvalue = 0.0f;
+static bool s_pexact = false;        // a step was used: the value is typed in on confirm
+static uint8_t s_paxis = 0;          // 0-2 X / Y / Z
+static bool s_pplane = false, s_puniform = false;
+static int64_t s_pf3_at = -1;        // F3 down since (-1 = up)
+static int64_t s_pkey_at[APP_SLOT_COUNT];
+static float s_pkey_travel[APP_SLOT_COUNT];
+static float s_paccum_px = 0.0f;
+static uint8_t s_pring = 0, s_pentry = 0;
+static uint8_t s_paxis_memo[8];      // last constraint per visual: bit 7 set, axis | plane << 2 | uniform << 3
+// Published: bit 31 active, 16-23 ring, 8-15 entry, 0-1 axis, 2 plane, 3 uniform, 4-5 step + 1,
+// 6 exact. Plus the value (x1000), F3 held time and an end-stop bump counter.
+static _Atomic uint32_t s_pword = 0;
+static _Atomic int32_t s_pvalue_milli = 0;
+static _Atomic uint32_t s_pf3_ms = 0;
+static _Atomic uint32_t s_pbump = 0;
 
 #define WANT(buttons, modifier, axis_y) ((uint32_t)(buttons) | ((uint32_t)(modifier) << 8) | ((axis_y) ? 1u << 16 : 0u))
 
 static const app_action_t *action(int slot) {
     return &s_profile->slot[slot];
+}
+
+static void publish_run(uint8_t ring, uint8_t entry) {
+    uint32_t n = (atomic_load(&s_run) >> 16) + 1;
+    atomic_store(&s_run, (n << 16) | ((uint32_t)ring << 8) | entry);
 }
 
 static uint32_t tap_room(void) {
@@ -107,15 +143,154 @@ static int ring_count(void) {
 }
 
 static void publish_wheel(void) {
-    atomic_store(&s_wheel, (s_wheel_open ? 1u << 31 : 0u) | ((uint32_t)s_ring << 8) | s_entry);
+    atomic_store(&s_wheel, (s_wheel_open && s_wheel_shown ? 1u << 31 : 0u) | ((uint32_t)s_ring << 8) | s_entry);
 }
 
-static void wheel_open(void) {
+// A slot's quick-press `tap` (the display flashes on it, e.g. Plasticity's undo).
+static void fire_tap(int slot, app_key_t key) {
+    push_tap(key);
+    uint32_t n = (atomic_load(&s_tapped) >> 8) + 1;
+    atomic_store(&s_tapped, (n << 8) | (uint32_t)slot);
+}
+
+static void wheel_open(const app_action_t *a) {
     if (ring_count() == 0) return;
     if (s_ring >= ring_count()) s_ring = 0;
     s_entry = s_ring_entry[s_ring] ? s_ring_entry[s_ring] : 1;
     s_wheel_open = true;
+    s_wheel_shown = a->tap.keycode == 0; // a key that also taps waits APP_WHEEL_SHOW_US
     publish_wheel();
+}
+
+// --- parameter mode ---
+
+// The held F key's step: F4 > F2 > F1, -1 = free.
+static int param_step(void) {
+    uint8_t h = s_stable_held;
+    return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F2) ? 1 : (h & UI_BTN_F1) ? 0 : -1;
+}
+
+static void param_publish(void) {
+    uint32_t w = 0;
+    if (s_param) {
+        w = 1u << 31 | (uint32_t)s_pring << 16 | (uint32_t)s_pentry << 8 | s_paxis | (s_pplane ? 4u : 0u)
+          | (s_puniform ? 8u : 0u) | (uint32_t)(param_step() + 1) << 4 | (s_pexact ? 64u : 0u);
+    }
+    atomic_store(&s_pvalue_milli, (int32_t)lroundf(s_pvalue * 1000.0f));
+    atomic_store(&s_pword, w);
+}
+
+// The constraint key for the current axis state (X, Shift + X for its plane, S uniform).
+static app_key_t param_constraint_key(void) {
+    const app_param_keys_t *k = &s_profile->param_keys;
+    if (s_puniform) return k->uniform;
+    app_key_t key = k->axis[s_paxis];
+    if (s_pplane) key.modifier |= KEYBOARD_MODIFIER_LEFTSHIFT;
+    return key;
+}
+
+static void param_set(float v) {
+    if (v < s_param->min || v > s_param->max) atomic_fetch_add(&s_pbump, 1);
+    s_pvalue = v < s_param->min ? s_param->min : v > s_param->max ? s_param->max : v;
+    if (fabsf(s_pvalue) < 1e-6f) s_pvalue = 0.0f;
+}
+
+static void param_start(const app_param_t *p, uint8_t ring, uint8_t entry) {
+    s_param = p;
+    s_pvalue = p->start;
+    s_pexact = false;
+    s_pf3_at = -1;
+    s_paccum_px = 0.0f;
+    s_pring = ring;
+    s_pentry = entry;
+    memset(s_pkey_at, 0, sizeof(s_pkey_at));
+    memset(s_pkey_travel, 0, sizeof(s_pkey_travel));
+    if (p->enter.keycode) push_tap(p->enter);
+    if (p->flags & APP_PARAM_AXES) {
+        uint8_t m = s_paxis_memo[p->visual & 7];
+        if (m & 0x80) {
+            s_paxis = m & 3;
+            s_pplane = m & 4;
+            s_puniform = m & 8;
+        } else {
+            s_paxis = p->axis_default == APP_AXIS_UNIFORM ? 0 : p->axis_default;
+            s_pplane = false;
+            s_puniform = p->axis_default == APP_AXIS_UNIFORM;
+        }
+        push_tap(param_constraint_key());
+    }
+    atomic_store(&s_want, WANT_HOVER); // knob alone moves the pointer: the app's handle follows it
+    param_publish();
+}
+
+// Tap F1 / F2 / F4 = X / Y / Z; the active one again = its plane, then (scale) uniform.
+static void param_axis_tap(uint8_t axis) {
+    uint8_t f = s_param->flags;
+    if (s_puniform || s_paxis != axis) {
+        s_paxis = axis;
+        s_pplane = s_puniform = false;
+    } else if (!s_pplane && (f & APP_PARAM_PLANES)) {
+        s_pplane = true;
+    } else if (f & APP_PARAM_UNIFORM) {
+        s_pplane = false;
+        s_puniform = true;
+    } else {
+        s_pplane = false;
+    }
+    s_paxis_memo[s_param->visual & 7] = 0x80 | s_paxis | (s_pplane ? 4 : 0) | (s_puniform ? 8 : 0);
+    push_tap(param_constraint_key());
+    param_publish();
+}
+
+// Confirm: an exact value is typed in (numeric entry, the digits, confirm); a free one is just
+// confirmed where the handle is. Cancel: the cancel key.
+static void param_end(bool ok) {
+    if (s_param == NULL) return;
+    const app_param_keys_t *k = &s_profile->param_keys;
+    if (ok && s_pexact && k->numeric.keycode) {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.*f", s_param->decimals, (double)s_pvalue);
+        if (tap_room() >= strlen(buf) + 3) {
+            push_tap_wait(k->numeric, 5);
+            for (const char *c = buf; *c; c++) {
+                app_key_t key;
+                if (ascii_key(*c, &key)) push_tap(key);
+            }
+        }
+    }
+    push_tap(ok ? k->confirm : k->cancel);
+    if (ok) publish_run(s_pring, s_pentry);
+    s_param = NULL;
+    atomic_store(&s_want, 0);
+    atomic_store(&s_move_px, 0);
+    atomic_store(&s_pf3_ms, 0);
+    param_publish();
+}
+
+// Every tick while parameter mode is on: it owns F1-F4 (no slots, no menu long-press).
+static void param_keys(int64_t now_us, uint8_t pressed, uint8_t released) {
+    if (pressed & UI_BTN_F3) s_pf3_at = now_us;
+    if ((released & UI_BTN_F3) && s_pf3_at >= 0) {
+        bool ok = now_us - s_pf3_at < APP_PARAM_CANCEL_US;
+        s_pf3_at = -1;
+        param_end(ok);
+        return;
+    }
+    atomic_store(&s_pf3_ms, s_pf3_at >= 0 ? (uint32_t)((now_us - s_pf3_at) / 1000) + 1 : 0);
+    static const uint8_t AXIS_SLOT[3] = {APP_SLOT_F1, APP_SLOT_F2, APP_SLOT_F4};
+    for (uint8_t a = 0; a < 3; a++) {
+        int slot = AXIS_SLOT[a];
+        uint8_t key = SLOT_KEY[slot];
+        if (pressed & key) {
+            s_pkey_at[slot] = now_us;
+            s_pkey_travel[slot] = 0.0f;
+        }
+        if ((released & key) && (s_param->flags & APP_PARAM_AXES) && s_pkey_travel[slot] < APP_PARAM_TAP_TRAVEL
+            && now_us - s_pkey_at[slot] < APP_PARAM_AXIS_TAP_US) {
+            param_axis_tap(a);
+        }
+    }
+    param_publish();
 }
 
 // F3 let go: run the chosen command (entry 0 = cancel).
@@ -128,8 +303,8 @@ static void wheel_close(void) {
         if (c->kind == APP_CMD_ACTIONS && c->phrase) push_search(&s_profile->search, c->phrase);
         else push_tap(c->key);
         s_ring_entry[s_ring] = s_entry;
-        uint32_t n = (atomic_load(&s_run) >> 16) + 1;
-        atomic_store(&s_run, (n << 16) | ((uint32_t)s_ring << 8) | s_entry);
+        if (c->param) param_start(c->param, s_ring, s_entry); // the echo comes on confirm
+        else publish_run(s_ring, s_entry);
     }
     publish_wheel();
 }
@@ -166,21 +341,29 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
     }
     held = s_stable_held;
     uint8_t pressed = held & ~s_prev_held;
+    uint8_t released = s_prev_held & ~held;
     s_prev_held = held;
 
     const app_profile_t *p = app_profiles_get(menu_get_app_profile());
     if (p != s_profile) {
+        if (s_param) param_end(false);
         end_slot();
         s_profile = p;
     }
     s_active = active && !swallow;
     s_swallow_keys &= held; // forget keys once they're up
     if (!active) {
+        if (s_param) param_end(false); // the menu opened / mode changed: leave the app's command
         if (s_slot >= 0 || atomic_load(&s_want)) end_slot();
         atomic_store(&s_live_slot, APP_SLOT_KNOB);
         return;
     }
     if (swallow) pressed = 0;
+    if (s_param) {
+        param_keys(now_us, pressed, swallow ? 0 : released);
+        atomic_store(&s_live_slot, APP_SLOT_KNOB);
+        return;
+    }
 
     // Command wheel open: the other F keys jump between rings and do nothing else.
     if (s_wheel_open) {
@@ -195,6 +378,8 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
                 if (s_profile->rings[i].slot != slot) continue;
                 s_ring = (uint8_t)i;
                 s_entry = s_ring_entry[i] ? s_ring_entry[i] : 1;
+                s_engaged = true; // using the wheel: its key's release is no longer a tap
+                s_wheel_shown = true;
                 publish_wheel();
                 break;
             }
@@ -213,15 +398,23 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
             // A key takes over from the knob-alone slot. F4 always starts a slot (even with
             // no action) so its long press can open the menu.
             if (a->kind != APP_ACT_NONE || slot == APP_SLOT_F4) begin_slot(slot, now_us);
-            if (a->kind == APP_ACT_COMMANDS && slot != APP_SLOT_F4) wheel_open();
+            if (a->kind == APP_ACT_COMMANDS && slot != APP_SLOT_F4) wheel_open(a);
         }
     }
     if (s_slot_key != 0 && !(held & s_slot_key)) {
         // Let go: the wheel runs its command; a quick press that never turned is a tap.
         const app_action_t *a = action(s_slot);
-        if (s_wheel_open) wheel_close();
-        else if (a->tap.keycode && !s_engaged && now_us - s_slot_start_us < APP_TAP_MAX_US) push_tap(a->tap);
+        bool tap = a->tap.keycode && !s_engaged && now_us - s_slot_start_us < APP_TAP_MAX_US;
+        if (s_wheel_open && !s_wheel_shown) tap = a->tap.keycode != 0; // released before the wheel showed
+        else if (s_wheel_open) tap = false;
+        if (tap) fire_tap(s_slot, a->tap);
+        else wheel_close();
         end_slot();
+    }
+    // The wheel shows once held long enough, or at once when it's being used.
+    if (s_wheel_open && !s_wheel_shown && (s_engaged || now_us - s_slot_start_us >= APP_WHEEL_SHOW_US)) {
+        s_wheel_shown = true;
+        publish_wheel();
     }
     if (s_slot == APP_SLOT_KNOB && now_us - s_last_motion_us >= APP_IDLE_RELEASE_US) {
         end_slot();
@@ -247,6 +440,12 @@ static bool knob_slot_ready(int64_t now_us) {
 
 void app_mode_motion(float delta_rad, int64_t now_us) {
     if (!s_active || s_profile == NULL) return;
+    if (s_param) {
+        for (int slot = 0; slot < APP_SLOT_COUNT; slot++) {
+            if (s_stable_held & SLOT_KEY[slot]) s_pkey_travel[slot] += fabsf(delta_rad);
+        }
+        return; // value and pointer move per click: app_mode_detent()
+    }
     s_motion_accum += delta_rad;
     bool moved = fabsf(s_motion_accum) >= APP_MOTION_EPS_RAD;
     if (moved) s_motion_accum = 0.0f;
@@ -270,6 +469,25 @@ void app_mode_motion(float delta_rad, int64_t now_us) {
 }
 
 void app_mode_detent(int8_t dir, int64_t now_us) {
+    if (s_param && s_active) {
+        int i = param_step();
+        if (i < 0) { // free: one fine click = one small increment + a fixed bit of pointer travel
+            param_set(s_pvalue + dir * s_param->free_step);
+            s_paccum_px += dir * s_param->px_per_step;
+            float px = truncf(s_paccum_px);
+            if (px != 0.0f) {
+                s_paccum_px -= px;
+                atomic_fetch_add(&s_move_px, (int32_t)px);
+            }
+            param_publish();
+            return;
+        }
+        float st = s_param->steps[i];
+        s_pexact = true;
+        param_set(roundf(s_pvalue / st) * st + dir * st);
+        param_publish();
+        return;
+    }
     if (!knob_slot_ready(now_us)) return;
     s_last_motion_us = now_us;
     const app_action_t *a = action(s_slot);
@@ -277,6 +495,11 @@ void app_mode_detent(int8_t dir, int64_t now_us) {
         case APP_ACT_COMMANDS: {
             // One detent per entry; the ends just stop (cancel first, last command last).
             if (!s_wheel_open) break;
+            if (!s_wheel_shown) { // the first detent reveals the wheel; it doesn't move yet
+                s_engaged = s_wheel_shown = true;
+                publish_wheel();
+                break;
+            }
             int last = s_profile->rings[s_ring].count;
             int e = s_entry + dir;
             if (e >= 0 && e <= last) {
@@ -302,13 +525,25 @@ void app_mode_detent(int8_t dir, int64_t now_us) {
     }
 }
 
+uint32_t app_mode_last_tap(int *slot) {
+    uint32_t t = atomic_load(&s_tapped);
+    *slot = t & 0xFF;
+    return t >> 8;
+}
+
 bool app_mode_at_end(int8_t dir) {
-    if (!s_active || !s_wheel_open || s_profile == NULL) return false;
+    if (s_active && s_param) return dir > 0 ? s_pvalue >= s_param->max : s_pvalue <= s_param->min;
+    if (!s_active || !s_wheel_open || !s_wheel_shown || s_profile == NULL) return false;
     return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
 void app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
     if (s_profile == NULL) return;
+    if (s_param) { // one click per step; free = fine clicks
+        *type = HAPTIC_TYPE_SAW;
+        *detents = param_step() >= 0 ? APP_PARAM_STEP_DETENTS : APP_PARAM_FINE_DETENTS;
+        return;
+    }
     const app_action_t *a = action(s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
     if (a->kind == APP_ACT_NONE || a->kind == APP_ACT_TAP) return;
     *type = a->feel;
@@ -354,6 +589,30 @@ uint32_t app_mode_last_run(int *ring, int *entry) {
     *ring = (r >> 8) & 0xFF;
     *entry = r & 0xFF;
     return r >> 16;
+}
+
+bool app_mode_fine_clicks(void) {
+    return s_active && s_param && param_step() < 0;
+}
+
+bool app_mode_hover(void) {
+    return (atomic_load(&s_want) & WANT_HOVER) != 0;
+}
+
+bool app_mode_param(app_param_state_t *s) {
+    uint32_t w = atomic_load(&s_pword);
+    s->active = (w >> 31) != 0;
+    s->ring = (w >> 16) & 0xFF;
+    s->entry = (w >> 8) & 0xFF;
+    s->axis = w & 3;
+    s->plane = (w & 4) != 0;
+    s->uniform = (w & 8) != 0;
+    s->step = (int)((w >> 4) & 3) - 1;
+    s->exact = (w & 64) != 0;
+    s->value = atomic_load(&s_pvalue_milli) / 1000.0f;
+    s->f3_ms = atomic_load(&s_pf3_ms);
+    s->bump = atomic_load(&s_pbump);
+    return s->active;
 }
 
 bool app_mode_take_tap(app_tap_t *key) {

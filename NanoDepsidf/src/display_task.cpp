@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "driver/ledc.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 // Plain-C model layer -- linkage fixed here at the include site so menu.h/ui_state.h
@@ -275,6 +276,17 @@ static bool shape_tick(int64_t now, uint8_t buttons) {
         s_settling = true;
     }
     s_shape_last_fx = fx;
+    // A key's quick-press tap (e.g. F3 = undo while holding it opens the wheel) flashes too.
+    static uint32_t s_taps_seen = 0;
+    static bool s_taps_have = false;
+    int tap_slot;
+    uint32_t taps = app_mode_last_tap(&tap_slot);
+    if (s_taps_have && taps != s_taps_seen && tap_slot < APP_SLOT_COUNT && p->slot[tap_slot].fx == APP_FX_FLASH) {
+        s_flash_until_us = now + SHAPE_FLASH_MS * 1000LL;
+        s_flash_slot = tap_slot;
+    }
+    s_taps_seen = taps;
+    s_taps_have = true;
     for (int slot = APP_SLOT_F1; slot < APP_SLOT_COUNT; slot++) {
         static const uint8_t KEY[APP_SLOT_COUNT] = {0, UI_BTN_F1, UI_BTN_F2, UI_BTN_F3, UI_BTN_F4};
         if ((pressed & KEY[slot]) && p->slot[slot].kind == APP_ACT_TAP && p->slot[slot].fx == APP_FX_FLASH) {
@@ -400,8 +412,21 @@ static bool wheel_tick(int64_t now, bool *changed) {
     return open || echo;
 }
 
+// A key's name on its keycap ("G", "NUM1", "TAB").
+static void key_label(uint8_t k, char *out, size_t n) {
+    if (k >= HID_KEY_A && k <= HID_KEY_Z) snprintf(out, n, "%c", 'A' + k - HID_KEY_A);
+    else if (k >= HID_KEY_1 && k <= HID_KEY_9) snprintf(out, n, "%c", '1' + k - HID_KEY_1);
+    else if (k == HID_KEY_0) snprintf(out, n, "0");
+    else if (k >= HID_KEY_KEYPAD_1 && k <= HID_KEY_KEYPAD_9) snprintf(out, n, "NUM%d", k - HID_KEY_KEYPAD_1 + 1);
+    else if (k == HID_KEY_TAB) snprintf(out, n, "TAB");
+    else if (k == HID_KEY_SLASH) snprintf(out, n, "/");
+    else if (k == HID_KEY_PERIOD) snprintf(out, n, ".");
+    else if (k == HID_KEY_SPACE) snprintf(out, n, "SPACE");
+    else snprintf(out, n, "?");
+}
+
 static ui::WheelView wheel_view(int64_t now) {
-    static char key[2];
+    static char key[8];
     const app_profile_t *p = app_profiles_get(menu_get_app_profile());
     ui::WheelView v = {};
     const app_ring_t &r = p->rings[s_wheel_ring];
@@ -414,15 +439,12 @@ static ui::WheelView wheel_view(int64_t now) {
     const app_cmd_t *c = wheel_cmd(p, s_wheel_ring, s_wheel_entry);
     v.name = c ? c->name : "CANCEL";
     v.scene = c ? c->scene : nullptr;
-    if (c && c->kind == APP_CMD_ACTIONS) {
-        v.search = true;
-    } else if (c) {
-        v.modifier = c->key.modifier;
-        uint8_t k = c->key.keycode;
-        key[0] = k >= HID_KEY_A && k <= HID_KEY_Z ? (char)('A' + k - HID_KEY_A)
-               : k >= HID_KEY_1 && k <= HID_KEY_9 ? (char)('1' + k - HID_KEY_1)
-               : k == HID_KEY_0 ? '0' : '?';
-        key[1] = 0;
+    if (c) {
+        // ACTIONS show the profile's search key (Figma Cmd K, Plasticity F) + SEARCH.
+        const app_key_t &k = c->kind == APP_CMD_ACTIONS ? p->search.open : c->key;
+        v.search = c->kind == APP_CMD_ACTIONS;
+        v.modifier = k.modifier;
+        key_label(k.keycode, key, sizeof(key));
         v.key = key;
     }
     v.prev = s_wheel_prev;
@@ -432,6 +454,40 @@ static ui::WheelView wheel_view(int64_t now) {
     v.slide_dir = s_wheel_slide_dir;
     v.t_ms = (uint32_t)((now - s_wheel_entry_us) / 1000);
     return v;
+}
+
+// Parameter mode (app_mode.c): the value dial after e.g. FILLET runs from the wheel.
+#define PARAM_NUDGE_MS 90
+static bool param_view(int64_t now, ui::ParamView *v) {
+    if (menu_get_hid_type() != MENU_HID_APP) return false;
+    app_param_state_t s;
+    if (!app_mode_param(&s)) return false;
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    const app_cmd_t *c = wheel_cmd(p, s.ring, s.entry);
+    if (c == nullptr || c->param == nullptr) return false;
+    const app_param_t *pr = c->param;
+    static uint32_t s_bump_seen = 0;
+    static int64_t s_bump_at = -(1LL << 40);
+    if (s.bump != s_bump_seen) {
+        s_bump_seen = s.bump;
+        s_bump_at = now;
+    }
+    *v = {};
+    v->name = c->name;
+    v->label = (s.value < 0 && pr->label_neg) ? pr->label_neg : pr->label;
+    v->value = s.value;
+    v->decimals = pr->decimals;
+    v->degrees = pr->flags & APP_PARAM_DEG;
+    for (int i = 0; i < 3; i++) v->steps[i] = pr->steps[i];
+    v->step = s.step;
+    v->visual = pr->visual;
+    v->modes = pr->modes;
+    v->axes = pr->flags & APP_PARAM_AXES;
+    v->axis = s.axis;
+    v->axis_bits = s.uniform ? 7 : s.plane ? (uint8_t)(7 & ~(1 << s.axis)) : (uint8_t)(1 << s.axis);
+    v->f3 = s.f3_ms ? (s.f3_ms - 1) / 600.0f : -1.0f;
+    v->nudge = now - s_bump_at < PARAM_NUDGE_MS * 1000LL ? 3 : 0;
+    return true;
 }
 
 static float ease_out3(float k) {
@@ -454,6 +510,8 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             ui::WheelView wv;
             bool wheel = app && s_wheel_was_open;
             if (wheel) wv = wheel_view(now);
+            ui::ParamView pv;
+            bool param = app && param_view(now, &pv);
             if (app && now - s_echo_start_us < ECHO_MS * 1000LL) {
                 const app_cmd_t *c = wheel_cmd(app_profiles_get(menu_get_app_profile()), s_echo_ring, s_echo_entry);
                 if (c) {
@@ -467,7 +525,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
                 ui_state_get_usb_serial_active(), menu_get_haptic_sound(), menu_get_hid_type(),
                 menu_get_haptic_type(), // the feel line isn't shown in APP mode
                 ui_state_get_buttons(), s_icon_set ? s_icon : nullptr, app ? &av : nullptr,
-                wheel ? &wv : nullptr,
+                wheel ? &wv : nullptr, param ? &pv : nullptr,
             };
             ui::draw_main(in);
             break;
@@ -638,7 +696,12 @@ static Pace update_ui(void) {
     bool shape_live = shape_tick(now, buttons);
     bool wheel_changed = false;
     bool wheel_live = wheel_tick(now, &wheel_changed);
-    if (wheel_live) s_last_activity_us = now; // no screensaver over the wheel or an echo
+    app_param_state_t pstate;
+    bool param_live = menu_get_hid_type() == MENU_HID_APP && app_mode_param(&pstate);
+    static bool s_param_was = false;
+    if (param_live != s_param_was) wheel_changed = true;
+    s_param_was = param_live;
+    if (wheel_live || param_live) s_last_activity_us = now; // no screensaver over the wheel, an echo or a value dial
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
                || rotation_changed;
     if (target != s_view) {
@@ -665,7 +728,7 @@ static Pace update_ui(void) {
              || (s_view == V_MAIN && shape_live)
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT
-                || (s_view == V_MAIN && wheel_live) // card animations
+                || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
     bool blink_on = ((now / 1000) % 900) < 600;
     bool blink_edge = is_settings_view(s_view) && snap.dirty && blink_on != s_drawn_blink;

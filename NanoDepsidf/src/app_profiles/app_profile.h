@@ -100,12 +100,32 @@ typedef enum {
     APP_EL_LINE,     // (x, y) -> (w, h)
     APP_EL_CLIPBOARD,// 13x17 clipboard at (x, y)
     APP_EL_PLAY,     // play button: disc + black triangle, diameter w
-    APP_EL_ROW,      // layers row: y = row index, x = depth, glyph `arg`, name bar `w`, flags `h`
+    APP_EL_ROW,      // layers row: y = row index, x = depth, glyph `arg`, name bar `w`, flags `h`,
+                     // `d` = extra px down (rows under a mode strip)
+    // Isometric 2:1 box, drawn as a wireframe (Plasticity): (x, y) = the (0,0,0) corner, w = a
+    // (along x, right-down), h = b (along y, left-down), d = height, arg = fillet radius on
+    // the front vertical edge, flags = APP_ISO_*.
+    APP_EL_ISO,
+    APP_EL_MODES,    // Plasticity's selection-mode strip (point / edge / face / solid), arg = active bits
+    APP_EL_ARC,      // iso-ellipse arc: centre (x, y), radius w, from arg/10 to d/10 rad, head at the end
 } app_el_op_t;
+// APP_EL_ISO flags
+#define APP_ISO_SOLID 0x01   // whole body selected (amber edges)
+#define APP_ISO_FACE 0x02    // top face selected / changed (amber dots + edges)
+#define APP_ISO_EDGE 0x04    // front vertical edge selected
+#define APP_ISO_POINTS 0x08  // corner points selected
+#define APP_ISO_GHOST 0x10   // dashed dark outline (where something was / will be)
+#define APP_ISO_NO_BOTTOM 0x20 // no bottom edges (sits merged on another body)
+#define APP_ISO_GRIPS 0x40   // scale grips on the corners
+#define APP_ISO_HOLLOW 0x80  // shelled: an inset rim on the top face
+// APP_EL_LINE arg
+#define APP_LINE_HEAD 0x01   // 3x3 head at the end (an arrow)
+#define APP_LINE_DASHED 0x02
 typedef enum { APP_C_BLACK = 0, APP_C_DARK, APP_C_GREY, APP_C_WHITE, APP_C_AMBER } app_el_color_t;
 typedef enum {
     APP_GLYPH_RECT = 0, APP_GLYPH_CIRCLE, APP_GLYPH_FRAME, APP_GLYPH_AUTO, APP_GLYPH_GROUP,
     APP_GLYPH_COMP, APP_GLYPH_INST, APP_GLYPH_TEXT,
+    APP_GLYPH_SOLID, APP_GLYPH_SHEET, // Plasticity outliner
 } app_glyph_t;
 // APP_EL_ROW flags
 #define APP_ROW_SEL 0x01      // selected (dark band)
@@ -120,6 +140,8 @@ typedef struct {
     int8_t x, y;
     uint8_t w, h;
     uint8_t arg;
+    uint8_t d;     // ISO height, ARC end, ROW offset
+    uint8_t flags; // ISO: APP_ISO_*
 } app_el_t;
 
 typedef struct {
@@ -142,21 +164,69 @@ typedef struct {
 #define K_G APP_C_GREY
 #define K_W APP_C_WHITE
 #define K_A APP_C_AMBER
-#define EL_BOX(x, y, w, h, c) {APP_EL_BOX, c, x, y, w, h, 0}
-#define EL_FRAME(x, y, w, h, c) {APP_EL_FRAME, c, x, y, w, h, 0}
-#define EL_DASH(x, y, w, h, c) {APP_EL_DASH, c, x, y, w, h, 0}
-#define EL_DISC(x, y, d, c) {APP_EL_DISC, c, x, y, d, d, 0}
-#define EL_SEL(x, y, w, h) {APP_EL_SEL, K_A, x, y, w, h, 0}
-#define EL_LABEL(x, y, glyph, len, c) {APP_EL_LABEL, c, x, y, len, 0, glyph}
-#define EL_LINE(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, 0}
-#define EL_CLIPBOARD(x, y, c) {APP_EL_CLIPBOARD, c, x, y, 13, 17, 0}
-#define EL_PLAY(x, y, d) {APP_EL_PLAY, K_A, x, y, d, d, 0}
-#define EL_ROW(i, depth, glyph, len, c, flags) {APP_EL_ROW, c, depth, i, len, flags, glyph}
+#define EL_BOX(x, y, w, h, c) {APP_EL_BOX, c, x, y, w, h, 0, 0, 0}
+#define EL_FRAME(x, y, w, h, c) {APP_EL_FRAME, c, x, y, w, h, 0, 0, 0}
+#define EL_DASH(x, y, w, h, c) {APP_EL_DASH, c, x, y, w, h, 0, 0, 0}
+#define EL_DISC(x, y, d, c) {APP_EL_DISC, c, x, y, d, d, 0, 0, 0}
+#define EL_SEL(x, y, w, h) {APP_EL_SEL, K_A, x, y, w, h, 0, 0, 0}
+#define EL_LABEL(x, y, glyph, len, c) {APP_EL_LABEL, c, x, y, len, 0, glyph, 0, 0}
+#define EL_LINE(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, 0, 0, 0}
+#define EL_CLIPBOARD(x, y, c) {APP_EL_CLIPBOARD, c, x, y, 13, 17, 0, 0, 0}
+#define EL_PLAY(x, y, d) {APP_EL_PLAY, K_A, x, y, d, d, 0, 0, 0}
+#define EL_ROW(i, depth, glyph, len, c, flags) {APP_EL_ROW, c, depth, i, len, flags, glyph, 0, 0}
+#define EL_ISO(x, y, a, b, h, flags) {APP_EL_ISO, K_W, x, y, a, b, 0, h, flags}
+#define EL_ISO_FILLET(x, y, a, b, h, r, flags) {APP_EL_ISO, K_W, x, y, a, b, r, h, flags}
+#define EL_MODES(bits) {APP_EL_MODES, K_A, 0, 0, 0, 0, bits, 0, 0}
+#define EL_ARC(x, y, r, t0, t1, c) {APP_EL_ARC, c, x, y, r, 0, t0, t1, 0}
+#define EL_ARROW(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, APP_LINE_HEAD, 0, 0}
+#define EL_DLINE(x0, y0, x1, y1, c) {APP_EL_LINE, c, x0, y0, x1, y1, APP_LINE_DASHED, 0, 0}
+// Outliner row under the mode strip.
+#define EL_PROW(i, glyph, len, c, flags) {APP_EL_ROW, c, 0, i, len, flags, glyph, 14, 0}
 #define EL_LIST(...) (const app_el_t[]){__VA_ARGS__}
 #define EL_COUNT(...) (uint8_t)(sizeof((const app_el_t[]){__VA_ARGS__}) / sizeof(app_el_t))
 #define KEYFRAME(ms, ...) {ms, EL_COUNT(__VA_ARGS__), EL_LIST(__VA_ARGS__)}
 
 typedef enum { APP_CMD_KEYS = 0, APP_CMD_ACTIONS } app_cmd_kind_t;
+
+// --- Parameter mode ---
+// After a command with a `param` runs from the wheel, the knob sets its value until F3
+// confirms (tap) or cancels (hold): free = fine clicks, each moving the pointer so the app's own
+// handle follows; F1 / F2 / F4 held = exact steps, typed in on confirm. With APP_PARAM_AXES, tapping F1 / F2 /
+// F4 constrains to X / Y / Z (again: the plane, then uniform). The card follows the value
+// through one of the renderer's parametric visuals.
+typedef enum {
+    APP_PV_NONE = 0, APP_PV_FILLET, APP_PV_EXTRUDE, APP_PV_OFFSET, APP_PV_HOLLOW,
+    APP_PV_MOVE, APP_PV_ROTATE, APP_PV_SCALE,
+} app_param_visual_t;
+#define APP_PARAM_DEG 0x01     // an angle (degree mark, steps in degrees)
+#define APP_PARAM_AXES 0x02    // X / Y / Z constraint by tapping F1 / F2 / F4
+#define APP_PARAM_PLANES 0x04  // ...and planes (Shift + X / Y / Z)
+#define APP_PARAM_UNIFORM 0x08 // ...and uniform (the `uniform` key)
+#define APP_AXIS_UNIFORM 3     // axis_default: start uniform
+
+typedef struct {
+    const char *label;      // "DISTANCE"
+    const char *label_neg;  // shown below zero ("CHAMFER" for a fillet), NULL = label
+    float steps[3];         // F1 / F2 / F4 held: exact step sizes
+    float free_step;        // knob alone: value change per fine click (the on-screen estimate)
+    float px_per_step;      // knob alone: pointer travel per fine click (what the app follows)
+    float start, min, max;
+    uint8_t decimals;
+    uint8_t flags;          // APP_PARAM_*
+    uint8_t visual;         // app_param_visual_t
+    uint8_t modes;          // selection-mode strip bits on the card
+    app_key_t enter;        // sent right after the command (e.g. D = distance), 0 = none
+    uint8_t axis_default;   // 0-2 = X / Y / Z, APP_AXIS_UNIFORM
+} app_param_t;
+
+// How a profile's parameter mode talks to the app.
+typedef struct {
+    app_key_t numeric;      // opens exact entry (Plasticity: Tab)
+    app_key_t confirm;      // Enter
+    app_key_t cancel;       // Esc
+    app_key_t axis[3];      // X / Y / Z constraint keys (the plane = the same + Shift)
+    app_key_t uniform;      // S
+} app_param_keys_t;
 
 typedef struct {
     const char *name;         // on screen, caps ("WRAP IN FRAME")
@@ -164,6 +234,7 @@ typedef struct {
     app_key_t key;            // KEYS: the shortcut
     const char *phrase;       // ACTIONS: typed into the app's command search (lowercase ASCII)
     const app_scene_t *scene; // the card, or NULL
+    const app_param_t *param; // parameter mode after it runs, or NULL
 } app_cmd_t;
 
 typedef struct {
@@ -202,4 +273,5 @@ typedef struct {
     uint8_t ring_count;
     const app_ring_t *rings;
     app_search_t search;
+    app_param_keys_t param_keys;
 } app_profile_t;
