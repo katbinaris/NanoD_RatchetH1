@@ -11,6 +11,7 @@ static const char *TAG = "config_store";
 #define NS_HAPTIC "haptic_cfg"
 #define NS_HID    "hid_cfg"
 #define NS_BOOT   "boot_cfg"
+#define NS_DISPLAY "disp_cfg"
 #define KEY       "cfg" // one blob per namespace, same shape as foc_calibration.c's "foc_cal"/"cal"
 
 // HAPTIC_TYPE_COUNT (haptic_params.h), AUDIO_TIMBRE_COUNT (audio_trigger.h), and now
@@ -145,4 +146,22 @@ bool config_store_load_boot(boot_cfg_t *out) {
 
 void config_store_save_boot(const boot_cfg_t *cfg) {
     nvs_save_blob(NS_BOOT, cfg, sizeof(*cfg), "boot_cfg");
+}
+
+bool config_store_load_display(display_cfg_t *out) {
+    display_cfg_t stored;
+    if (!nvs_load_blob(NS_DISPLAY, &stored, sizeof(stored))) {
+        return false;
+    }
+    if (stored.rotation < 0 || stored.rotation > 3) {
+        ESP_LOGW(TAG, "stored disp_cfg failed sanity check, ignoring");
+        return false;
+    }
+    *out = stored;
+    ESP_LOGI(TAG, "loaded disp_cfg from NVS: rotation=%ld", (long)stored.rotation);
+    return true;
+}
+
+void config_store_save_display(const display_cfg_t *cfg) {
+    nvs_save_blob(NS_DISPLAY, cfg, sizeof(*cfg), "disp_cfg");
 }

@@ -100,6 +100,9 @@ static _Atomic int32_t s_ph_app_profile = 0;  // app_profiles_get() index; NVS s
 // boot_usb_mode_t itself now lives in boot_mode.h (Phase 8 step 6) -- main.c reads it
 // directly at startup to decide which USB personality to bring up.
 static _Atomic boot_usb_mode_t s_ph_boot_mode = BOOT_USB_MODE_HID; // matches today's real default (normal boot = composite HID+CDC)
+// Quarter turns clockwise. Direct screen: turning rotates the screen live, F2 keeps it.
+static _Atomic int32_t s_ph_rotation = 0;
+
 static const char *ph_boot_mode_name(boot_usb_mode_t m) {
     return (m == BOOT_USB_MODE_SERIAL) ? "SERIAL" : "HID";
 }
@@ -235,6 +238,19 @@ static void rotate_boot_mode(int8_t dir) {
     if (v < 0) v += BOOT_USB_MODE_COUNT;
     atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)v, memory_order_relaxed);
 }
+static void fmt_rotation(char *buf, size_t n) {
+    snprintf(buf, n, "%ld", (long)atomic_load_explicit(&s_ph_rotation, memory_order_relaxed) * 90);
+}
+static void rotate_rotation(int8_t dir) {
+    int32_t v = (atomic_load_explicit(&s_ph_rotation, memory_order_relaxed) + dir) % MENU_DISPLAY_ROTATIONS;
+    if (v < 0) v += MENU_DISPLAY_ROTATIONS;
+    atomic_store_explicit(&s_ph_rotation, v, memory_order_relaxed);
+}
+static void action_save_display(void) {
+    display_cfg_t cfg = {.rotation = atomic_load_explicit(&s_ph_rotation, memory_order_relaxed)};
+    config_store_save_display(&cfg);
+}
+
 static void action_save_boot(void) {
     boot_cfg_t cfg = {
         .boot_mode = (int32_t)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed),
@@ -284,9 +300,17 @@ static const menu_screen_t s_boot_screen = {
     MENU_SCREEN_BOOT, "Boot USB Mode", s_boot_items, sizeof(s_boot_items) / sizeof(s_boot_items[0]), true, action_save_boot
 };
 
+static const menu_item_t s_display_items[] = {
+    { .label = "ROTATION", .kind = MENU_ITEM_VALUE, .format_value = fmt_rotation, .on_rotate = rotate_rotation },
+};
+static const menu_screen_t s_display_screen = {
+    MENU_SCREEN_DISPLAY, "Display", s_display_items, 1, true, action_save_display
+};
+
 static const menu_item_t s_root_items[] = {
     { .label = "HAPTICS",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
     { .label = "HID TYPE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
+    { .label = "DISPLAY",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_display_screen },
     { .label = "BOOT MODE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
 };
 static const menu_screen_t s_root_screen = {
@@ -372,6 +396,7 @@ typedef struct {
     int32_t midi_channel;
     int32_t app_profile;
     boot_usb_mode_t boot_mode;
+    int32_t rotation;
 } settings_t;
 
 static settings_t s_saved;
@@ -389,6 +414,7 @@ static void settings_capture(settings_t *s) {
     s->midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed);
     s->app_profile = atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
     s->boot_mode = atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
+    s->rotation = atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
 }
 
 static void settings_restore(const settings_t *s) {
@@ -402,6 +428,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_midi_channel, s->midi_channel, memory_order_relaxed);
     atomic_store_explicit(&s_ph_app_profile, s->app_profile, memory_order_relaxed);
     atomic_store_explicit(&s_ph_boot_mode, s->boot_mode, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_rotation, s->rotation, memory_order_relaxed);
 }
 
 // Copies only the fields a screen owns (what that screen's save writes to NVS).
@@ -426,6 +453,9 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
         case MENU_SCREEN_BOOT:
             dst->boot_mode = src->boot_mode;
             break;
+        case MENU_SCREEN_DISPLAY:
+            dst->rotation = src->rotation;
+            break;
         default:
             break;
     }
@@ -443,6 +473,8 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
             return a->app_profile != b->app_profile;
         case MENU_SCREEN_BOOT:
             return a->boot_mode != b->boot_mode;
+        case MENU_SCREEN_DISPLAY:
+            return a->rotation != b->rotation;
         default:
             return false;
     }
@@ -496,6 +528,10 @@ void menu_init(void) {
     boot_cfg_t bcfg;
     if (config_store_load_boot(&bcfg)) {
         atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)bcfg.boot_mode, memory_order_relaxed);
+    }
+    display_cfg_t dcfg;
+    if (config_store_load_display(&dcfg)) {
+        atomic_store_explicit(&s_ph_rotation, dcfg.rotation, memory_order_relaxed);
     }
 
     // Whatever is live now is, by definition, what's saved (or the defaults, if nothing was)
@@ -754,6 +790,10 @@ boot_usb_mode_t menu_get_boot_mode(void) {
 
 int32_t menu_get_app_profile(void) {
     return atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
+}
+
+int32_t menu_get_display_rotation(void) {
+    return atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
 }
 
 menu_hid_type_t menu_get_hid_type(void) {

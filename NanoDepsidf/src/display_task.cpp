@@ -109,7 +109,7 @@ static bool frame_init(void) {
 
 // --- view state ---
 
-enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_ATTRACT };
+enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_ATTRACT };
 
 static View view_for(const menu_render_snapshot_t &s) {
     switch (s.screen) {
@@ -118,12 +118,13 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_HID: return V_HID;
         case MENU_SCREEN_BOOT: return V_BOOTMODE;
         case MENU_SCREEN_APP_PROFILE: return V_APP_PROFILE;
+        case MENU_SCREEN_DISPLAY: return V_DISPLAY;
         default: return V_MAIN;
     }
 }
 
 static inline bool is_settings_view(View v) {
-    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE;
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY;
 }
 
 static View s_view = V_BOOT;
@@ -513,6 +514,9 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_BOOTMODE:
             ui::draw_boot_mode(snap, menu_get_boot_mode(), ui_state_get_usb_serial_active(), blink_on);
             break;
+        case V_DISPLAY:
+            ui::draw_display(snap, (int)menu_get_display_rotation(), blink_on);
+            break;
         case V_ATTRACT: {
             // APP mode: the plasma emits from the active profile's icon instead of QUADRA.
             const uint8_t *icon = nullptr;
@@ -537,6 +541,16 @@ static Pace update_ui(void) {
     int32_t detent = ui_state_get_detent();
     haptic_type_t feel = menu_get_haptic_type();
     menu_hid_type_t hid = menu_get_hid_type();
+
+    // Screen rotation (DISPLAY setting): applied to the panel, so every view -- the sprite is
+    // square and always drawn upright -- turns with it. Live while the setting is adjusted.
+    static int s_rotation = -1;
+    int rotation = (int)menu_get_display_rotation();
+    bool rotation_changed = rotation != s_rotation;
+    if (rotation_changed) {
+        s_lcd.setRotation(rotation & 3);
+        s_rotation = rotation;
+    }
 
     bool first = !s_have_last;
     if (first) {
@@ -630,7 +644,8 @@ static Pace update_ui(void) {
     bool wheel_changed = false;
     bool wheel_live = wheel_tick(now, &wheel_changed);
     if (wheel_live) s_last_activity_us = now; // no screensaver over the wheel or an echo
-    bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed;
+    bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
+               || rotation_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;

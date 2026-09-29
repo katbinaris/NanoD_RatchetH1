@@ -36,7 +36,12 @@ typedef enum {
     MENU_SCREEN_HID,
     MENU_SCREEN_BOOT,
     MENU_SCREEN_APP_PROFILE, // HID TYPE = APP -> F1: choose the app profile
+    MENU_SCREEN_DISPLAY,     // screen rotation
 } menu_screen_id_t;
+
+// Screen rotation in quarter turns clockwise (0-3), on top of the panel's mounting offset
+// (lgfx_config.hpp). For holding the device in any orientation.
+#define MENU_DISPLAY_ROTATIONS 4
 
 // Row indices of the Haptic screen -- display_task.cpp keys its per-setting icons and the
 // FEEL animation off these.
@@ -144,6 +149,8 @@ boot_usb_mode_t menu_get_boot_mode(void);
 menu_hid_type_t menu_get_hid_type(void);
 // APP mode's profile: an index into app_profiles_get() (app_profiles/app_profiles.h).
 int32_t menu_get_app_profile(void);
+// Screen rotation, 0-3 quarter turns (live while the DISPLAY screen is being turned).
+int32_t menu_get_display_rotation(void);
 
 // TEMPORARY DIAGNOSTIC (DEVELOPMENT_PLAN.md Phase 8): the earlier "laggy roller" fixes
 // (I2S/display priority equalization, roller anim-duration override, single-buffer/24-row

@@ -240,6 +240,14 @@ int main() {
         keep("echo after run");
     }
 
+    menu_render_snapshot_t disp = {};
+    disp.open = true;
+    disp.screen = MENU_SCREEN_DISPLAY;
+    disp.dirty = true;
+    disp.row_count = 1;
+    ui::draw_display(disp, 1, true);
+    keep("display rotation 90, unsaved");
+
     ui::fx_attract(1000);
     keep("plasma 1s");
     ui::fx_attract(3000);
