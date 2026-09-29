@@ -22,8 +22,16 @@
 // deepening that queue (done separately, to fix an audio-glitch-during-menu-redraw bug)
 // makes those windows rarer, not more frequent. Equalized I2S and DISPLAY so FreeRTOS
 // time-slices between them instead of I2S being able to fully starve display.
+//
+// TinyUSB's own device task (the stack that actually moves reports onto the bus) is created
+// by esp_tinyusb at priority 5 on Core 1 unless told otherwise -- *below* the display. Found
+// on hardware with Plasticity's shape animation: while the shape moves, display_task yields
+// frame to frame (taskYIELD only hands over to equal-or-higher priority), so the TinyUSB
+// task never ran and HID reports only went out once the animation settled. It now sits just
+// under usb_task, above everything else on Core 1.
 #define PRIO_CONTROL 20
 #define PRIO_USB     12
+#define PRIO_TINYUSB 11
 #define PRIO_I2S     9
 #define PRIO_DISPLAY 9
 #define PRIO_LED     3

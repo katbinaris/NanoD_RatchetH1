@@ -262,6 +262,8 @@ static void usb_task_fn(void *arg) {
 
     tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
     tusb_cfg.descriptor.device = NULL; // see comment above s_usb_configuration_descriptor
+    // Above the display, or animations starve the stack (tasks_common.h PRIO_TINYUSB).
+    tusb_cfg.task = TINYUSB_TASK_CUSTOM(4096, PRIO_TINYUSB, CORE_IO);
     tusb_cfg.descriptor.full_speed_config = s_usb_configuration_descriptor;
     tusb_cfg.descriptor.string = s_usb_string_descriptor;
     tusb_cfg.descriptor.string_count = sizeof(s_usb_string_descriptor) / sizeof(s_usb_string_descriptor[0]);
