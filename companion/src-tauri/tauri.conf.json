@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Quadra",
-        "width": 560,
-        "height": 380,
+        "width": 760,
+        "height": 520,
         "minWidth": 520,
         "minHeight": 350,
         "backgroundColor": "#000000",

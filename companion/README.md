@@ -7,8 +7,14 @@ computer, in the same pixel style as the device's own screens.
   detents, the active app or mode with its feel, and F1–F4, which light up while held.
 - **HAPTICS:** FEEL (SAW / SINE / VISCOSE) and the tuning sliders STEPS, SNAP, DAMP, AMP and
   PITCH. Drag, scroll or use the arrow keys; the knob changes as you go.
-- **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI) and, in APP, the built-in app profiles with
-  the icons the device draws.
+- **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI) and, in APP, the app profiles with the icons
+  the device draws. **EDIT** opens any profile, built-ins included: name, icon (import any
+  image), key labels, what the knob and F1–F4 send, and the command wheel. Edits go to the knob
+  a moment after you make them; **SAVE TO KNOB** stores them. A changed built-in keeps its
+  original in the firmware, and **RESET TO DEFAULT** brings that back. **DUPLICATE** and
+  **+ NEW PROFILE** make profiles of your own. **MACROS** are key presses, text and pauses the
+  knob types by itself (no software needed once saved): build them step by step or **RECORD**
+  them, then give one to a key (TAP, or its quick tap) or to a command-wheel entry.
 - **DEVICE:** BINDINGS (MAC / PC), screen rotation, boot mode, and the firmware version.
 - **SYS INFO:** power (an estimate), heat, CPU and system, with a minute of history and RESET
   PEAKS.
@@ -46,7 +52,8 @@ pnpm dev                # just the page: open http://localhost:1420 in Chrome fo
 
 **Demo mode:** add `?demo` to the page's URL, for example `http://localhost:1420/?demo`. A
 simulated knob answers the protocol, so the UI can be worked on without the hardware.
-`&tab=SYS_INFO` (or `PROFILES`, `DEVICE`) opens on that tab.
+`&tab=SYS_INFO` (or `PROFILES`, `DEVICE`) opens on that tab, and `&tab=PROFILES&edit=1` opens
+the editor on profile 1.
 
 ## Building
 
@@ -88,9 +95,11 @@ variables work as GitHub Actions secrets with `tauri-action`.
 
 ```
 src/proto.ts        the protocol (mirror of host_proto.h)
+src/profile.ts      profiles as JSON (mirror of profile_json.h), key names, icon conversion
 src/transport.ts    Tauri pipe | WebHID, one interface
 src/device.ts       connection, state, profiles + icons, history
 src/mock.ts         ?demo: a simulated knob
-src/ui/             the glass, the four panels, the shared kit (blocks, cards, pixel drawing)
+src/ui/             the glass, the four panels, the profile editor, the shared kit (blocks,
+                    cards, pixel drawing)
 src-tauri/          the Rust side: HID list / open / write / close, reports as events
 ```

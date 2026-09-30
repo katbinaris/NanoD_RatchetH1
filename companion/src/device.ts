@@ -1,7 +1,8 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { Cmd, Tag, decode, encode, ICON_BYTES, type Hello, type Profile, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { Cmd, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
 export type Status = "searching" | "needs-permission" | "connected" | "unsupported";
@@ -20,6 +21,9 @@ export interface History {
 
 const STREAM_HZ = 30;
 const SEARCH_MS = 1000;
+const TRANSFER_MS = 8000;
+
+export class DeviceError extends Error {}
 
 export class Device {
   status: Status = "searching";
@@ -34,7 +38,13 @@ export class Device {
 
   private listeners = new Set<() => void>();
   private iconBuf = new Map<number, Uint8Array>();
+  // On a list reload, icons are fetched again only for these (all when null).
+  private staleIcons: globalThis.Set<number> | null = null;
   private searchTimer: number | undefined;
+  // Profile transfers run one at a time; each waits for its own reply.
+  private chain: Promise<unknown> = Promise.resolve();
+  private download: { index: number; buf: Uint8Array | null; crc: number; got: number; done: (t: string) => void; fail: (e: Error) => void } | null = null;
+  private waitResult: { cmd: number; done: (r: Result) => void } | null = null;
 
   constructor(private transport: Transport | null) {
     if (!transport) {
@@ -89,6 +99,7 @@ export class Device {
     this.status = "connected";
     this.error = null;
     this.profiles = [];
+    this.staleIcons = null;
     this.iconBuf.clear();
     this.changed();
     await this.send(encode.hello());
@@ -127,6 +138,83 @@ export class Device {
     return this.send(encode.resetPeaks());
   }
 
+  // --- profiles (JSON, profile.ts) ---
+
+  private serial<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(job, job);
+    this.chain = run.catch(() => undefined);
+    return run;
+  }
+
+  private timeout<T>(p: Promise<T>, what: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = window.setTimeout(() => {
+        this.download = null;
+        this.waitResult = null;
+        reject(new DeviceError(`${what}: NO ANSWER FROM THE KNOB`));
+      }, TRANSFER_MS);
+      p.then(
+        (v) => (window.clearTimeout(t), resolve(v)),
+        (e) => (window.clearTimeout(t), reject(e)),
+      );
+    });
+  }
+
+  // The whole profile at `index`, as the device has it right now (live edit included).
+  readProfile(index: number): Promise<ProfileJson> {
+    return this.serial(() =>
+      this.timeout(
+        new Promise<string>((done, fail) => {
+          this.download = { index, buf: null, crc: 0, got: 0, done, fail };
+          this.send(encode.profileRead(index));
+        }),
+        "READING THE PROFILE",
+      ).then((text) => JSON.parse(text) as ProfileJson),
+    );
+  }
+
+  private result(cmd: number, send: () => Promise<void>, what: string): Promise<Result> {
+    return this.timeout(
+      new Promise<Result>((done) => {
+        this.waitResult = { cmd, done };
+        void send();
+      }),
+      what,
+    ).then((r) => {
+      if (r.res !== Res.OK) throw new DeviceError(r.why ? `${RES_TEXT[r.res] ?? "FAILED"}: ${r.why.toUpperCase()}` : (RES_TEXT[r.res] ?? "FAILED"));
+      this.reloadProfiles(r.removed ? undefined : r.index);
+      return r;
+    });
+  }
+
+  // Live on the knob right away; `save` stores it too.
+  uploadProfile(p: ProfileJson, save: boolean): Promise<Result> {
+    return this.serial(() => {
+      const bytes = new TextEncoder().encode(JSON.stringify(tidy(p)));
+      return this.result(
+        Cmd.UPLOAD_END,
+        async () => {
+          await this.send(encode.uploadBegin(bytes.length, crc32(bytes), save ? UploadFlag.SAVE : 0));
+          for (let off = 0; off < bytes.length; off += TEXT_CHUNK) await this.send(encode.uploadData(off, bytes.subarray(off, off + TEXT_CHUNK)));
+          await this.send(encode.uploadEnd());
+        },
+        "SENDING THE PROFILE",
+      );
+    });
+  }
+
+  profileOp(index: number, op: number): Promise<Result> {
+    return this.serial(() => this.result(Cmd.PROFILE_OP, () => this.send(encode.profileOp(index, op)), "PROFILE"));
+  }
+
+  // The list again (names, flags), after a change -- icons only for `changed` (all if not given:
+  // a removal moves the ones after it).
+  reloadProfiles(changed?: number) {
+    this.iconBuf.clear();
+    this.staleIcons = changed === undefined ? null : new globalThis.Set([changed]);
+    return this.send(encode.hello());
+  }
+
   // --- replies ---
 
   private onReport(r: Uint8Array) {
@@ -135,6 +223,7 @@ export class Device {
       case Tag.HELLO:
         if ("hello" in m) {
           this.hello = m.hello;
+          this.profiles.length = Math.min(this.profiles.length, m.hello.profileCount);
           // Profiles one by one; each reply asks for the next (and its icon).
           if (m.hello.profileCount > 0) this.send(encode.profile(0));
         }
@@ -165,13 +254,57 @@ export class Device {
           this.push("load1", this.sysB.load[1]);
         }
         break;
+      case Tag.PROFILE_BEGIN:
+        if ("length" in m && this.download && m.index === this.download.index) {
+          this.download.buf = new Uint8Array(m.length);
+          this.download.crc = m.crc;
+          this.download.got = 0;
+          if (m.length === 0) this.finishDownload();
+        }
+        return;
+      case Tag.PROFILE_DATA:
+        if ("offset" in m && this.download?.buf) {
+          const d = this.download, buf = d.buf!;
+          if (m.offset !== d.got) {
+            this.download = null;
+            d.fail(new DeviceError("PROFILE ARRIVED OUT OF ORDER"));
+            return;
+          }
+          const n = Math.min(TEXT_CHUNK, buf.length - m.offset);
+          buf.set(m.bytes.subarray(0, n), m.offset);
+          d.got += n;
+          if (d.got >= buf.length) this.finishDownload();
+        }
+        return;
+      case Tag.RESULT:
+        if ("result" in m && this.waitResult && this.waitResult.cmd === m.result.cmd) {
+          const w = this.waitResult;
+          this.waitResult = null;
+          w.done(m.result);
+        }
+        return;
       case Tag.ERROR:
-        if ("cmd" in m) this.error = `device refused command 0x${m.cmd.toString(16)} (${m.code})`;
+        if ("cmd" in m) {
+          if (m.cmd === Cmd.PROFILE_READ && this.download) {
+            const d = this.download;
+            this.download = null;
+            d.fail(new DeviceError("THE KNOB COULDN'T READ THAT PROFILE"));
+            return;
+          }
+          this.error = `device refused command 0x${m.cmd.toString(16)} (${m.code})`;
+        }
         break;
       default:
         return;
     }
     this.changed();
+  }
+
+  private finishDownload() {
+    const d = this.download!;
+    this.download = null;
+    if (crc32(d.buf!) !== d.crc) d.fail(new DeviceError("PROFILE CORRUPTED ON THE WAY (CRC)"));
+    else d.done(new TextDecoder().decode(d.buf!));
   }
 
   // SYS arrives twice a second: HISTORY_SECONDS worth of samples.
@@ -182,8 +315,12 @@ export class Device {
   }
 
   private onProfile(p: Profile) {
-    this.profiles[p.index] = { ...p, icon: null };
-    if (p.hasIcon) {
+    const old = this.profiles[p.index];
+    const same = !!old && old.id === p.id;
+    // Keep the old icon on screen until the new one is in (no flicker on a reload).
+    this.profiles[p.index] = { ...p, icon: same ? old.icon : null };
+    const fresh = same && (old.icon !== null) === p.hasIcon && this.staleIcons !== null && !this.staleIcons.has(p.index);
+    if (p.hasIcon && !fresh) {
       this.iconBuf.set(p.index, new Uint8Array(ICON_BYTES));
       this.send(encode.profileIcon(p.index, 0));
     } else {
@@ -201,7 +338,7 @@ export class Device {
       this.send(encode.profileIcon(index, next));
       return;
     }
-    if (this.profiles[index]) this.profiles[index].icon = rgb565ToImage(buf, 48, 48);
+    if (this.profiles[index]) this.profiles[index].icon = rgb565ToImage(buf, 48);
     this.iconBuf.delete(index);
     this.nextProfile(index);
     this.changed();
@@ -210,20 +347,6 @@ export class Device {
   private nextProfile(index: number) {
     if (this.hello && index + 1 < this.hello.profileCount) this.send(encode.profile(index + 1));
   }
-}
-
-// 48x48 RGB565, big-endian (what the firmware draws with swap565_t).
-function rgb565ToImage(b: Uint8Array, w: number, h: number): ImageData {
-  const img = new ImageData(w, h);
-  for (let i = 0; i < w * h; i++) {
-    const v = (b[i * 2] << 8) | b[i * 2 + 1];
-    const r = (v >> 11) & 0x1f, g = (v >> 5) & 0x3f, bl = v & 0x1f;
-    img.data[i * 4] = (r << 3) | (r >> 2);
-    img.data[i * 4 + 1] = (g << 2) | (g >> 4);
-    img.data[i * 4 + 2] = (bl << 3) | (bl >> 2);
-    img.data[i * 4 + 3] = 255;
-  }
-  return img;
 }
 
 export { Cmd };

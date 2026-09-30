@@ -3,7 +3,8 @@
 // Little-endian; floats are IEEE-754 single.
 
 export const REPORT_SIZE = 64;
-export const PROTO_VERSION = 1;
+export const PROTO_VERSION = 2;
+export const TEXT_CHUNK = 60; // profile JSON per report
 export const ICON_BYTES = 48 * 48 * 2;
 
 export const Cmd = {
@@ -16,7 +17,20 @@ export const Cmd = {
   PROFILE: 0x16,
   PROFILE_ICON: 0x17,
   RESET_PEAKS: 0x18,
+  PROFILE_READ: 0x19,
+  UPLOAD_BEGIN: 0x1a,
+  UPLOAD_DATA: 0x1b,
+  UPLOAD_END: 0x1c,
+  PROFILE_OP: 0x1d,
 } as const;
+
+export const UploadFlag = { SAVE: 0x01 } as const;
+export const Op = { SAVE: 1, REVERT: 2, REMOVE: 3 } as const;
+export const Res = { OK: 0, INVALID: 1, TRANSFER: 2, FULL: 3, STORAGE: 4, BAD_INDEX: 5, BUSY: 6 } as const;
+export const RES_TEXT = ["OK", "NOT A VALID PROFILE", "TRANSFER FAILED", "NO ROOM FOR MORE PROFILES", "STORAGE ERROR", "NO SUCH PROFILE", "BUSY"];
+
+// HOST_TAG_PROFILE [3]
+export const ProfileFlag = { ICON: 0x01, BUILTIN: 0x02, STORED: 0x04, LIVE: 0x08 } as const;
 
 export const Tag = {
   HELLO: 0xb0,
@@ -26,6 +40,9 @@ export const Tag = {
   STATE: 0xb5,
   SYS_A: 0xb6,
   SYS_B: 0xb7,
+  PROFILE_BEGIN: 0xb8,
+  PROFILE_DATA: 0xb9,
+  RESULT: 0xba,
   ERROR: 0xbf,
   ICON_UPLOAD: 0xa0, // icon_store.h
 } as const;
@@ -92,6 +109,7 @@ export interface Settings {
 export interface Profile {
   index: number;
   count: number;
+  flags: number; // ProfileFlag
   hasIcon: boolean;
   id: string;
   name: string;
@@ -150,6 +168,15 @@ export interface IconChunk {
   bytes: Uint8Array;
 }
 
+export interface Result {
+  cmd: number;
+  res: number; // Res
+  index: number;
+  count: number;
+  removed: boolean;
+  why: string;
+}
+
 export type Message =
   | { tag: typeof Tag.HELLO; hello: Hello }
   | { tag: typeof Tag.SETTINGS; settings: Settings }
@@ -158,6 +185,9 @@ export type Message =
   | { tag: typeof Tag.STATE; state: State }
   | { tag: typeof Tag.SYS_A; sys: SysA }
   | { tag: typeof Tag.SYS_B; sys: SysB }
+  | { tag: typeof Tag.PROFILE_BEGIN; index: number; length: number; crc: number }
+  | { tag: typeof Tag.PROFILE_DATA; offset: number; bytes: Uint8Array }
+  | { tag: typeof Tag.RESULT; result: Result }
   | { tag: typeof Tag.ERROR; cmd: number; code: number }
   | { tag: number };
 
@@ -199,7 +229,51 @@ export const encode = {
     new DataView(r.buffer).setUint16(2, offset, true);
     return r;
   },
+  profileRead: (index: number) => {
+    const r = report(Cmd.PROFILE_READ);
+    r[1] = index;
+    return r;
+  },
+  uploadBegin: (length: number, crc: number, flags: number) => {
+    const r = report(Cmd.UPLOAD_BEGIN);
+    r[1] = flags;
+    const v = new DataView(r.buffer);
+    v.setUint32(4, length, true);
+    v.setUint32(8, crc, true);
+    return r;
+  },
+  uploadData: (offset: number, bytes: Uint8Array) => {
+    const r = report(Cmd.UPLOAD_DATA);
+    r[1] = offset & 0xff;
+    r[2] = (offset >> 8) & 0xff;
+    r[3] = (offset >> 16) & 0xff;
+    r.set(bytes.subarray(0, TEXT_CHUNK), 4);
+    return r;
+  },
+  uploadEnd: () => report(Cmd.UPLOAD_END),
+  profileOp: (index: number, op: number) => {
+    const r = report(Cmd.PROFILE_OP);
+    r[1] = index;
+    r[2] = op;
+    return r;
+  },
 };
+
+// zlib's CRC-32, as the firmware checks it.
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+export function crc32(b: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
 
 // --- decoding ---
 
@@ -247,7 +321,8 @@ export function decode(b: Uint8Array): Message {
         profile: {
           index: b[1],
           count: b[2],
-          hasIcon: b[3] === 1,
+          flags: b[3],
+          hasIcon: (b[3] & ProfileFlag.ICON) !== 0,
           id: str(b, 4, 12),
           name: str(b, 16, 16),
           legend: [0, 1, 2, 3].map((i) => str(b, 32 + i * 8, 8)),
@@ -309,6 +384,15 @@ export function decode(b: Uint8Array): Message {
           uptimeS: u32(48),
           sensorCrcErrors: u32(52),
         },
+      };
+    case Tag.PROFILE_BEGIN:
+      return { tag: Tag.PROFILE_BEGIN, index: b[1], length: u32(4), crc: u32(8) };
+    case Tag.PROFILE_DATA:
+      return { tag: Tag.PROFILE_DATA, offset: b[1] | (b[2] << 8) | (b[3] << 16), bytes: b.slice(4, 4 + TEXT_CHUNK) };
+    case Tag.RESULT:
+      return {
+        tag: Tag.RESULT,
+        result: { cmd: b[1], res: b[2], index: b[3], count: b[4], removed: b[5] === 1, why: str(b, 8, 56) },
       };
     case Tag.ERROR:
       return { tag: Tag.ERROR, cmd: b[1], code: b[2] };

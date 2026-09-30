@@ -1,14 +1,55 @@
 // A pretend knob for working on the UI without hardware: open the page with ?demo. Answers
 // the protocol like host_link.c does and streams a slowly turning knob.
 
-import { Cmd, ICON_BYTES, REPORT_SIZE, Set, Tag } from "./proto";
+import { Cmd, ICON_BYTES, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
+import { b64ToBytes, bytesToB64, blankProfile, ID_RE, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
-const PROFILES = [
-  { id: "figma", name: "FIGMA", legend: ["TOOL", "ZOOM", "UNDO", "MENU"], color: [0xa2, 0x59, 0xff] },
-  { id: "plasticity", name: "PLASTICITY", legend: ["ORBIT", "PAN", "UNDO", "MENU"], color: [0xff, 0x8a, 0x3d] },
-  { id: "onshape", name: "ONSHAPE", legend: ["ORBIT", "PAN", "UNDO", "MENU"], color: [0x2f, 0x9b, 0xff] },
+// Built-ins like the firmware's (trimmed: Figma has a small command wheel to edit).
+const BUILTINS: { json: ProfileJson; color: number[] }[] = [
+  {
+    color: [0xff, 0x8a, 0x3d],
+    json: {
+      ...blankProfile("plasticity", "PLASTICITY"),
+      legend: ["ZOOM", "ORBIT", "WHEEL", "PAN"],
+      slots: {
+        knob: { kind: "drag", label: "ZOOM", buttons: 4, modifier: 1, axis_y: true, px_per_rad: 120, sign: -1, feel: "viscose", fx: "zoom" },
+        f2: { kind: "drag", label: "ORBIT", buttons: 4, px_per_rad: 120, sign: 1, feel: "viscose", fx: "orbit" },
+        f3: { kind: "commands", label: "UNDO", tap: [8, 29], detents: 12, fx: "flash" },
+        f4: { kind: "drag", label: "PAN", buttons: 2, px_per_rad: 120, sign: 1, feel: "viscose", fx: "pan" },
+      },
+      rings: [
+        { name: "SOLID", tab: "SOLID", slot: "f1", cmds: [{ name: "EXTRUDE", key: [0, 8], scene: { frames: [{ ms: 600, el: [[10, 3, 32, 40, 16, 16, 0, 0, 2]] }] }, param: { label: "DISTANCE", steps: [0.05, 0.1, 1], min: -8, max: 10, decimals: 2 } }, { name: "FILLET", key: [0, 5] }] },
+        { name: "VIEW", tab: "VIEW", slot: "f4", cmds: [{ name: "FRONT", key: [0, 89] }, { name: "TOP", key: [0, 95] }] },
+      ],
+      search: { open: [0, 9], open_wait: 20, result_wait: 30 },
+    },
+  },
+  {
+    color: [0xa2, 0x59, 0xff],
+    json: {
+      ...blankProfile("figma", "FIGMA"),
+      legend: ["UNDO", "DEPTH", "CMDS", "FRAME"],
+      slots: {
+        knob: { kind: "wheel", label: "ZOOM", modifier: 8, sign: 1, detents: 24 },
+        f1: { kind: "keys", label: "UNDO", cw: [10, 29], ccw: [8, 29], tap: [8, 29], detents: 12 },
+        f3: { kind: "commands", label: "COMMANDS", detents: 12 },
+        f4: { kind: "keys", label: "FRAME", cw: [0, 17], ccw: [2, 17], detents: 12 },
+      },
+      rings: [{ name: "LAYOUT", tab: "LAYOUT", slot: "f1", cmds: [{ name: "ADD AUTO LAYOUT", key: [2, 4] }, { name: "WRAP IN FRAME", key: [12, 10] }, { name: "CREATE COMPONENT", kind: "actions", phrase: "create component" }] }],
+      search: { open: [8, 14], open_wait: 20, result_wait: 30 },
+    },
+  },
+  { color: [0x2f, 0x9b, 0xff], json: { ...blankProfile("onshape", "ONSHAPE"), legend: ["ZOOM", "ORBIT", "WHEEL", "PAN"] } },
 ];
+
+// One registry entry, as app_profiles.c keeps it.
+interface Entry {
+  builtin: ProfileJson | null;
+  stored: ProfileJson | null;
+  live: ProfileJson | null;
+}
+const view = (e: Entry) => (e.live ?? e.stored ?? e.builtin)!;
 
 export class MockTransport implements Transport {
   readonly kind = "tauri";
@@ -16,6 +57,13 @@ export class MockTransport implements Transport {
   onReport: (r: Uint8Array) => void = () => {};
   onClosed: () => void = () => {};
 
+  private reg: Entry[] = BUILTINS.map((b) => {
+    const json = structuredClone(b.json);
+    json.icon48 = bytesToB64(this.badge(b.color, 48));
+    json.icon24 = bytesToB64(this.badge(b.color, 24));
+    return { builtin: json, stored: null, live: null };
+  });
+  private upload: { buf: Uint8Array; crc: number; got: number; flags: number } | null = null;
   private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 0, rotation: 0, host: 0 };
   private saved = { ...this.live };
   private timer = 0;
@@ -39,7 +87,8 @@ export class MockTransport implements Transport {
       case Cmd.HELLO: {
         out[0] = Tag.HELLO;
         out[1] = 1;
-        out[2] = PROFILES.length;
+        out[1] = 2;
+        out[2] = this.reg.length;
         out.set(new TextEncoder().encode("DEMO 7142FDA"), 4);
         out.set(new TextEncoder().encode("SEP 30 2026"), 36);
         return reply();
@@ -68,11 +117,13 @@ export class MockTransport implements Transport {
         if (r[1] > 0) this.timer = window.setInterval(() => this.stream(), 1000 / r[1]);
         return;
       case Cmd.PROFILE: {
-        const p = PROFILES[r[1]];
+        const e = this.reg[r[1]];
+        if (!e) return;
+        const p = view(e);
         out[0] = Tag.PROFILE;
         out[1] = r[1];
-        out[2] = PROFILES.length;
-        out[3] = 1;
+        out[2] = this.reg.length;
+        out[3] = (p.icon48 ? ProfileFlag.ICON : 0) | (e.builtin ? ProfileFlag.BUILTIN : 0) | (e.stored ? ProfileFlag.STORED : 0) | (e.live ? ProfileFlag.LIVE : 0);
         out.set(new TextEncoder().encode(p.id), 4);
         out.set(new TextEncoder().encode(p.name), 16);
         p.legend.forEach((l, i) => out.set(new TextEncoder().encode(l), 32 + i * 8));
@@ -80,7 +131,9 @@ export class MockTransport implements Transport {
       }
       case Cmd.PROFILE_ICON: {
         const idx = r[1], off = inV.getUint16(2, true);
-        const icon = this.icon(idx);
+        const p = this.reg[idx] && view(this.reg[idx]);
+        if (!p?.icon48) return;
+        const icon = b64ToBytes(p.icon48);
         const len = Math.min(56, ICON_BYTES - off);
         out[0] = Tag.PROFILE_ICON;
         out[1] = idx;
@@ -89,7 +142,99 @@ export class MockTransport implements Transport {
         out.set(icon.subarray(off, off + len), 8);
         return reply();
       }
+      case Cmd.PROFILE_READ: {
+        const e = this.reg[r[1]];
+        if (!e) return;
+        const text = new TextEncoder().encode(JSON.stringify(view(e)));
+        const begin = new Uint8Array(REPORT_SIZE);
+        const bv = new DataView(begin.buffer);
+        begin[0] = Tag.PROFILE_BEGIN;
+        begin[1] = r[1];
+        bv.setUint32(4, text.length, true);
+        bv.setUint32(8, crc32(text), true);
+        const pieces = [begin];
+        for (let o = 0; o < text.length; o += TEXT_CHUNK) {
+          const d = new Uint8Array(REPORT_SIZE);
+          d[0] = Tag.PROFILE_DATA;
+          d[1] = o & 0xff;
+          d[2] = (o >> 8) & 0xff;
+          d[3] = (o >> 16) & 0xff;
+          d.set(text.subarray(o, o + TEXT_CHUNK), 4);
+          pieces.push(d);
+        }
+        setTimeout(() => pieces.forEach((x) => this.onReport(x)), 30);
+        return;
+      }
+      case Cmd.UPLOAD_BEGIN:
+        this.upload = { buf: new Uint8Array(inV.getUint32(4, true)), crc: inV.getUint32(8, true), got: 0, flags: r[1] };
+        return;
+      case Cmd.UPLOAD_DATA: {
+        const u = this.upload;
+        if (!u) return;
+        const off = r[1] | (r[2] << 8) | (r[3] << 16);
+        const n = Math.min(TEXT_CHUNK, u.buf.length - off);
+        if (off === u.got) {
+          u.buf.set(r.subarray(4, 4 + n), off);
+          u.got += n;
+        }
+        return;
+      }
+      case Cmd.UPLOAD_END: {
+        const u = this.upload;
+        this.upload = null;
+        let res: number = Res.OK, why = "", index = 0;
+        if (!u || u.got !== u.buf.length || crc32(u.buf) !== u.crc) res = Res.TRANSFER;
+        else {
+          try {
+            const text = new TextDecoder().decode(u.buf);
+            (window as unknown as { __quadraLastUpload?: string }).__quadraLastUpload = text; // tests read it back
+            const p = JSON.parse(text) as ProfileJson;
+            if (!ID_RE.test(p.id)) throw new Error("id: a-z, 0-9, _ and - only");
+            index = this.reg.findIndex((e) => view(e).id === p.id);
+            if (index < 0) {
+              index = this.reg.length;
+              this.reg.push({ builtin: null, stored: null, live: p });
+            } else this.reg[index].live = p;
+            if (u.flags & 1) this.saveEntry(this.reg[index]);
+          } catch (e) {
+            res = Res.INVALID;
+            why = String((e as Error).message);
+          }
+        }
+        return this.result(Cmd.UPLOAD_END, res, index, false, why);
+      }
+      case Cmd.PROFILE_OP: {
+        const e = this.reg[r[1]];
+        if (!e) return this.result(Cmd.PROFILE_OP, Res.BAD_INDEX, r[1], false);
+        let removed = false;
+        if (r[2] === Op.SAVE) this.saveEntry(e);
+        else if (r[2] === Op.REVERT) e.live = null;
+        else if (r[2] === Op.REMOVE) e.live = e.stored = null;
+        if (!e.builtin && !e.stored && !e.live) {
+          this.reg.splice(r[1], 1);
+          removed = true;
+          if (this.live.profile >= r[1] && this.live.profile > 0) this.live.profile--;
+        }
+        return this.result(Cmd.PROFILE_OP, Res.OK, r[1], removed);
+      }
     }
+  }
+
+  private saveEntry(e: Entry) {
+    if (e.live) e.stored = e.live;
+    e.live = null;
+  }
+
+  private result(cmd: number, res: number, index: number, removed: boolean, why = "") {
+    const out = new Uint8Array(REPORT_SIZE);
+    out[0] = Tag.RESULT;
+    out[1] = cmd;
+    out[2] = res;
+    out[3] = index;
+    out[4] = this.reg.length;
+    out[5] = removed ? 1 : 0;
+    out.set(new TextEncoder().encode(why.slice(0, 55)), 8);
+    setTimeout(() => this.onReport(out), 60);
   }
 
   private settings(out: Uint8Array) {
@@ -118,17 +263,18 @@ export class MockTransport implements Transport {
   }
 
   // A pixel badge in the profile's colour: rounded square + white initial bar.
-  private icon(i: number): Uint8Array {
-    const [r, g, b] = PROFILES[i].color;
-    const px = new Uint8Array(ICON_BYTES);
+  private badge([r, g, b]: number[], size: number): Uint8Array {
+    const px = new Uint8Array(size * size * 2);
+    const k = size / 48;
     const c565 = (r: number, g: number, b: number) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-    for (let y = 0; y < 48; y++)
-      for (let x = 0; x < 48; x++) {
-        const inside = x >= 6 && x < 42 && y >= 6 && y < 42 && !((x < 9 || x >= 39) && (y < 9 || y >= 39));
-        const mark = x >= 18 && x < 30 && y >= 16 && y < 32 && !(x >= 21 && x < 27 && y >= 19 && y < 29);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const X = x / k, Y = y / k;
+        const inside = X >= 6 && X < 42 && Y >= 6 && Y < 42 && !((X < 9 || X >= 39) && (Y < 9 || Y >= 39));
+        const mark = X >= 18 && X < 30 && Y >= 16 && Y < 32 && !(X >= 21 && X < 27 && Y >= 19 && Y < 29);
         const c = inside ? (mark ? c565(255, 255, 255) : c565(r, g, b)) : 0;
-        px[(y * 48 + x) * 2] = c >> 8;
-        px[(y * 48 + x) * 2 + 1] = c & 0xff;
+        px[(y * size + x) * 2] = c >> 8;
+        px[(y * size + x) * 2 + 1] = c & 0xff;
       }
     return px;
   }
