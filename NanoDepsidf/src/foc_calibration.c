@@ -126,6 +126,19 @@ bool foc_calibration_load(foc_calibration_t *out) {
     return true;
 }
 
+void foc_calibration_erase(void) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) {
+        return; // nothing stored
+    }
+    esp_err_t err = nvs_erase_key(h, NVS_KEY);
+    if (err == ESP_OK) {
+        err = nvs_commit(h);
+    }
+    nvs_close(h);
+    ESP_LOGI(TAG, "calibration erased (%s)", esp_err_to_name(err));
+}
+
 void foc_calibration_save(const foc_calibration_t *cal) {
     nvs_handle_t h;
     esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);

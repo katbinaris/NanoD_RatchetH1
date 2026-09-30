@@ -129,7 +129,8 @@ int main() {
     root.rows[1] = row("HAPTICS", "", "", false);
     root.rows[2] = row("DISPLAY", "", "", false);
     root.rows[3] = row("BOOT MODE", "", "", false);
-    root.row_count = 4;
+    root.rows[4] = row("DEVICE", "", "", false);
+    root.row_count = 5;
     ui::draw_menu_list(root, 0);
     keep("menu");
 
@@ -311,6 +312,20 @@ int main() {
     disp.row_count = 1;
     ui::draw_display(disp, 1, true);
     keep("display rotation 90, unsaved");
+
+    menu_render_snapshot_t dev = {};
+    dev.open = true;
+    dev.screen = MENU_SCREEN_DEVICE;
+    dev.row_count = 1;
+    dev.rows[0] = row("RECALIBRATE", "", "", true);
+    ui::draw_device(dev, {PD_SRC_PD, 3000, 5000});
+    keep("device, PD 5V 3A");
+    snprintf(dev.rows[0].value, sizeof(dev.rows[0].value), "%s", MENU_RECAL_ARMED);
+    ui::draw_device(dev, {PD_SRC_TYPEC_1A5, 1500, 5000});
+    keep("device, USB-C 1.5A, armed");
+    dev.rows[0].value[0] = '\0';
+    ui::draw_device(dev, {PD_SRC_NO_CHIP, 0, 0});
+    keep("device, no chip");
 
     // Idle screen: each routine pinned, at a few telling moments. Each call restarts the
     // routine (time goes back between them), so frames are independent.

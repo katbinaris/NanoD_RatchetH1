@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 extern "C" {
 #include "ui_state.h"
 }
@@ -396,6 +397,55 @@ void draw_boot_mode(const menu_render_snapshot_t &snap, boot_usb_mode_t selected
     text("HOLD F3+F4 AT BOOT", CX, 154, GREY, 1, CENTER);
     text("TO FORCE SERIAL", CX, 167, GREY, 1, CENTER);
     save_hint(188, snap.dirty, blink_on);
+}
+
+// --- Device: USB power + RECALIBRATE ---
+
+void draw_device(const menu_render_snapshot_t &snap, const pd_status_t &power) {
+    header("DEVICE");
+
+    // USB power: "5V 3.00A" big, where it came from small.
+    char amps[16];
+    const char *source;
+    switch (power.source) {
+        case PD_SRC_PD: source = "USB PD"; break;
+        case PD_SRC_TYPEC_1A5:
+        case PD_SRC_TYPEC_3A0: source = "USB-C, NO PD"; break;
+        case PD_SRC_USB: source = "USB DEFAULT"; break;
+        case PD_SRC_NO_CHIP: source = "PD CHIP NOT FOUND"; break;
+        default: source = "READING"; break;
+    }
+    if (power.source == PD_SRC_READING || power.source == PD_SRC_NO_CHIP) {
+        snprintf(amps, sizeof(amps), "--");
+    } else if (power.mv > 0) {
+        snprintf(amps, sizeof(amps), "%dV %d.%02dA", (power.mv + 500) / 1000, power.ma / 1000, (power.ma % 1000) / 10);
+    } else {
+        snprintf(amps, sizeof(amps), "%d.%02dA", power.ma / 1000, (power.ma % 1000) / 10);
+    }
+    text("USB POWER", CX, 52, GREY, 1, CENTER);
+    text(amps, CX, 66, WHITE, fit_scale(amps, 160, 2), CENTER);
+    text(source, CX, 88, GREY, 1, CENTER);
+    rect(60, 106, 120, 1, DARK);
+
+    // RECALIBRATE: F1 arms it (filled), a second F1 runs it.
+    bool armed = snap.row_count > 0 && strcmp(snap.rows[0].value, MENU_RECAL_ARMED) == 0;
+    const int bx = 44, by = 116, bw = 152, bh = 26;
+    if (armed) {
+        cut(bx, by, bw, bh, AMBER);
+    } else {
+        frame_box(bx, by, bw, bh, AMBER);
+    }
+    int sc = fit_scale("RECALIBRATE", bw - 12, 2);
+    text("RECALIBRATE", CX, by + (bh - cap_height(sc)) / 2, armed ? BLACK : WHITE, sc, CENTER);
+    if (armed) {
+        text("HANDS OFF THE KNOB", CX, 154, WHITE, 1, CENTER);
+        text("F1 AGAIN TO START", CX, 168, AMBER, 1, CENTER);
+        text("F3 CANCEL", CX, 184, GREY, 1, CENTER);
+    } else {
+        text("F1 RECALIBRATE", CX, 154, GREY, 1, CENTER);
+        text("RESTARTS, THEN", CX, 170, GREY, 1, CENTER);
+        text("REALIGNS THE MOTOR", CX, 183, GREY, 1, CENTER);
+    }
 }
 
 // --- SAVED! dialog ---

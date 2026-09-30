@@ -17,6 +17,7 @@
 #include "esp_timer.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "driver/gpio.h"
 #include <math.h>
 #include <stdbool.h>
@@ -835,6 +836,16 @@ static void control_task_fn(void *arg) {
                 s_menu_prev_btn_b_pressed = btn_b_pressed;
                 s_menu_prev_btn_c_pressed = btn_c_pressed;
                 s_menu_prev_btn_d_pressed = btn_d_pressed;
+
+                // DEVICE -> RECALIBRATE: the same path as a first boot -- with no stored
+                // calibration, the next boot aligns the motor again before haptics start.
+                if (menu_take_recalibrate_request()) {
+                    ESP_LOGW(TAG, "RECALIBRATE from the menu: motor off, calibration forgotten, restarting");
+                    motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f);
+                    motor_driver_enable(false);
+                    foc_calibration_erase();
+                    esp_restart();
+                }
             }
 
             int32_t raw = mt6701_read_angle_raw();

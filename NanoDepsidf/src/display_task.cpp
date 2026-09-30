@@ -111,7 +111,7 @@ static bool frame_init(void) {
 
 // --- view state ---
 
-enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_ATTRACT };
+enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_ATTRACT };
 
 static View view_for(const menu_render_snapshot_t &s) {
     switch (s.screen) {
@@ -121,12 +121,13 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_BOOT: return V_BOOTMODE;
         case MENU_SCREEN_APP_PROFILE: return V_APP_PROFILE;
         case MENU_SCREEN_DISPLAY: return V_DISPLAY;
+        case MENU_SCREEN_DEVICE: return V_DEVICE;
         default: return V_MAIN;
     }
 }
 
 static inline bool is_settings_view(View v) {
-    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY;
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_DEVICE;
 }
 
 static View s_view = V_BOOT;
@@ -583,6 +584,11 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_DISPLAY:
             ui::draw_display(snap, (int)menu_get_display_rotation(), blink_on);
             break;
+        case V_DEVICE: {
+            pd_status_t power = pd_status_get();
+            ui::draw_device(snap, power);
+            break;
+        }
         case V_ATTRACT: {
             // APP mode: the active profile's icon (and colours) instead of the QUADRA wordmark.
             const uint8_t *icon = nullptr;
@@ -712,8 +718,13 @@ static Pace update_ui(void) {
     if (param_live != s_param_was) wheel_changed = true;
     s_param_was = param_live;
     if (wheel_live || param_live) s_last_activity_us = now; // no screensaver over the wheel, an echo or a value dial
+    // The USB power read finishes a moment after boot -- redraw DEVICE if it's up by then.
+    static pd_status_t s_last_power = {};
+    pd_status_t power = pd_status_get();
+    bool power_changed = memcmp(&power, &s_last_power, sizeof(power)) != 0;
+    s_last_power = power;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
-               || rotation_changed;
+               || rotation_changed || (power_changed && s_view == V_DEVICE);
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;

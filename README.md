@@ -127,6 +127,13 @@ reflashing. The knob-direction setting (`KNOB_DIRECTION`) is unrelated to calibr
 
 ### How to force a new calibration
 
+- **From the menu: DEVICE → RECALIBRATE.** The easiest way.
+  1. Open the menu (F4, or hold F4 in APP mode), go to **DEVICE** and press **F1** on
+     RECALIBRATE. The button fills amber and asks you to take your hands off the knob.
+  2. Press **F1 again** to start (F3 or turning the knob cancels). The motor switches off,
+     the saved calibration is forgotten and the device restarts.
+  3. It then calibrates exactly like a first boot (the knob twitches briefly), saves the
+     result and goes straight back to normal use. No replug needed.
 - **F1 + F2 at power-on (diagnostic mode).**
   1. Hold **F1 and F2**, plug in USB, and keep holding for at least 6 s.
   2. The device calibrates afresh, ignoring the saved result, and saves the new one.
@@ -171,6 +178,7 @@ opens the menu** instead.
   <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="PROFILES carousel on APP">
   <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
+  <img src="NanoDepsidf/docs/images/device.png" width="180" alt="DEVICE screen: USB power and RECALIBRATE">
 </p>
 
 | Screen | Settings |
@@ -179,6 +187,7 @@ opens the menu** instead.
 | **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), AMP (click amplitude, 0–100% in 5% steps), PITCH (click pitch). Changes are live while you tune; F2 saves. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
+| **DEVICE** | USB POWER: what the USB-C / PD chip negotiated, read at boot (e.g. `5V 3.00A`, USB PD). RECALIBRATE: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
 
 Screens with a single choice (PROFILES, DISPLAY, BOOT MODE) change the value directly as you
 turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
@@ -437,7 +446,7 @@ draw would pass 250 mA.
 | Audio | MAX98357A I²S amplifier driving a transducer |
 | Keys | 4 (F1–F4), active low |
 | LEDs | WS2811: a 60-LED ring around the knob (RGB order) and 8 under the keys, two per key (GRB order), driven over RMT |
-| USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 negotiates USB-C / PD power on its own |
+| USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 (I2C 0x28 on GPIO 12 / 13) negotiates USB-C / PD power on its own. The firmware only reads it, once at boot, and shows the result under DEVICE |
 | USB | USB-C, native USB OTG (TinyUSB) |
 
 <details>
@@ -475,6 +484,7 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | `i2s` | 1 | 9 | Click synthesis and audio output |
 | `display` | 1 | 9 | Renders frames into a full-screen sprite and pushes them over SPI |
 | `led` | 1 | 10 | LED ring and key LEDs at 30 fps; above the display so its animations can't stall it, asleep between frames |
+| `pd` | 1 | 10 | One-shot at boot: reads the STUSB4500's contract over I2C (read-only), then exits |
 
 **Knob direction.** Which way counts as forward is one constant, `KNOB_DIRECTION` in
 `control_task.c` (currently inverted, -1). It flips what a turn means everywhere (menu, APP
@@ -651,9 +661,11 @@ NanoDepsidf/                   the firmware (PlatformIO project)
   parameter mode (Plasticity's handle, Onshape's number field).
 - The idle screen, icon upload, and the pixel UI.
 - The LED ring and key LEDs.
+- Knob direction, menu order, click amplitude (AMP), and the Jump / Boom idle routines.
 
 **Milestone 1 (in progress):**
-- LED power budget from the negotiated USB-C / PD current (read the STUSB4500).
+- USB power reading and DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
+- LED power budget scaled from that USB power reading.
 - KEYBOARD, MOUSE and MIDI modes.
 - Host configuration protocol.
 - Integration, load and power tests.

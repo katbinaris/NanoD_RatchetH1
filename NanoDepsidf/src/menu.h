@@ -37,7 +37,12 @@ typedef enum {
     MENU_SCREEN_BOOT,
     MENU_SCREEN_APP_PROFILE, // PROFILES = APP -> F1: choose the app profile
     MENU_SCREEN_DISPLAY,     // screen rotation
+    MENU_SCREEN_DEVICE,      // USB power (read-only) + RECALIBRATE
 } menu_screen_id_t;
+
+// DEVICE's RECALIBRATE row: its value is this while armed (F1 pressed once, waiting for the
+// confirming F1), "" otherwise.
+#define MENU_RECAL_ARMED "ARMED"
 
 // Screen rotation in quarter turns clockwise (0-3), on top of the panel's mounting offset
 // (lgfx_config.hpp). For holding the device in any orientation.
@@ -119,6 +124,10 @@ void menu_input_save(void);               // F2: save the current settings scree
 void menu_input_rotate(int8_t direction); // knob tick, +1/-1: navigate list, or adjust value while editing
 
 bool menu_is_open(void);
+
+// DEVICE -> RECALIBRATE confirmed: true once, then false again. control_task.c polls it and
+// does the work (motor off, forget the calibration, restart -- the next boot recalibrates).
+bool menu_take_recalibrate_request(void);
 
 // True when turning `direction` would push a non-wrapping value past its end (the PROFILE
 // list): control_task.c makes that detent a haptic wall instead of a step. Core 0.

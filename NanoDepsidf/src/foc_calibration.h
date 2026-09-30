@@ -20,3 +20,5 @@ foc_calibration_t foc_calibration_run(void);
 // nvs_flash_init() has already been called (done once in app_main()).
 bool foc_calibration_load(foc_calibration_t *out);
 void foc_calibration_save(const foc_calibration_t *cal);
+// Forgets the stored calibration, so the next boot runs a fresh one (DEVICE -> RECALIBRATE).
+void foc_calibration_erase(void);

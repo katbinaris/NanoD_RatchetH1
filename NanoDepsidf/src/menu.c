@@ -12,8 +12,9 @@
 typedef enum {
     MENU_ITEM_SUBMENU, // enters a child screen
     MENU_ITEM_VALUE,   // enters edit mode; rendered as "label  value"
+    MENU_ITEM_ACTION,  // F1 arms, a second F1 runs `action`; turning or F3 disarms
 } menu_item_kind_t;
-// (A MENU_ITEM_ACTION kind existed for the "Save" rows; saving is F2 now -- menu_input_save().)
+// (An older ACTION kind was for the "Save" rows; saving is F2 now -- menu_input_save().)
 
 typedef struct menu_screen_s menu_screen_t;
 
@@ -26,6 +27,7 @@ typedef struct {
     void (*on_rotate)(int8_t direction);               // MENU_ITEM_VALUE, called while editing
     bool (*is_enabled)(void);                          // NULL = always enabled
     bool (*at_end)(int8_t direction);                  // non-wrapping value at its end that way
+    void (*action)(void);                              // MENU_ITEM_ACTION, on the confirming F1
 } menu_item_t;
 
 struct menu_screen_s {
@@ -326,11 +328,26 @@ static const menu_screen_t s_display_screen = {
     MENU_SCREEN_DISPLAY, "Display", s_display_items, 1, true, action_save_display
 };
 
+// DEVICE: USB power is drawn from pd_status.h directly (nothing to choose); the one item is
+// RECALIBRATE. Its action only raises a flag -- control_task.c owns the motor, so it does the
+// work there (see menu_take_recalibrate_request()).
+static _Atomic bool s_recal_request = false;
+static void action_recalibrate(void) {
+    atomic_store_explicit(&s_recal_request, true, memory_order_relaxed);
+}
+static const menu_item_t s_device_items[] = {
+    { .label = "RECALIBRATE", .kind = MENU_ITEM_ACTION, .action = action_recalibrate },
+};
+static const menu_screen_t s_device_screen = {
+    MENU_SCREEN_DEVICE, "Device", s_device_items, 1, false, NULL
+};
+
 static const menu_item_t s_root_items[] = {
     { .label = "PROFILES",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
     { .label = "HAPTICS",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
     { .label = "DISPLAY",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_display_screen },
     { .label = "BOOT MODE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
+    { .label = "DEVICE",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_device_screen },
 };
 static const menu_screen_t s_root_screen = {
     MENU_SCREEN_ROOT, "", s_root_items, sizeof(s_root_items) / sizeof(s_root_items[0]), false, NULL
@@ -367,6 +384,7 @@ typedef struct {
 static menu_stack_frame_t s_stack[MENU_MAX_DEPTH];
 static int s_stack_depth = 0; // 0 = closed
 static bool s_editing = false;
+static bool s_armed = false; // a MENU_ITEM_ACTION waiting for its confirming F1
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static bool item_enabled(const menu_screen_t *screen, int index) {
@@ -582,6 +600,7 @@ void menu_input_toggle_open(void) {
         s_stack_depth = 0;
         s_editing = false;
     }
+    s_armed = false;
     portEXIT_CRITICAL(&s_state_mux);
 }
 
@@ -589,6 +608,8 @@ void menu_input_back(void) {
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0) {
         // no-op
+    } else if (s_armed) {
+        s_armed = false; // cancel the action, stay on the screen
     } else if (s_editing) {
         // Cancel: put back what the value was when the edit started.
         settings_restore(&s_undo);
@@ -611,8 +632,12 @@ void menu_input_select(void) {
     }
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
     const menu_item_t *it = &top->screen->items[top->selected_index];
+    void (*action)(void) = NULL;
 
-    if (top->screen->direct_edit) {
+    if (it->kind == MENU_ITEM_ACTION) {
+        if (s_armed) action = it->action; // the confirming press
+        s_armed = !s_armed;
+    } else if (top->screen->direct_edit) {
         // Direct screens: F1 moves to the next field (HID type <-> MIDI channel) -- or, when
         // that field is a submenu (APP -> PROFILE), opens it; focus stays on this screen's
         // own field.
@@ -642,6 +667,7 @@ void menu_input_select(void) {
         s_editing = true;
     }
     portEXIT_CRITICAL(&s_state_mux);
+    if (action != NULL) action(); // outside the spinlock, like F2's save
 }
 
 void menu_input_save(void) {
@@ -684,6 +710,7 @@ void menu_input_rotate(int8_t direction) {
         return;
     }
     menu_stack_frame_t *top = &s_stack[s_stack_depth - 1];
+    s_armed = false; // turning away cancels a pending action
     if (s_editing || top->screen->direct_edit) {
         const menu_item_t *it = &top->screen->items[top->selected_index];
         if (it->on_rotate != NULL) {
@@ -707,6 +734,12 @@ bool menu_at_end(int8_t direction) {
     return end;
 }
 
+bool menu_take_recalibrate_request(void) {
+    // Cheap load first: this runs every tick of control_task.c's loop.
+    if (!atomic_load_explicit(&s_recal_request, memory_order_relaxed)) return false;
+    return atomic_exchange_explicit(&s_recal_request, false, memory_order_relaxed);
+}
+
 bool menu_is_open(void) {
     portENTER_CRITICAL(&s_state_mux);
     bool open = (s_stack_depth > 0);
@@ -721,12 +754,13 @@ bool menu_is_open(void) {
 void menu_get_render_snapshot(menu_render_snapshot_t *out) {
     menu_stack_frame_t top_copy = { 0 };
     int depth_copy;
-    bool editing_copy;
+    bool editing_copy, armed_copy;
     settings_t saved_copy;
 
     portENTER_CRITICAL(&s_state_mux);
     depth_copy = s_stack_depth;
     editing_copy = s_editing;
+    armed_copy = s_armed;
     if (depth_copy > 0) {
         top_copy = s_stack[depth_copy - 1];
     }
@@ -760,6 +794,9 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
             snprintf(r->caption, sizeof(r->caption), "%s", it->caption ? it->caption : "");
             if (it->kind == MENU_ITEM_VALUE && it->format_value != NULL) {
                 it->format_value(r->value, sizeof(r->value));
+            } else if (it->kind == MENU_ITEM_ACTION) {
+                bool armed = armed_copy && i == top_copy.selected_index;
+                snprintf(r->value, sizeof(r->value), "%s", armed ? MENU_RECAL_ARMED : "");
             } else {
                 r->value[0] = '\0'; // submenu rows have nothing to show on the right
             }
