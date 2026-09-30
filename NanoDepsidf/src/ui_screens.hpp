@@ -96,6 +96,9 @@ void draw_display(const menu_render_snapshot_t &snap, int rotation, bool blink_o
 // for the others. `power` is the USB contract the STUSB4500 negotiated (read at boot).
 void draw_sysinfo(const menu_render_snapshot_t &snap, const sysmon_info_t &info, const pd_status_t &power);
 
+// DEVICE -> BINDINGS: which computer (MAC / PC), two cards; turning switches it live.
+void draw_bindings(const menu_render_snapshot_t &snap, menu_host_t host, bool blink_on);
+
 // DEVICE -> RECALIBRATE: takes a second F1 to run (its row value is MENU_RECAL_ARMED in between).
 void draw_recalibrate(const menu_render_snapshot_t &snap);
 

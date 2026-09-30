@@ -12,6 +12,7 @@
 #include "icon_store.h"
 #include "app_mode.h"
 #include "sysmon.h"
+#include "menu.h"
 
 static const char *TAG = "usb";
 
@@ -188,8 +189,23 @@ static bool send_mouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
     return false;
 }
 
+// DEVICE -> BINDINGS. Profiles are written with macOS shortcuts; on a PC the same shortcut is
+// Ctrl where the Mac has Cmd (Option is Alt on both, and a profile's own Ctrl stays Ctrl).
+// Done here, on every keyboard report, so no profile needs a PC copy and a held modifier (Cmd
+// + wheel zoom, a drag) is translated the same as a tap. Everything upstream (app_mode, the
+// sent-state tracking below) stays in Mac terms.
+static uint8_t host_modifier(uint8_t m) {
+    if (menu_get_host() != MENU_HOST_PC) return m;
+    uint8_t gui = m & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
+    m &= (uint8_t)~gui;
+    if (gui & KEYBOARD_MODIFIER_LEFTGUI) m |= KEYBOARD_MODIFIER_LEFTCTRL;
+    if (gui & KEYBOARD_MODIFIER_RIGHTGUI) m |= KEYBOARD_MODIFIER_RIGHTCTRL;
+    return m;
+}
+
 static bool send_keys(uint8_t modifier, uint8_t keycode) {
     uint8_t keys[6] = {keycode, 0, 0, 0, 0, 0};
+    modifier = host_modifier(modifier);
     for (int i = 0; i < HID_SEND_TRIES; i++) {
         if (tud_hid_n_ready(HID_INSTANCE_INPUT)
             && tud_hid_keyboard_report(REPORT_ID_KEYBOARD, modifier, keycode ? keys : NULL)) {
@@ -302,12 +318,19 @@ static void usb_task_fn(void *arg) {
     // buttons the host currently has held.
     hid_report_msg_t msg;
     uint8_t sent_buttons = 0, sent_modifier = 0;
+    menu_host_t host = menu_get_host();
     while (1) {
         bool got = xQueueReceive(g_hid_report_queue, &msg, 1) == pdTRUE;
         if (!tud_mounted()) {
             sent_buttons = 0; // a fresh enumeration starts with nothing held
             sent_modifier = 0;
             continue;
+        }
+        // BINDINGS switched while a modifier may be down: the host holds it under the old
+        // mapping (Cmd vs Ctrl), so let go of everything; app_sync presses what's wanted again.
+        if (menu_get_host() != host) {
+            host = menu_get_host();
+            if (sent_modifier != 0 && send_keys(0, 0)) sent_modifier = 0;
         }
         if (got && msg.type == HID_EVENT_MOUSE_WHEEL) {
             send_mouse(sent_buttons, 0, 0, msg.wheel_delta);

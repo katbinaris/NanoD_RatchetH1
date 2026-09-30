@@ -180,6 +180,7 @@ opens the menu** instead.
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
   <img src="NanoDepsidf/docs/images/sysinfo-power.png" width="180" alt="SYS INFO: estimated power draw against the USB contract">
   <img src="NanoDepsidf/docs/images/sysinfo-cpu.png" width="180" alt="SYS INFO: core load and control-loop timing">
+  <img src="NanoDepsidf/docs/images/bindings-pc.png" width="180" alt="BINDINGS: MAC or PC">
 </p>
 
 | Screen | Settings |
@@ -188,9 +189,9 @@ opens the menu** instead.
 | **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), AMP (click amplitude, 0–100% in 5% steps), PITCH (click pitch). Changes are live while you tune; F2 saves. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
-| **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
+| **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **BINDINGS**: MAC or PC. Profiles are written with Mac shortcuts; on PC every Cmd is sent as Ctrl (Option is Alt on both). Switches as you turn, F2 saves. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
 
-Screens with a single choice (PROFILES, DISPLAY, BOOT MODE) change the value directly as you
+Screens with a single choice (PROFILES, DISPLAY, BOOT MODE, BINDINGS) change the value directly as you
 turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
 survive power cycles.
 
@@ -664,24 +665,29 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 - The idle screen, icon upload, and the pixel UI.
 - The LED ring and key LEDs.
 - Knob direction, menu order, click amplitude (AMP), and the Jump / Boom idle routines.
+- The USB power reading (5 V 3 A over USB-C PD from a Mac) and DEVICE → SYS INFO.
+- A faster control loop: the sensor read at 10 MHz brought one iteration from 95 µs to
+  about 32 µs of its 100 µs budget.
 
 **Milestone 1 (in progress):**
-- USB power reading and DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
-- DEVICE → SYS INFO: load, loop timing, heat, estimated power (built, not yet confirmed on
-  hardware); the readout for the integration tests.
-- LED power budget scaled from that USB power reading.
+- DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
+- DEVICE → BINDINGS, MAC / PC: Cmd sent as Ctrl on a PC (built, not yet confirmed on a
+  Windows PC).
+- LED power budget scaled from the USB power reading.
 - KEYBOARD, MOUSE and MIDI modes.
-- Host configuration protocol.
-- Integration, load and power tests.
+- Host configuration software (settings, profiles, a Figma bridge).
+- Integration tests: first pass done with SYS INFO. Left, not noticeable in use: occasional
+  300–600 µs loop spikes (likely instruction-cache evictions; fix: the loop's code in IRAM)
+  and rare audio gaps.
 - Final clean-up.
 
 **Milestone 2:**
 - Uploadable profiles stored on the device.
 - Automatic profile switching from the frontmost app.
-- Windows support (Ctrl in place of ⌘).
 - A Figma plugin for direct value control over HID.
 
 **Known assumptions:**
-- Shortcuts assume **macOS** and a **US keyboard layout**. HID sends key positions, so other
-  layouts can type different characters.
+- Shortcuts are written for **macOS**; on Windows set DEVICE → BINDINGS to PC (Cmd is sent
+  as Ctrl). They assume a **US keyboard layout**: HID sends key positions, so other layouts
+  can type different characters.
 - Uploaded icons are held in RAM and cleared on restart.

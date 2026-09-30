@@ -113,7 +113,7 @@ static bool frame_init(void) {
 // --- view state ---
 
 enum View : uint8_t {
-    V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_SYSINFO, V_RECAL, V_ATTRACT
+    V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_SYSINFO, V_RECAL, V_BINDINGS, V_ATTRACT
 };
 
 static View view_for(const menu_render_snapshot_t &s) {
@@ -127,12 +127,13 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_DEVICE: return V_DEVICE;
         case MENU_SCREEN_SYSINFO: return V_SYSINFO;
         case MENU_SCREEN_RECALIBRATE: return V_RECAL;
+        case MENU_SCREEN_BINDINGS: return V_BINDINGS;
         default: return V_MAIN;
     }
 }
 
 static inline bool is_settings_view(View v) {
-    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY;
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_BINDINGS;
 }
 
 // Screens drawn as the scrolling text list.
@@ -603,6 +604,9 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
         case V_RECAL:
             ui::draw_recalibrate(snap);
+            break;
+        case V_BINDINGS:
+            ui::draw_bindings(snap, menu_get_host(), blink_on);
             break;
         case V_ATTRACT: {
             // APP mode: the active profile's icon (and colours) instead of the QUADRA wordmark.

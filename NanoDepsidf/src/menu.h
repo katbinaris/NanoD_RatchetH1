@@ -37,10 +37,16 @@ typedef enum {
     MENU_SCREEN_BOOT,
     MENU_SCREEN_APP_PROFILE, // PROFILES = APP -> F1: choose the app profile
     MENU_SCREEN_DISPLAY,     // screen rotation
-    MENU_SCREEN_DEVICE,      // a list: SYS INFO, RECALIBRATE
+    MENU_SCREEN_DEVICE,      // a list: SYS INFO, BINDINGS, RECALIBRATE
     MENU_SCREEN_SYSINFO,     // live readings (sysmon.h), one page per row; F1 resets the peaks
     MENU_SCREEN_RECALIBRATE, // forget the motor calibration and restart
+    MENU_SCREEN_BINDINGS,    // which computer: MAC or PC (Cmd <-> Ctrl)
 } menu_screen_id_t;
+
+// DEVICE -> BINDINGS: the computer on the other end. Profiles are written with macOS
+// shortcuts; on PC, usb_task.c sends Ctrl wherever a profile says Cmd. The values are what
+// NVS stores -- never reorder.
+typedef enum { MENU_HOST_MAC = 0, MENU_HOST_PC, MENU_HOST_COUNT } menu_host_t;
 
 // SYS INFO's pages -- the knob turns through them. display_task.cpp draws each from sysmon.h.
 enum {
@@ -177,3 +183,5 @@ menu_hid_type_t menu_get_hid_type(void);
 int32_t menu_get_app_profile(void);
 // Screen rotation, 0-3 quarter turns (live while the DISPLAY screen is being turned).
 int32_t menu_get_display_rotation(void);
+// DEVICE -> BINDINGS (live while the screen is being turned, like rotation). Any core.
+menu_host_t menu_get_host(void);

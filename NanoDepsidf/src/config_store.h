@@ -41,6 +41,10 @@ typedef struct {
     int32_t rotation; // quarter turns clockwise, 0-3
 } display_cfg_t;
 
+typedef struct {
+    int32_t host; // menu.h's menu_host_t: 0 MAC, 1 PC
+} bind_cfg_t;
+
 // Each returns false (leaving *out untouched) if the namespace doesn't exist yet (normal on
 // first boot) or the stored blob fails a basic sanity check (wrong size, non-finite float,
 // enum field out of range) -- callers should keep their own compiled-in default in that case,
@@ -50,11 +54,13 @@ bool config_store_load_haptic(haptic_cfg_t *out);
 bool config_store_load_hid(hid_cfg_t *out);
 bool config_store_load_boot(boot_cfg_t *out);
 bool config_store_load_display(display_cfg_t *out);
+bool config_store_load_bindings(bind_cfg_t *out);
 
 void config_store_save_haptic(const haptic_cfg_t *cfg);
 void config_store_save_hid(const hid_cfg_t *cfg);
 void config_store_save_boot(const boot_cfg_t *cfg);
 void config_store_save_display(const display_cfg_t *cfg);
+void config_store_save_bindings(const bind_cfg_t *cfg);
 
 // APP mode's profile, stored by its id string ("figma") next to hid_cfg -- a separate key
 // rather than a new hid_cfg field, so blobs saved before profiles existed still load. The

@@ -274,6 +274,22 @@ static void action_save_display(void) {
     config_store_save_display(&cfg);
 }
 
+// DEVICE -> BINDINGS. Direct screen: turning switches it live (the next key report already
+// uses it), F2 keeps it.
+static _Atomic menu_host_t s_ph_host = MENU_HOST_MAC;
+static void fmt_host(char *buf, size_t n) {
+    snprintf(buf, n, "%s", atomic_load_explicit(&s_ph_host, memory_order_relaxed) == MENU_HOST_PC ? "PC" : "MAC");
+}
+static void rotate_host(int8_t dir) {
+    int v = ((int)atomic_load_explicit(&s_ph_host, memory_order_relaxed) + dir) % MENU_HOST_COUNT;
+    if (v < 0) v += MENU_HOST_COUNT;
+    atomic_store_explicit(&s_ph_host, (menu_host_t)v, memory_order_relaxed);
+}
+static void action_save_bindings(void) {
+    bind_cfg_t cfg = {.host = (int32_t)atomic_load_explicit(&s_ph_host, memory_order_relaxed)};
+    config_store_save_bindings(&cfg);
+}
+
 static void action_save_boot(void) {
     boot_cfg_t cfg = {
         .boot_mode = (int32_t)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed),
@@ -356,9 +372,17 @@ static const menu_screen_t s_recal_screen = {
     MENU_SCREEN_RECALIBRATE, "Recalibrate", s_recal_items, 1, false, NULL
 };
 
+static const menu_item_t s_bindings_items[] = {
+    { .label = "COMPUTER", .kind = MENU_ITEM_VALUE, .format_value = fmt_host, .on_rotate = rotate_host },
+};
+static const menu_screen_t s_bindings_screen = {
+    MENU_SCREEN_BINDINGS, "Bindings", s_bindings_items, 1, true, action_save_bindings
+};
+
 // DEVICE: a list like the top level.
 static const menu_item_t s_device_items[] = {
     { .label = "SYS INFO",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_sysinfo_screen },
+    { .label = "BINDINGS",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_bindings_screen },
     { .label = "RECALIBRATE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_recal_screen },
 };
 static const menu_screen_t s_device_screen = {
@@ -458,6 +482,7 @@ typedef struct {
     int32_t app_profile;
     boot_usb_mode_t boot_mode;
     int32_t rotation;
+    menu_host_t host;
 } settings_t;
 
 static settings_t s_saved;
@@ -477,6 +502,7 @@ static void settings_capture(settings_t *s) {
     s->app_profile = atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
     s->boot_mode = atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
     s->rotation = atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
+    s->host = atomic_load_explicit(&s_ph_host, memory_order_relaxed);
 }
 
 static void settings_restore(const settings_t *s) {
@@ -492,6 +518,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_app_profile, s->app_profile, memory_order_relaxed);
     atomic_store_explicit(&s_ph_boot_mode, s->boot_mode, memory_order_relaxed);
     atomic_store_explicit(&s_ph_rotation, s->rotation, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_host, s->host, memory_order_relaxed);
 }
 
 // Copies only the fields a screen owns (what that screen's save writes to NVS).
@@ -520,6 +547,9 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
         case MENU_SCREEN_DISPLAY:
             dst->rotation = src->rotation;
             break;
+        case MENU_SCREEN_BINDINGS:
+            dst->host = src->host;
+            break;
         default:
             break;
     }
@@ -539,6 +569,8 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
             return a->boot_mode != b->boot_mode;
         case MENU_SCREEN_DISPLAY:
             return a->rotation != b->rotation;
+        case MENU_SCREEN_BINDINGS:
+            return a->host != b->host;
         default:
             return false;
     }
@@ -597,6 +629,10 @@ void menu_init(void) {
     display_cfg_t dcfg;
     if (config_store_load_display(&dcfg)) {
         atomic_store_explicit(&s_ph_rotation, dcfg.rotation, memory_order_relaxed);
+    }
+    bind_cfg_t bind;
+    if (config_store_load_bindings(&bind)) {
+        atomic_store_explicit(&s_ph_host, (menu_host_t)bind.host, memory_order_relaxed);
     }
 
     // Whatever is live now is, by definition, what's saved (or the defaults, if nothing was)
@@ -880,6 +916,10 @@ int32_t menu_get_app_profile(void) {
 
 int32_t menu_get_display_rotation(void) {
     return atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
+}
+
+menu_host_t menu_get_host(void) {
+    return atomic_load_explicit(&s_ph_host, memory_order_relaxed);
 }
 
 menu_hid_type_t menu_get_hid_type(void) {

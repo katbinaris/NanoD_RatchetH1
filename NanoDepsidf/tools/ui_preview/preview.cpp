@@ -318,10 +318,23 @@ int main() {
     dev.screen = MENU_SCREEN_DEVICE;
     dev.selected = 0;
     dev.rows[0] = row("SYS INFO", "", "", true);
-    dev.rows[1] = row("RECALIBRATE", "", "", false);
-    dev.row_count = 2;
+    dev.rows[1] = row("BINDINGS", "", "", false);
+    dev.rows[2] = row("RECALIBRATE", "", "", false);
+    dev.row_count = 3;
     ui::draw_menu_list(dev, 0);
     keep("device list");
+
+    menu_render_snapshot_t bind = {};
+    bind.open = true;
+    bind.screen = MENU_SCREEN_BINDINGS;
+    bind.row_count = 1;
+    bind.selected = 0;
+    bind.rows[0] = row("COMPUTER", "", "MAC", true);
+    ui::draw_bindings(bind, MENU_HOST_MAC, true);
+    keep("bindings MAC");
+    bind.dirty = true;
+    ui::draw_bindings(bind, MENU_HOST_PC, true);
+    keep("bindings PC, unsaved");
 
     // SYS INFO with plausible numbers: haptics running, LEDs at rest, a missed tick and a
     // dropped report so the amber cases show.

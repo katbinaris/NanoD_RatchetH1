@@ -12,6 +12,7 @@ static const char *TAG = "config_store";
 #define NS_HID    "hid_cfg"
 #define NS_BOOT   "boot_cfg"
 #define NS_DISPLAY "disp_cfg"
+#define NS_BINDINGS "bind_cfg"
 #define KEY       "cfg" // one blob per namespace, same shape as foc_calibration.c's "foc_cal"/"cal"
 
 // HAPTIC_TYPE_COUNT (haptic_params.h), AUDIO_TIMBRE_COUNT (audio_trigger.h), and now
@@ -22,6 +23,7 @@ static const char *TAG = "config_store";
 // rotate_*() callbacks already clamp every value they ever produce, so this check only
 // guards against corrupted flash.
 #define HID_TYPE_COUNT 4 // KEYBOARD, MOUSE, MIDI, APP
+#define HOST_COUNT 2     // menu.h's menu_host_t: MAC, PC
 
 static bool nvs_load_blob(const char *ns, void *out, size_t size) {
     nvs_handle_t h;
@@ -169,4 +171,22 @@ bool config_store_load_display(display_cfg_t *out) {
 
 void config_store_save_display(const display_cfg_t *cfg) {
     nvs_save_blob(NS_DISPLAY, cfg, sizeof(*cfg), "disp_cfg");
+}
+
+bool config_store_load_bindings(bind_cfg_t *out) {
+    bind_cfg_t stored;
+    if (!nvs_load_blob(NS_BINDINGS, &stored, sizeof(stored))) {
+        return false;
+    }
+    if (stored.host < 0 || stored.host >= HOST_COUNT) {
+        ESP_LOGW(TAG, "stored bind_cfg failed sanity check, ignoring");
+        return false;
+    }
+    *out = stored;
+    ESP_LOGI(TAG, "loaded bind_cfg from NVS: host=%ld", (long)stored.host);
+    return true;
+}
+
+void config_store_save_bindings(const bind_cfg_t *cfg) {
+    nvs_save_blob(NS_BINDINGS, cfg, sizeof(*cfg), "bind_cfg");
 }

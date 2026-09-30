@@ -572,6 +572,35 @@ void draw_sysinfo(const menu_render_snapshot_t &snap, const sysmon_info_t &info,
     }
 }
 
+// --- Device -> Bindings: MAC / PC ---
+
+void draw_bindings(const menu_render_snapshot_t &snap, menu_host_t host, bool blink_on) {
+    header("BINDINGS");
+    text("COMPUTER", CX, 50, GREY, 1, CENTER);
+    struct Card { int x; const char *label; const char *mod; menu_host_t host; };
+    const Card cards[2] = {{34, "MAC", "CMD", MENU_HOST_MAC}, {126, "PC", "CTRL", MENU_HOST_PC}};
+    for (const Card &c : cards) {
+        bool sel = c.host == host;
+        const int y = 64, w = 80, h = 62;
+        if (sel) {
+            frame_box(c.x - 2, y - 2, w + 4, h + 4, AMBER);
+            frame_box(c.x, y, w, h, AMBER);
+        } else {
+            frame_box(c.x, y, w, h, DARK);
+        }
+        text(c.label, c.x + w / 2.0f, y + 16, sel ? WHITE : GREY, 2, CENTER);
+        text(c.mod, c.x + w / 2.0f, y + 42, sel ? AMBER : GREY, 1, CENTER);
+    }
+    if (host == MENU_HOST_PC) {
+        text("CMD SHORTCUTS", CX, 144, GREY, 1, CENTER);
+        text("ARE SENT AS CTRL", CX, 157, GREY, 1, CENTER);
+    } else {
+        text("SHORTCUTS ARE SENT", CX, 144, GREY, 1, CENTER);
+        text("AS WRITTEN", CX, 157, GREY, 1, CENTER);
+    }
+    save_hint(178, snap.dirty, blink_on);
+}
+
 // --- Device -> Recalibrate ---
 
 void draw_recalibrate(const menu_render_snapshot_t &snap) {
