@@ -573,15 +573,14 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             break;
         }
         case V_APP_PROFILE: {
-            // The registry's profiles as the screen sees them (built once; they're const).
-            static ui::ProfileItem items[8];
-            static int count = 0;
-            if (count == 0) {
-                count = app_profiles_count() < 8 ? app_profiles_count() : 8;
-                for (int i = 0; i < count; i++) {
-                    const app_profile_t *p = app_profiles_get(i);
-                    items[i] = {p->name, p->icon24, p->icon48, {p->legend[0], p->legend[1], p->legend[2], p->legend[3]}};
-                }
+            // The registry's profiles as the screen sees them, fetched every frame: the companion
+            // app can add, change or remove one while this screen is up (a replaced profile's
+            // memory lives on for a few seconds, far longer than a frame).
+            static ui::ProfileItem items[APP_PROFILES_MAX];
+            int count = app_profiles_count();
+            for (int i = 0; i < count; i++) {
+                const app_profile_t *p = app_profiles_get(i);
+                items[i] = {p->name, p->icon24, p->icon48, {p->legend[0], p->legend[1], p->legend[2], p->legend[3]}};
             }
             int index = menu_get_app_profile();
             if (index >= count) index = count - 1;

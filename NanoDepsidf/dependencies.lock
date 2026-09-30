@@ -1,4 +1,14 @@
 dependencies:
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
   espressif/esp_tinyusb:
     component_hash: 0fab24246e07bdf919c6489d17a590cffbffbbf6a9c44d6235641645c8b946b7
     dependencies:
@@ -49,6 +59,16 @@ dependencies:
     source:
       type: idf
     version: 6.1.0
+  joltwallet/littlefs:
+    component_hash: 3af20a3d75c49db9dc2286fd50862c34055c9f578419ad1f2bf7ed3ed01391fe
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.22.3
   lovyan03/lovyangfx:
     component_hash: 7bde3c4760ecc3e3d0d5527f4402ee7a9ad99cd45a44e3d6ddf6cc1812a79697
     dependencies: []
@@ -58,9 +78,11 @@ dependencies:
       type: git
     version: 3527e99d4635bd3ddce7c5c312e98f6e613f93ab
 direct_dependencies:
+- espressif/cjson
 - espressif/esp_tinyusb
 - espressif/led_strip
+- joltwallet/littlefs
 - lovyan03/lovyangfx
-manifest_hash: d5fb038fab0a28e7f5a300679f3b01df40089a9a4abfd1b46f9e5a6da7079341
+manifest_hash: ff5900f53cd7014b9029efdd5de8638dfcd7658857629eae32a090c57d578542
 target: esp32s3
 version: 3.0.0

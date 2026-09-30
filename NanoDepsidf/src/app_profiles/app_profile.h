@@ -28,8 +28,8 @@ typedef enum {
     APP_ACT_WHEEL,
     // Knob turn -> one key tap per detent: `cw` one way, `ccw` the other.
     APP_ACT_KEYS,
-    // Key press -> one key tap (`cw`). F1-F3 only: F4 is also the menu key, so it has to
-    // be a turn action (or NONE).
+    // Key press -> one key tap (`cw`), or the macro `macro` when set. F1-F3 only: F4 is also
+    // the menu key, so it has to be a turn action (or NONE).
     APP_ACT_TAP,
     // Hold the key -> the command wheel (the profile's `rings`): turning picks a command, one
     // detent each, and letting go runs it. The first entry of every ring is "cancel". Other
@@ -66,6 +66,9 @@ typedef struct {
     // KEYS / WHEEL / DRAG: sent on release when the key was tapped (let go quickly without
     // turning) -- one key, two jobs. keycode 0 = none.
     app_key_t tap;
+    // Macros (the profile's `macros`, 1-based, 0 = none): TAP runs `macro` instead of `cw`; a
+    // quick tap runs `tap_macro` instead of `tap`.
+    uint8_t macro, tap_macro;
     // Feel while this action is live. detents 0 = the Haptics menu's STEPS value.
     haptic_type_t feel;
     uint16_t detents;
@@ -205,7 +208,26 @@ typedef struct {
 #define EL_COUNT(...) (uint8_t)(sizeof((const app_el_t[]){__VA_ARGS__}) / sizeof(app_el_t))
 #define KEYFRAME(ms, ...) {ms, EL_COUNT(__VA_ARGS__), EL_LIST(__VA_ARGS__)}
 
-typedef enum { APP_CMD_KEYS = 0, APP_CMD_ACTIONS } app_cmd_kind_t;
+typedef enum { APP_CMD_KEYS = 0, APP_CMD_ACTIONS, APP_CMD_MACRO } app_cmd_kind_t;
+
+// --- Macros ---
+// A named list of steps the knob types by itself: key taps, text and pauses. Stored with the
+// profile, run by the device (no host software needed). Keys are US positions like everywhere
+// else; text is plain printable ASCII, typed as US keys.
+typedef enum { APP_MSTEP_KEY = 0, APP_MSTEP_TEXT, APP_MSTEP_WAIT } app_mstep_kind_t;
+typedef struct {
+    uint8_t kind;     // app_mstep_kind_t
+    app_key_t key;    // KEY
+    uint16_t ms;      // WAIT
+    const char *text; // TEXT
+} app_mstep_t;
+typedef struct {
+    const char *name; // "SIGNATURE"
+    uint8_t count;
+    const app_mstep_t *steps;
+} app_macro_t;
+#define APP_MACROS_MAX 16
+#define APP_MACRO_STEPS_MAX 64
 
 // --- Parameter mode ---
 // After a command with a `param` runs from the wheel, the knob sets its value until F3
@@ -269,6 +291,7 @@ typedef struct {
     const char *phrase;       // ACTIONS: typed into the app's command search (lowercase ASCII)
     const app_scene_t *scene; // the card, or NULL
     const app_param_t *param; // parameter mode after it runs, or NULL
+    uint8_t macro;            // MACRO: the profile's macro, 1-based
 } app_cmd_t;
 
 typedef struct {
@@ -308,6 +331,9 @@ typedef struct {
     const app_ring_t *rings;
     app_search_t search;
     app_param_keys_t param_keys;
+    // Macros, referred to (1-based) by actions and wheel commands.
+    uint8_t macro_count;
+    const app_macro_t *macros;
 } app_profile_t;
 
 // --- Empty template ---

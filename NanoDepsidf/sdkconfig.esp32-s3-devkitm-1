@@ -3863,6 +3863,15 @@ CONFIG_WL_SECTOR_SIZE=4096
 # end of Wear Levelling
 
 #
+# cJSON
+#
+# default:
+CONFIG_CJSON_NESTING_LIMIT=1000
+# default:
+CONFIG_CJSON_CIRCULAR_LIMIT=10000
+# end of cJSON
+
+#
 # TinyUSB Stack
 #
 # default:
@@ -3992,6 +4001,63 @@ CONFIG_TINYUSB_NET_MODE_NONE=y
 CONFIG_TINYUSB_VENDOR_COUNT=0
 # end of Vendor Specific Interface
 # end of TinyUSB Stack
+
+#
+# LittleFS
+#
+# default:
+# CONFIG_LITTLEFS_SDMMC_SUPPORT is not set
+# default:
+CONFIG_LITTLEFS_MAX_PARTITIONS=3
+# default:
+CONFIG_LITTLEFS_PAGE_SIZE=256
+# default:
+CONFIG_LITTLEFS_OBJ_NAME_LEN=64
+# default:
+CONFIG_LITTLEFS_READ_SIZE=128
+# default:
+CONFIG_LITTLEFS_WRITE_SIZE=128
+# default:
+CONFIG_LITTLEFS_LOOKAHEAD_SIZE=128
+# default:
+CONFIG_LITTLEFS_CACHE_SIZE=512
+# default:
+CONFIG_LITTLEFS_BLOCK_CYCLES=512
+# default:
+CONFIG_LITTLEFS_USE_MTIME=y
+# default:
+# CONFIG_LITTLEFS_USE_ONLY_HASH is not set
+# default:
+# CONFIG_LITTLEFS_HUMAN_READABLE is not set
+# default:
+CONFIG_LITTLEFS_MTIME_USE_SECONDS=y
+# default:
+# CONFIG_LITTLEFS_MTIME_USE_NONCE is not set
+# default:
+# CONFIG_LITTLEFS_SPIFFS_COMPAT is not set
+# default:
+# CONFIG_LITTLEFS_FLUSH_FILE_EVERY_WRITE is not set
+# default:
+# CONFIG_LITTLEFS_FCNTL_GET_PATH is not set
+# default:
+# CONFIG_LITTLEFS_MULTIVERSION is not set
+# default:
+# CONFIG_LITTLEFS_MALLOC_STRATEGY_DISABLE is not set
+# default:
+CONFIG_LITTLEFS_MALLOC_STRATEGY_DEFAULT=y
+# default:
+# CONFIG_LITTLEFS_MALLOC_STRATEGY_INTERNAL is not set
+# default:
+# CONFIG_LITTLEFS_MALLOC_STRATEGY_SPIRAM is not set
+# default:
+# CONFIG_LITTLEFS_MALLOC_STRATEGY_SPIRAM_PREFER is not set
+# default:
+CONFIG_LITTLEFS_ASSERTS=y
+# default:
+# CONFIG_LITTLEFS_MMAP_PARTITION is not set
+# default:
+# CONFIG_LITTLEFS_WDT_RESET is not set
+# end of LittleFS
 # end of Component config
 
 # default:

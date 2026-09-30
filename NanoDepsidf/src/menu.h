@@ -182,6 +182,9 @@ boot_usb_mode_t menu_get_boot_mode(void);
 menu_hid_type_t menu_get_hid_type(void);
 // APP mode's profile: an index into app_profiles_get() (app_profiles/app_profiles.h).
 int32_t menu_get_app_profile(void);
+// The app profile at `index` was removed and the ones after it moved up one: keeps the live,
+// saved and undo choices on the same profiles (the removed one falls back to the first).
+void menu_profile_removed(int index);
 // Screen rotation, 0-3 quarter turns (live while the DISPLAY screen is being turned).
 int32_t menu_get_display_rotation(void);
 // DEVICE -> BINDINGS (live while the screen is being turned, like rotation). Any core.

@@ -116,7 +116,15 @@ static void push_tap(app_key_t key) {
     push_tap_wait(key, 0);
 }
 
-// US key positions for the characters a command-search phrase may use.
+// US key positions for printable ASCII (command-search phrases, typed values, macro text).
+// Punctuation: the unshifted character's key, and the shifted one's (e.g. '-' / '_').
+static const char US_PLAIN[] = "-=[]\\;',./`";
+static const char US_SHIFTED[] = "_+{}|:\"<>?~";
+static const uint8_t US_PUNCT_KEY[] = {HID_KEY_MINUS, HID_KEY_EQUAL, HID_KEY_BRACKET_LEFT, HID_KEY_BRACKET_RIGHT,
+                                       HID_KEY_BACKSLASH, HID_KEY_SEMICOLON, HID_KEY_APOSTROPHE, HID_KEY_COMMA,
+                                       HID_KEY_PERIOD, HID_KEY_SLASH, HID_KEY_GRAVE};
+static const char US_DIGIT_SHIFTED[] = ")!@#$%^&*("; // Shift + 0..9
+
 static bool ascii_key(char c, app_key_t *k) {
     k->modifier = 0;
     if (c >= 'a' && c <= 'z') k->keycode = HID_KEY_A + (c - 'a');
@@ -124,10 +132,90 @@ static bool ascii_key(char c, app_key_t *k) {
     else if (c >= '1' && c <= '9') k->keycode = HID_KEY_1 + (c - '1');
     else if (c == '0') k->keycode = HID_KEY_0;
     else if (c == ' ') k->keycode = HID_KEY_SPACE;
-    else if (c == '-') k->keycode = HID_KEY_MINUS;
-    else if (c == '.') k->keycode = HID_KEY_PERIOD;
-    else return false;
+    else {
+        const char *p;
+        if (c != '\0' && (p = strchr(US_PLAIN, c)) != NULL) {
+            k->keycode = US_PUNCT_KEY[p - US_PLAIN];
+        } else if (c != '\0' && (p = strchr(US_SHIFTED, c)) != NULL) {
+            k->keycode = US_PUNCT_KEY[p - US_SHIFTED];
+            k->modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+        } else if (c != '\0' && (p = strchr(US_DIGIT_SHIFTED, c)) != NULL) {
+            int d = (int)(p - US_DIGIT_SHIFTED);
+            k->keycode = d == 0 ? HID_KEY_0 : HID_KEY_1 + (d - 1);
+            k->modifier = KEYBOARD_MODIFIER_LEFTSHIFT;
+        } else {
+            return false;
+        }
+    }
     return true;
+}
+
+// --- Macros (app_profile.h) ---
+// Fed into the tap ring a little each tick, as room allows, so a macro can be longer than the
+// ring. Presses that come while one runs queue up (a few); a profile change or leaving APP
+// mode stops them. Control-task only.
+#define MACRO_QUEUE 4
+static const app_macro_t *s_mrun = NULL;
+static uint8_t s_mstep = 0;
+static uint16_t s_mpos = 0;      // TEXT: next character; WAIT: ticks already queued
+static uint8_t s_mqueue[MACRO_QUEUE], s_mqueued = 0;
+
+static void macro_stop(void) {
+    s_mrun = NULL;
+    s_mqueued = 0;
+}
+
+static void macro_begin(uint8_t ref) {
+    s_mrun = &s_profile->macros[ref - 1];
+    s_mstep = 0;
+    s_mpos = 0;
+}
+
+// Runs the profile's macro `ref` (1-based) now, or after the one that's running.
+static void macro_start(uint8_t ref) {
+    if (s_profile == NULL || ref == 0 || ref > s_profile->macro_count) return;
+    if (s_mrun == NULL) macro_begin(ref);
+    else if (s_mqueued < MACRO_QUEUE) s_mqueue[s_mqueued++] = ref;
+}
+
+static void macro_pump(void) {
+    while (s_mrun != NULL && tap_room() > 0) {
+        if (s_mstep >= s_mrun->count) {
+            s_mrun = NULL;
+            if (s_mqueued) {
+                uint8_t next = s_mqueue[0];
+                memmove(s_mqueue, s_mqueue + 1, --s_mqueued);
+                macro_begin(next);
+            }
+            continue;
+        }
+        const app_mstep_t *st = &s_mrun->steps[s_mstep];
+        bool done = true;
+        if (st->kind == APP_MSTEP_KEY) {
+            push_tap(st->key);
+        } else if (st->kind == APP_MSTEP_TEXT) {
+            char c = st->text ? st->text[s_mpos] : '\0';
+            if (c != '\0') {
+                app_key_t k;
+                if (ascii_key(c, &k)) push_tap(k);
+                s_mpos++;
+                done = false;
+            }
+        } else {
+            // A wait = an empty tap that pauses after itself, 2.55s at most per tap.
+            uint32_t ticks = (st->ms + 9u) / 10u;
+            if (s_mpos < ticks) {
+                uint32_t n = ticks - s_mpos > 255 ? 255 : ticks - s_mpos;
+                push_tap_wait((app_key_t){0, 0}, (uint8_t)n);
+                s_mpos += (uint16_t)n;
+                done = false;
+            }
+        }
+        if (done) {
+            s_mstep++;
+            s_mpos = 0;
+        }
+    }
 }
 
 // ACTIONS: open the app's command search, type the phrase, wait for the results, Enter. All
@@ -152,9 +240,15 @@ static void publish_wheel(void) {
     atomic_store(&s_wheel, (s_wheel_open && s_wheel_shown ? 1u << 31 : 0u) | ((uint32_t)s_ring << 8) | s_entry);
 }
 
+// A key's quick tap: a key or a macro.
+static bool has_tap(const app_action_t *a) {
+    return a->tap.keycode != 0 || a->tap_macro != 0;
+}
+
 // A slot's quick-press `tap` (the display flashes on it, e.g. Plasticity's undo).
-static void fire_tap(int slot, app_key_t key) {
-    push_tap(key);
+static void fire_tap(int slot, const app_action_t *a) {
+    if (a->tap_macro) macro_start(a->tap_macro);
+    else push_tap(a->tap);
     uint32_t n = (atomic_load(&s_tapped) >> 8) + 1;
     atomic_store(&s_tapped, (n << 8) | (uint32_t)slot);
 }
@@ -164,7 +258,7 @@ static void wheel_open(const app_action_t *a) {
     if (s_ring >= ring_count()) s_ring = 0;
     s_entry = s_ring_entry[s_ring] ? s_ring_entry[s_ring] : 1;
     s_wheel_open = true;
-    s_wheel_shown = a->tap.keycode == 0; // a key that also taps waits APP_WHEEL_SHOW_US
+    s_wheel_shown = !has_tap(a); // a key that also taps waits APP_WHEEL_SHOW_US
     publish_wheel();
 }
 
@@ -357,6 +451,7 @@ static void wheel_close(void) {
     if (s_entry != APP_CANCEL && s_entry <= r->count) {
         const app_cmd_t *c = &r->cmds[s_entry - 1];
         if (c->kind == APP_CMD_ACTIONS && c->phrase) push_search(&s_profile->search, c->phrase);
+        else if (c->kind == APP_CMD_MACRO) macro_start(c->macro);
         else push_tap(c->key);
         s_ring_entry[s_ring] = s_entry;
         if (c->param) param_start(c->param, s_ring, s_entry); // the echo comes on confirm
@@ -404,10 +499,13 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
     if (p != s_profile) {
         if (s_param) param_end(false);
         end_slot();
+        macro_stop(); // it points into the old profile
         s_profile = p;
     }
     s_active = active && !swallow;
     s_swallow_keys &= held; // forget keys once they're up
+    if (active) macro_pump();
+    else macro_stop();
     if (!active) {
         if (s_param) param_end(false); // the menu opened / mode changed: leave the app's command
         if (s_slot >= 0 || atomic_load(&s_want)) end_slot();
@@ -449,21 +547,23 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
         if (!(pressed & SLOT_KEY[slot])) continue;
         const app_action_t *a = action(slot);
         if (a->kind == APP_ACT_TAP && slot != APP_SLOT_F4) {
-            push_tap(a->cw);
+            if (a->macro) macro_start(a->macro);
+            else push_tap(a->cw);
         } else if (s_slot < 0 || s_slot_key == 0) {
             // A key takes over from the knob-alone slot. F4 always starts a slot (even with
-            // no action) so its long press can open the menu.
-            if (a->kind != APP_ACT_NONE || slot == APP_SLOT_F4) begin_slot(slot, now_us);
+            // no action) so its long press can open the menu; so does a key with only a
+            // quick tap, so its release can fire it.
+            if (a->kind != APP_ACT_NONE || slot == APP_SLOT_F4 || has_tap(a)) begin_slot(slot, now_us);
             if (a->kind == APP_ACT_COMMANDS && slot != APP_SLOT_F4) wheel_open(a);
         }
     }
     if (s_slot_key != 0 && !(held & s_slot_key)) {
         // Let go: the wheel runs its command; a quick press that never turned is a tap.
         const app_action_t *a = action(s_slot);
-        bool tap = a->tap.keycode && !s_engaged && now_us - s_slot_start_us < APP_TAP_MAX_US;
-        if (s_wheel_open && !s_wheel_shown) tap = a->tap.keycode != 0; // released before the wheel showed
+        bool tap = has_tap(a) && !s_engaged && now_us - s_slot_start_us < APP_TAP_MAX_US;
+        if (s_wheel_open && !s_wheel_shown) tap = has_tap(a); // released before the wheel showed
         else if (s_wheel_open) tap = false;
-        if (tap) fire_tap(s_slot, a->tap);
+        if (tap) fire_tap(s_slot, a);
         else wheel_close();
         end_slot();
     }

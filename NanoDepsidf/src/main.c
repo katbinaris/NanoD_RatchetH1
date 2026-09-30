@@ -6,6 +6,7 @@
 #include "audio_trigger.h"
 #include "ui_state.h"
 #include "menu.h"
+#include "app_profiles/app_profiles.h"
 #include "icon_store.h"
 #include "control_task.h"
 #include "usb_task.h"
@@ -98,6 +99,7 @@ void app_main(void) {
     ipc_init();
     audio_trigger_init();
     ui_state_init();
+    app_profiles_init(); // stored profiles: before menu_init() looks up the saved one by id
     menu_init();
     icon_store_init(); // before usb_task (producer) and display_task (consumer) start
 

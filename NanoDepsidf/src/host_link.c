@@ -7,13 +7,18 @@
 #include "ui_state.h"
 #include "app_mode.h"
 #include "app_profiles/app_profiles.h"
+#include "app_profiles/profile_json.h"
+#include "esp_heap_caps.h"
 #include "class/hid/hid_device.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include <stdatomic.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char *TAG = "host";
@@ -25,6 +30,37 @@ static QueueHandle_t s_replies;
 static uint8_t s_instance;
 
 static _Atomic uint8_t s_stream_hz = 0;
+
+// --- Profile transfers ---
+// Download: HOST_CMD_PROFILE_READ asks (TinyUSB task), the usb task serializes the profile and
+// the pieces go out back to back -- each finished IN report sends the next one straight from
+// TinyUSB's completion callback, so a 40KB profile takes well under a second instead of one
+// piece per usb-task pass. s_tx_lock keeps the two senders from building the same piece.
+static SemaphoreHandle_t s_tx_lock;
+static _Atomic int s_read_req = -1;
+static char *s_out = NULL;      // the JSON being sent (s_tx_lock)
+static uint32_t s_out_len, s_out_off;
+static bool s_out_began;
+static uint8_t s_out_index;
+// Upload: BEGIN / DATA land in the TinyUSB task (copy only); END hands the text to the usb
+// task, which parses, applies and stores it.
+static char *s_in = NULL;
+static uint32_t s_in_len, s_in_crc, s_in_got;
+static uint8_t s_in_flags;
+static bool s_in_bad;
+static _Atomic bool s_in_done = false;
+// HOST_CMD_PROFILE_OP, done in the usb task (file I/O): bit 31 pending, 8-15 index, 0-7 op.
+static _Atomic uint32_t s_op = 0;
+
+// CRC-32 (IEEE, reflected, zlib.crc32), as icon_store.c.
+static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int b = 0; b < 8; b++) crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
 
 static void put_u16(uint8_t *b, uint16_t v) { memcpy(b, &v, 2); }
 static void put_u32(uint8_t *b, uint32_t v) { memcpy(b, &v, 4); }
@@ -58,6 +94,17 @@ static void build_settings(uint8_t *r) {
     r[26] = (uint8_t)s.boot_mode;
     r[27] = (uint8_t)s.rotation;
     r[28] = (uint8_t)s.host;
+}
+
+static void result_reply(uint8_t *r, uint8_t cmd, uint8_t res, int index, bool removed, const char *why) {
+    memset(r, 0, HOST_REPORT_SIZE);
+    r[0] = HOST_TAG_RESULT;
+    r[1] = cmd;
+    r[2] = res;
+    r[3] = (uint8_t)(index < 0 ? 0 : index);
+    r[4] = (uint8_t)app_profiles_count();
+    r[5] = removed;
+    if (why) put_str(r + 8, why, HOST_REPORT_SIZE - 8);
 }
 
 static void error_reply(uint8_t *r, uint8_t cmd, uint8_t err) {
@@ -118,7 +165,7 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             r[0] = HOST_TAG_PROFILE;
             r[1] = in[1];
             r[2] = (uint8_t)app_profiles_count();
-            r[3] = p->icon48 != NULL;
+            r[3] = (p->icon48 != NULL) | (uint8_t)(app_profiles_flags(in[1]) << 1);
             put_str(r + 4, p->id, 12);
             put_str(r + 16, p->name, 16);
             for (int i = 0; i < 4; i++) put_str(r + 32 + i * 8, p->legend[i], 8);
@@ -140,6 +187,60 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             memcpy(r + 8, p->icon48 + off, len);
             return true;
         }
+        case HOST_CMD_PROFILE_READ:
+            if (in[1] >= app_profiles_count()) {
+                error_reply(r, cmd, HOST_ERR_BAD_PARAM);
+                return true;
+            }
+            atomic_store(&s_read_req, in[1]);
+            return false;
+        case HOST_CMD_UPLOAD_BEGIN: {
+            uint32_t len, crc;
+            memcpy(&len, in + 4, 4);
+            memcpy(&crc, in + 8, 4);
+            if (atomic_load(&s_in_done)) {
+                result_reply(r, cmd, HOST_RES_BUSY, 0, false, NULL);
+                return true;
+            }
+            free(s_in);
+            s_in = NULL;
+            if (len == 0 || len > HOST_PROFILE_MAX_BYTES ||
+                (s_in = heap_caps_malloc_prefer(len + 1, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT)) == NULL) {
+                result_reply(r, cmd, HOST_RES_FULL, 0, false, "too big");
+                return true;
+            }
+            s_in_len = len;
+            s_in_crc = crc;
+            s_in_got = 0;
+            s_in_flags = in[1];
+            s_in_bad = false;
+            return false;
+        }
+        case HOST_CMD_UPLOAD_DATA: {
+            uint32_t off = in[1] | in[2] << 8 | (uint32_t)in[3] << 16;
+            if (s_in == NULL || atomic_load(&s_in_done) || off != s_in_got) {
+                s_in_bad = true; // reported at END
+                return false;
+            }
+            uint32_t n = s_in_len - off < HOST_TEXT_CHUNK ? s_in_len - off : HOST_TEXT_CHUNK;
+            memcpy(s_in + off, in + 4, n);
+            s_in_got += n;
+            return false;
+        }
+        case HOST_CMD_UPLOAD_END:
+            if (s_in == NULL) {
+                result_reply(r, cmd, HOST_RES_TRANSFER, 0, false, "no upload");
+                return true;
+            }
+            atomic_store(&s_in_done, true); // the usb task takes it from here
+            return false;
+        case HOST_CMD_PROFILE_OP:
+            if (atomic_load(&s_op)) {
+                result_reply(r, cmd, HOST_RES_BUSY, 0, false, NULL);
+                return true;
+            }
+            atomic_store(&s_op, 0x80000000u | (uint32_t)in[1] << 8 | in[2]);
+            return false;
         default:
             error_reply(r, cmd, HOST_ERR_UNKNOWN_CMD);
             return true;
@@ -149,6 +250,7 @@ static bool handle(const uint8_t *in, uint8_t *r) {
 void host_link_init(uint8_t vendor_instance) {
     s_instance = vendor_instance;
     s_replies = xQueueCreate(REPLY_QUEUE_DEPTH, HOST_REPORT_SIZE);
+    s_tx_lock = xSemaphoreCreateMutex();
 }
 
 void host_link_handle_report(const uint8_t *report, uint16_t len) {
@@ -214,12 +316,136 @@ static void build_sys(uint8_t *a, uint8_t *b) {
     put_u32(b + 52, s.sensor_crc_errors);
 }
 
+// The next piece of a profile download, if the endpoint is free. usb task and TinyUSB task.
+static void send_piece(void) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    if (s_out != NULL && tud_hid_n_ready(s_instance)) {
+        uint8_t r[HOST_REPORT_SIZE] = {0};
+        uint32_t n = 0;
+        if (!s_out_began) {
+            r[0] = HOST_TAG_PROFILE_BEGIN;
+            r[1] = s_out_index;
+            put_u32(r + 4, s_out_len);
+            put_u32(r + 8, crc32_ieee((const uint8_t *)s_out, s_out_len));
+        } else {
+            n = s_out_len - s_out_off < HOST_TEXT_CHUNK ? s_out_len - s_out_off : HOST_TEXT_CHUNK;
+            r[0] = HOST_TAG_PROFILE_DATA;
+            r[1] = s_out_off & 0xFF;
+            r[2] = (s_out_off >> 8) & 0xFF;
+            r[3] = (s_out_off >> 16) & 0xFF;
+            memcpy(r + 4, s_out + s_out_off, n);
+        }
+        if (tud_hid_n_report(s_instance, 0, r, sizeof(r))) {
+            if (!s_out_began) s_out_began = true;
+            else s_out_off += n;
+            if (s_out_began && s_out_off >= s_out_len) {
+                free(s_out);
+                s_out = NULL;
+            }
+        }
+    }
+    xSemaphoreGive(s_tx_lock);
+}
+
+void host_link_report_sent(void) {
+    send_piece();
+}
+
+static bool sending_profile(void) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    bool busy = s_out != NULL;
+    xSemaphoreGive(s_tx_lock);
+    return busy;
+}
+
+// usb task: the slow half of the profile commands (JSON, files).
+static void profile_work(void) {
+    uint8_t r[HOST_REPORT_SIZE];
+    int want = atomic_exchange(&s_read_req, -1);
+    if (want >= 0) {
+        size_t len = 0;
+        char *text = profile_json_write(app_profiles_get(want), &len);
+        if (text == NULL) {
+            memset(r, 0, sizeof(r));
+            error_reply(r, HOST_CMD_PROFILE_READ, HOST_ERR_BAD_PARAM);
+            queue_reply(r);
+        } else {
+            xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+            free(s_out); // a new request replaces one still going
+            s_out = text;
+            s_out_len = len;
+            s_out_off = 0;
+            s_out_began = false;
+            s_out_index = (uint8_t)want;
+            xSemaphoreGive(s_tx_lock);
+        }
+    }
+
+    if (atomic_load(&s_in_done)) {
+        char err[HOST_REPORT_SIZE - 8];
+        int index = 0;
+        bool removed = false;
+        uint8_t res = HOST_RES_OK;
+        if (s_in_bad || s_in_got != s_in_len || crc32_ieee((const uint8_t *)s_in, s_in_len) != s_in_crc) {
+            res = HOST_RES_TRANSFER;
+            snprintf(err, sizeof(err), "got %u of %u bytes%s", (unsigned)s_in_got, (unsigned)s_in_len,
+                     s_in_bad ? ", out of order" : "");
+        } else {
+            s_in[s_in_len] = '\0';
+            app_profile_t *p = profile_json_read(s_in, s_in_len, err, sizeof(err));
+            if (p == NULL) {
+                res = HOST_RES_INVALID;
+            } else {
+                app_profiles_err_t e = app_profiles_put_live(p, &index);
+                if (e == APP_PROFILES_OK && (s_in_flags & HOST_UPLOAD_SAVE)) e = app_profiles_save(index);
+                res = e == APP_PROFILES_OK ? HOST_RES_OK : e == APP_PROFILES_ERR_FULL ? HOST_RES_FULL : HOST_RES_STORAGE;
+                snprintf(err, sizeof(err), "%s", res == HOST_RES_OK ? "" : "not stored");
+            }
+        }
+        if (res != HOST_RES_OK) ESP_LOGW(TAG, "profile upload: %u (%s)", res, err);
+        free(s_in);
+        s_in = NULL;
+        atomic_store(&s_in_done, false);
+        result_reply(r, HOST_CMD_UPLOAD_END, res, index, removed, err);
+        queue_reply(r);
+    }
+
+    uint32_t op = atomic_load(&s_op);
+    if (op) {
+        int index = (op >> 8) & 0xFF;
+        bool removed = false;
+        app_profiles_err_t e = APP_PROFILES_ERR_INDEX;
+        switch (op & 0xFF) {
+            case HOST_OP_SAVE: e = app_profiles_save(index); break;
+            case HOST_OP_REVERT: e = app_profiles_revert(index, &removed); break;
+            case HOST_OP_REMOVE: e = app_profiles_remove(index, &removed); break;
+        }
+        if (removed) menu_profile_removed(index);
+        result_reply(r, HOST_CMD_PROFILE_OP,
+                     e == APP_PROFILES_OK ? HOST_RES_OK : e == APP_PROFILES_ERR_STORAGE ? HOST_RES_STORAGE : HOST_RES_BAD_INDEX,
+                     index, removed, NULL);
+        queue_reply(r);
+        atomic_store(&s_op, 0);
+    }
+    app_profiles_reap();
+}
+
 void host_link_poll(void) {
+    profile_work();
+
     // Queued replies first, in order; one that can't go out yet waits for the next pass.
     uint8_t r[HOST_REPORT_SIZE];
     while (xQueuePeek(s_replies, r, 0) == pdTRUE) {
-        if (!tud_hid_n_ready(s_instance) || !tud_hid_n_report(s_instance, 0, r, sizeof(r))) return;
+        xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+        bool sent = tud_hid_n_ready(s_instance) && tud_hid_n_report(s_instance, 0, r, sizeof(r));
+        xSemaphoreGive(s_tx_lock);
+        if (!sent) return;
         xQueueReceive(s_replies, r, 0);
+    }
+    // A profile download has the endpoint to itself (the live stream pauses meanwhile).
+    if (sending_profile()) {
+        send_piece();
+        return;
     }
 
     uint8_t hz = atomic_load(&s_stream_hz);
@@ -262,4 +488,10 @@ bool host_link_streaming(void) {
 void host_link_stop(void) {
     atomic_store(&s_stream_hz, 0);
     xQueueReset(s_replies);
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    free(s_out);
+    s_out = NULL;
+    xSemaphoreGive(s_tx_lock);
+    atomic_store(&s_read_req, -1);
+    // An upload cut off mid-way: the next BEGIN starts over (and frees the old buffer).
 }

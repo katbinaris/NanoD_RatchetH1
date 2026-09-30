@@ -10,3 +10,9 @@ dependencies:
   lovyan03/lovyangfx:
     git: https://github.com/lovyan03/LovyanGFX.git
     version: "1.2.30"
+  # Stored app profiles (profile_store.c): LittleFS on the `spiffs` partition, profiles as
+  # JSON. IDF 6 no longer bundles cJSON, so both come from the registry.
+  joltwallet/littlefs:
+    version: "^1.20.0"
+  espressif/cjson:
+    version: "^1.7.19"

@@ -10,11 +10,10 @@
 // (device -> host). Multi-byte fields little-endian, floats IEEE-754 single. Packed layouts
 // below are byte offsets; unused bytes are 0.
 //
-// A deliberately small hand-rolled format for this first slice: a few fixed messages. The
-// nanopb direction (DEVELOPMENT_PLAN.md Phase 9) stays for profile upload, where the
-// structures get big enough for a schema to pay off.
+// Fixed little messages for settings and state. Whole profiles travel as JSON text
+// (app_profiles/profile_json.h), in 60-byte pieces with a CRC-32 over the whole text (zlib's).
 
-#define HOST_PROTO_VERSION 1
+#define HOST_PROTO_VERSION 2
 #define HOST_REPORT_SIZE 64
 
 // --- Host -> device ---
@@ -30,6 +29,24 @@ enum {
     HOST_CMD_PROFILE = 0x16,      // [1]=index -> HOST_TAG_PROFILE
     HOST_CMD_PROFILE_ICON = 0x17, // [1]=index [2..3]=offset -> HOST_TAG_PROFILE_ICON (icon48)
     HOST_CMD_RESET_PEAKS = 0x18,  // SYS INFO peaks and counters start over (F1 there); no reply
+    // --- profiles (v2) ---
+    HOST_CMD_PROFILE_READ = 0x19, // [1]=index -> HOST_TAG_PROFILE_BEGIN, then HOST_TAG_PROFILE_DATA
+                                  //   pieces back to back until the text is complete
+    HOST_CMD_UPLOAD_BEGIN = 0x1A, // [1]=HOST_UPLOAD_* flags [4..7]=length [8..11]=CRC-32; no reply
+    HOST_CMD_UPLOAD_DATA = 0x1B,  // [1..3]=offset (24-bit) [4..63]=text, 60 bytes (fewer in the
+                                  //   last piece, by the length); no reply, in order
+    HOST_CMD_UPLOAD_END = 0x1C,   // checks and applies the profile -> HOST_TAG_RESULT
+    HOST_CMD_PROFILE_OP = 0x1D,   // [1]=index [2]=HOST_OP_* -> HOST_TAG_RESULT
+};
+
+// HOST_CMD_UPLOAD_BEGIN [1]
+#define HOST_UPLOAD_SAVE 0x01 // store it too (otherwise a live edit only)
+
+// HOST_CMD_PROFILE_OP [2]
+enum {
+    HOST_OP_SAVE = 1,   // store the live edit
+    HOST_OP_REVERT = 2, // drop the live edit (a never-stored new profile goes away)
+    HOST_OP_REMOVE = 3, // delete the stored copy: a built-in goes back to its default
 };
 
 // Setting ids for HOST_CMD_SET (and the order of HOST_TAG_SETTINGS' dirty bits).
@@ -60,7 +77,8 @@ enum {
     // [4..7]=detents i32 [8..11]=kp f32 [12..15]=kd f32 [16]=feel [17]=amp % [18..21]=pitch f32
     // [22]=sound [23]=hid type [24]=midi ch [25]=profile [26]=boot [27]=rotation [28]=host
     HOST_TAG_PROFILE = 0xB2,
-    // [1]=index [2]=count [3]=has icon48 [4..15]=id [16..31]=name [32..63]=legend: 4 x 8 bytes
+    // [1]=index [2]=count [3]=flags: bit0 has icon48, bit1 built-in, bit2 stored, bit3 live
+    // edit (APP_PROFILE_* << 1) [4..15]=id [16..31]=name [32..63]=legend: 4 x 8 bytes
     // (all NUL-padded strings)
     HOST_TAG_PROFILE_ICON = 0xB3,
     // [1]=index [2..3]=offset [4]=len (<= 56) [8..63]=bytes of icon48 (48x48 RGB565 BE, 4608 B)
@@ -79,6 +97,14 @@ enum {
     // [20..23]=jitter max us f32 [24..27]=missed u32 [28..31]=spikes/s f32
     // [32..35]=heap free u32 [36..39]=heap min u32 [40..43]=hid drops u32
     // [44..47]=audio gaps u32 [48..51]=uptime s u32 [52..55]=sensor CRC errors u32
+    HOST_TAG_PROFILE_BEGIN = 0xB8,
+    // [1]=index [4..7]=length [8..11]=CRC-32 of the JSON text
+    HOST_TAG_PROFILE_DATA = 0xB9,
+    // [1..3]=offset (24-bit) [4..63]=text, 60 bytes (fewer in the last piece)
+    HOST_TAG_RESULT = 0xBA,
+    // [1]=command [2]=HOST_RES_* [3]=profile index (after the change) [4]=profile count
+    // [5]=1: the profile at [3] was removed (the ones after it moved up)
+    // [8..63]=what's wrong, NUL-terminated (HOST_RES_INVALID)
     HOST_TAG_ERROR = 0xBF,
     // [1]=command [2]=HOST_ERR_*
 };
@@ -88,4 +114,16 @@ enum {
     HOST_ERR_BAD_PARAM = 2,
 };
 
+enum {
+    HOST_RES_OK = 0,
+    HOST_RES_INVALID = 1,   // the JSON isn't a usable profile (reason in [8..])
+    HOST_RES_TRANSFER = 2,  // pieces missing / out of order, or the CRC doesn't match
+    HOST_RES_FULL = 3,      // no room for another profile
+    HOST_RES_STORAGE = 4,   // writing / deleting the file failed
+    HOST_RES_BAD_INDEX = 5,
+    HOST_RES_BUSY = 6,      // another transfer is still going
+};
+
 #define HOST_ICON_CHUNK 56
+#define HOST_TEXT_CHUNK 60
+#define HOST_PROFILE_MAX_BYTES (96 * 1024)

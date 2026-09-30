@@ -922,6 +922,18 @@ int32_t menu_get_app_profile(void) {
     return atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
 }
 
+static int32_t after_removal(int32_t v, int index) {
+    return v > index ? v - 1 : v == index ? 0 : v;
+}
+
+void menu_profile_removed(int index) {
+    atomic_store(&s_ph_app_profile, after_removal(atomic_load(&s_ph_app_profile), index));
+    portENTER_CRITICAL(&s_state_mux);
+    s_saved.app_profile = after_removal(s_saved.app_profile, index);
+    s_undo.app_profile = after_removal(s_undo.app_profile, index);
+    portEXIT_CRITICAL(&s_state_mux);
+}
+
 int32_t menu_get_display_rotation(void) {
     return atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
 }

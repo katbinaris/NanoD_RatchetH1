@@ -157,6 +157,14 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     host_link_handle_report(buffer, bufsize);
 }
 
+// Runs in the TinyUSB task after an IN report reached the host. A profile download sends its
+// next piece from here, so the pieces go out once per host poll (1ms) rather than once per
+// usb-task pass.
+void tud_hid_report_complete_cb(uint8_t instance, uint8_t const *report, uint16_t len) {
+    (void)report; (void)len;
+    if (instance == HID_INSTANCE_VENDOR) host_link_report_sent();
+}
+
 void tud_suspend_cb(bool remote_wakeup_en) {
     (void)remote_wakeup_en;
     ESP_LOGI(TAG, "USB suspended");
@@ -220,12 +228,18 @@ static bool send_keys(uint8_t modifier, uint8_t keycode) {
 // Cmd + wheel): a modifier goes down before the button or wheel, and comes up after.
 static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
     static bool keys_dirty = false; // a key tap's report may still be held on the host
+    // A tap's pause (a macro waiting on the host's UI) holds back the taps after it, not this
+    // task: pointer, wheel and the companion link keep running meanwhile.
+    static TickType_t taps_resume = 0;
     app_tap_t tap;
-    while (app_mode_take_tap(&tap)) {
-        // One tap = press with the tap's own modifier, then back to what a slot holds.
-        if (send_keys(tap.modifier, tap.keycode)) keys_dirty = true;
-        if (send_keys(*sent_modifier, 0)) keys_dirty = false;
-        if (tap.wait_ticks) vTaskDelay(tap.wait_ticks); // a macro waiting on the host's UI
+    while ((int32_t)(xTaskGetTickCount() - taps_resume) >= 0 && app_mode_take_tap(&tap)) {
+        // One tap = press with the tap's own modifier, then back to what a slot holds. An empty
+        // tap (a macro's pause) only waits.
+        if (tap.keycode || tap.modifier) {
+            if (send_keys(tap.modifier, tap.keycode)) keys_dirty = true;
+            if (send_keys(*sent_modifier, 0)) keys_dirty = false;
+        }
+        if (tap.wait_ticks) taps_resume = xTaskGetTickCount() + tap.wait_ticks;
     }
     uint8_t want_buttons, want_modifier;
     bool axis_y;
