@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 #include "driver/ledc.h"
 #include <math.h>
 #include <stdio.h>
@@ -141,6 +142,7 @@ static menu_render_snapshot_t s_iris_from_snap;
 
 static bool s_attract_on = false;
 static int64_t s_attract_start_us = 0;
+static uint32_t s_attract_seed = 0; // picks this idle session's random routines
 static int64_t s_last_activity_us = 0;
 
 static menu_render_snapshot_t s_last_snap;
@@ -582,7 +584,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             ui::draw_display(snap, (int)menu_get_display_rotation(), blink_on);
             break;
         case V_ATTRACT: {
-            // APP mode: the plasma emits from the active profile's icon instead of QUADRA.
+            // APP mode: the active profile's icon (and colours) instead of the QUADRA wordmark.
             const uint8_t *icon = nullptr;
             const uint32_t *heat = nullptr;
             if (menu_get_hid_type() == MENU_HID_APP) {
@@ -590,7 +592,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
                 icon = p->icon48;
                 if (p->plasma_heat[0] | p->plasma_heat[1] | p->plasma_heat[2]) heat = p->plasma_heat;
             }
-            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000), icon, heat);
+            ui::fx_attract((uint32_t)((now - s_attract_start_us) / 1000), icon, heat, s_attract_seed);
             break;
         }
     }
@@ -689,6 +691,7 @@ static Pace update_ui(void) {
         } else if (now - s_last_activity_us >= ATTRACT_IDLE_MS * 1000LL) {
             s_attract_on = true;
             s_attract_start_us = now;
+            s_attract_seed = esp_random();
         }
         if (s_attract_on) target = V_ATTRACT;
     }

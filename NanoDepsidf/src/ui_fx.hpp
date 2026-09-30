@@ -13,11 +13,13 @@ void fx_init(); // one-time tables (logo particles, plasma lookups)
 constexpr uint32_t BOOT_ANIM_MS = 3400;
 void fx_boot(uint32_t elapsed_ms);
 
-// Attract animation: dark plasma rippling out of the QUADRA lettering in the middle -- or, in
-// APP mode, out of the active profile's 48x48 icon (drawn at 2x). (Warp was dropped by
-// request; Plasma is the only one.)
-// `heat`: 3 colours (RGB888) for the plasma's hottest steps with an icon, nullptr = sampled
-// from the icon. Without an icon (QUADRA) the plasma is the UI palette, as always.
-void fx_attract(uint32_t t_ms, const uint8_t *icon48 = nullptr, const uint32_t *heat = nullptr);
+// Attract (idle) animation, arcade attract mode: the active profile's 48x48 icon -- or, with
+// none, the QUADRA wordmark -- in one of three routines (JUMP, BOUNCE, BOOM). `t_ms` counts from
+// the start of the idle session; `seed` picks the random sequence of routines (a new seed or
+// time going back starts a new one). `heat`: 3 accent colours (RGB888), nullptr = sampled from
+// the icon, AMBER without one. `only` >= 0 pins one routine (the host preview).
+enum { ATTRACT_JUMP = 0, ATTRACT_BOUNCE, ATTRACT_BOOM, ATTRACT_ROUTINES };
+void fx_attract(uint32_t t_ms, const uint8_t *icon48 = nullptr, const uint32_t *heat = nullptr, uint32_t seed = 0,
+                int only = -1);
 
 } // namespace ui

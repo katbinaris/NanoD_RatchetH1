@@ -73,117 +73,398 @@ void fx_boot(uint32_t e) {
     boot_tail(e, 1950);
 }
 
-// --- attract: Plasma radiating from the QUADRA lettering (or the active app's icon) ---
-// The field's travelling term is keyed to each cell's distance from the centre shape (not
-// from the panel center), so crests ripple outward from it; a glow term makes the plasma
-// brightest next to the shape and fade toward the rim. Mostly black by design.
-// In APP mode the shape is the active profile's 48x48 icon at 2x instead of the word.
+// --- attract: arcade attract mode ---
+// The idle screen (DEVELOPMENT_PLAN.md "Idle screen: arcade attract mode"): the active app's
+// 48x48 icon -- or the QUADRA wordmark at 2x -- in one of three routines, picked at random:
+//   JUMP   always on screen: hops, a big jump with afterimages, a hard landing (squash,
+//          shake, dust, debris), a gleam, side hops, a spinning jump, breathing with sparkles.
+//   BOUNCE rattles around inside the glass: squash against the rim, rim flash, sparks,
+//          afterimages; parallax stars in three sizes behind.
+//   BOOM   fuse, pixel explosion (core, colour ring, smoke, debris, shake), a springy pop,
+//          bobbing with sparkles, implode into a flash.
+// When a routine's loop ends the next is picked (never the same twice running). Whole pixels
+// only: the sprite is scaled nearest-neighbour. Colours: the UI palette plus three accent
+// colours -- the profile's plasma_heat, sampled from its icon, or AMBER for QUADRA.
 
-#define PLASMA_CELL 4
-#define PLASMA_N (240 / PLASMA_CELL)
-#define SIN_LUT 256
-#define ATTRACT_WORD "QUADRA"
-#define ATTRACT_WORD_SCALE 3
-#define ATTRACT_WORD_Y 113 // cap top; scale 3 caps are 15px -> centered on the panel
 #define ATTRACT_ICON 48
-#define ATTRACT_ICON_SCALE 2 // 96x96, whole-pixel
-#define ATTRACT_ICON_X (CX - ATTRACT_ICON * ATTRACT_ICON_SCALE / 2)
-#define ATTRACT_ICON_Y (CY - ATTRACT_ICON * ATTRACT_ICON_SCALE / 2)
-static float s_sin[SIN_LUT];
-static uint8_t s_plasma_mask[PLASMA_N * PLASMA_N / 8 + 1];
-// px from the nearest cell of the centre shape, capped 255 -- one field per shape
-static uint8_t s_dist_word[PLASMA_N * PLASMA_N];
-static uint8_t s_dist_icon[PLASMA_N * PLASMA_N];
-static const uint8_t *s_dist_icon_for = nullptr; // which icon s_dist_icon was built from
-static float s_glow[256];                         // emission falloff by that distance
+static inline float rndf(int i, int k) { return rnd(i, k); }
 
-static inline float lut(float rad_as_units) { return s_sin[((int)rad_as_units) & (SIN_LUT - 1)]; }
-static const float TO_UNITS = SIN_LUT / (2.0f * (float)M_PI);
+// Everything the routines draw goes through here, offset by the screen shake.
+static int s_ox = 0, s_oy = 0;
+static inline void pt(float x, float y, uint32_t c) { rect(lroundf(x) + s_ox, lroundf(y) + s_oy, 1, 1, c); }
+static inline void box(float x, float y, int w, int h, uint32_t c) { rect(lroundf(x) + s_ox, lroundf(y) + s_oy, w, h, c); }
+static void seg(float fx0, float fy0, float fx1, float fy1, uint32_t c) {
+    int x0 = lroundf(fx0), y0 = lroundf(fy0), x1 = lroundf(fx1), y1 = lroundf(fy1);
+    int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+    for (;;) {
+        pt(x0, y0, c);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+// Dithered disc: dens 2 = solid, 1 = checkerboard, 0 = every fourth pixel.
+static void blob(float fcx, float fcy, int r, uint32_t c, int dens) {
+    int cx = lroundf(fcx), cy = lroundf(fcy);
+    for (int y = -r; y <= r; y++) {
+        for (int x = -r; x <= r; x++) {
+            if (x * x + y * y > r * r + r * 0.6f) continue;
+            int X = cx + x, Y = cy + y;
+            if (dens == 1 && ((X + Y) & 1)) continue;
+            if (dens == 0 && ((X & 1) | (Y & 1))) continue;
+            pt(X, Y, c);
+        }
+    }
+}
+static void dotted_ring(float cx, float cy, float r, uint32_t c, int step) {
+    int n = (int)lroundf(2 * (float)M_PI * r);
+    if (n < 8) n = 8;
+    for (int s = 0; s < n; s += step) {
+        float t = (float)s / n * 2 * (float)M_PI;
+        pt(cx + cosf(t) * r, cy + sinf(t) * r, c);
+    }
+}
 
-// The plasma body is always the UI's greys (dithered DARK / GREY / WHITE). Its hottest spots
-// are AMBER (QUADRA), or -- in APP mode -- a three-step heat ramp in the app's colours: the
-// profile's own plasma_heat, or colours sampled from its icon. Thresholds on the emission
-// value v; it runs past 1 near the shape (s_glow), so the later steps sit closest to it.
-static const uint32_t BODY[4] = {BLACK, DARK, GREY, WHITE};
-static const float HEAT_AT[3] = {0.54f, 0.62f, 0.71f};
-static const float HEAT_BODY_GAIN = 6.0f; // APP: the grey ramp reaches white sooner, so white dominates
-static uint32_t s_icon_heat[3]; // sampled from the icon
+// The sprite: the icon (RGB565 BE, black = transparent) or the wordmark's 1-bit mask.
+#define WORD_MAX_W 64
+#define WORD_MAX_H 12
+static uint8_t s_word[WORD_MAX_W * WORD_MAX_H];
+static int s_word_w = 0, s_word_h = 0;
+struct Spr {
+    const uint8_t *icon; // nullptr = the wordmark
+    int w, h, scale;
+};
+static inline uint32_t spr_px(const Spr &sp, int i, int j) {
+    if (sp.icon == nullptr) return s_word[j * WORD_MAX_W + i] ? WHITE : 0;
+    const uint8_t *p = sp.icon + (j * sp.w + i) * 2;
+    uint16_t v = (uint16_t)(p[0] << 8 | p[1]);
+    if (v == 0) return 0;
+    uint32_t r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+    return (r * 255 / 31) << 16 | (g * 255 / 63) << 8 | (b * 255 / 31) | 0x010101; // never 0
+}
+static inline int rest_w(const Spr &sp) { return sp.w * sp.scale; }
+static inline int rest_h(const Spr &sp) { return sp.h * sp.scale; }
+// Bottom centre at (cx, by), stretched sx / sy. solid != 0: a one-colour silhouette; dither:
+// every other pixel (afterimages); gleam >= 0: a white diagonal band at that offset.
+static void spr_draw(const Spr &sp, float cx, float by, float sx, float sy, uint32_t solid = 0,
+                     bool dither = false, bool flip = false, int gleam = -1) {
+    int W = (int)lroundf(sp.w * sp.scale * sx), H = (int)lroundf(sp.h * sp.scale * sy);
+    if (W < 1) W = 1;
+    if (H < 1) H = 1;
+    int x0 = lroundf(cx - W / 2.0f), y0 = lroundf(by - H);
+    for (int j = 0; j < H; j++) {
+        int sj = j * sp.h / H;
+        for (int i = 0; i < W; i++) {
+            int si = i * sp.w / W;
+            uint32_t c = spr_px(sp, flip ? sp.w - 1 - si : si, sj);
+            if (!c) continue;
+            int X = x0 + i, Y = y0 + j;
+            if (dither && ((X + Y) & 1)) continue;
+            if (solid) c = solid;
+            if (gleam >= 0) { int d = i + j - gleam; if (d >= 0 && d < 4 + sp.scale * 2) c = WHITE; }
+            pt(X, Y, c);
+        }
+    }
+}
+// Ground shadow: a dithered ellipse that shrinks as the sprite rises.
+static void shadow(float cx, float gy, float w, float lift) {
+    float k = 1 - lift / 140;
+    if (k < 0.25f) k = 0.25f;
+    int rx = lroundf(w / 2 * k), ry = lroundf(3 * k);
+    if (ry < 1) ry = 1;
+    for (int y = -ry; y <= ry; y++)
+        for (int x = -rx; x <= rx; x++)
+            if ((float)(x * x) / (rx * rx) + (float)(y * y) / (ry * ry) <= 1 && !((x + y) & 1)) pt(cx + x, gy + y, DARK);
+}
 
-static void plasma(uint32_t t, const uint8_t *dist, const uint32_t *heat) {
-    static const uint8_t bayer[4] = {0, 2, 3, 1};
-    float T = t / 1000.0f;
-    float p1 = T * 0.6f * TO_UNITS, p2 = -T * 0.8f * TO_UNITS, p4 = -T * 2.4f * TO_UNITS;
-    for (int gy = 0; gy < PLASMA_N; gy++) {
-        float y = gy * PLASMA_CELL + 2;
-        float sy = lut(y / 17.0f * TO_UNITS + p2 + 1024);
-        for (int gx = 0; gx < PLASMA_N; gx++) {
-            int idx = gy * PLASMA_N + gx;
-            if (!(s_plasma_mask[idx >> 3] & (1 << (idx & 7)))) continue;
-            uint8_t d = dist[idx];
-            if (d < 5) continue; // black halo keeps the shape readable
-            float x = gx * PLASMA_CELL + 2;
-            // Outward ripple (phase grows with distance, falls with time) plus a slow drift.
-            float ripple = lut(d / 9.0f * TO_UNITS + p4 + 1024);
-            float drift = 0.5f * (lut(x / 23.0f * TO_UNITS + p1) + sy);
-            float v = (ripple + drift + 2.0f) / 4.0f; // 0..1
-            v = v * v;
-            v = v * v * s_glow[d];
-            float f = v * (heat ? HEAT_BODY_GAIN : 3.999f);
-            int li = (int)f;
-            if (f - li > (bayer[(gx & 1) + 2 * (gy & 1)] + 0.5f) / 4.0f) li++;
-            if (li > 3) li = 3;
-            uint32_t c = BODY[li];
-            if (heat == nullptr) {
-                if (v >= 0.85f) c = AMBER;
-            } else {
-                for (int h = 0; h < 3; h++) if (v >= HEAT_AT[h]) c = heat[h];
+// --- shared effects ---
+static int shake_at(float t, float t0, int amp, float dur) {
+    float k = (t - t0) / dur;
+    if (k < 0 || k > 1) return 0;
+    int f = (int)((t - t0) / 33);
+    return (int)lroundf(amp * (1 - k)) * (f & 1 ? -1 : 1);
+}
+// Dust: puffs rolling out along the ground from both feet.
+static void dust(float t, float t0, float cx, float gy, float half_w, int n, int seed) {
+    float k = (t - t0) / 520;
+    if (k < 0 || k > 1) return;
+    for (int i = 0; i < n; i++) {
+        float side = (i & 1) ? 1 : -1, spd = 18 + rndf(seed + i, 1) * 26;
+        float x = cx + side * (half_w - 2 + spd * sqrtf(k)), y = gy - 1 - k * (3 + rndf(seed + i, 2) * 5);
+        blob(x, y, lroundf(2 + k * 3), k < 0.45f ? GREY : DARK, k < 0.7f ? 1 : 0);
+    }
+}
+// Debris: small chunks thrown up and out, falling with gravity.
+static void debris(float t, float t0, float cx, float cy, int n, const uint32_t *cols, int seed, float power) {
+    float dt = (t - t0) / 1000;
+    if (dt < 0 || dt > 0.9f) return;
+    for (int i = 0; i < n; i++) {
+        float a = -(float)M_PI / 2 + (rndf(seed + i, 3) - 0.5f) * 2.6f, v = (70 + rndf(seed + i, 4) * 90) * power;
+        float x = cx + cosf(a) * v * dt, y = cy + sinf(a) * v * dt + 260 * dt * dt;
+        int s = i % 3 == 0 ? 3 : 2;
+        box(x, y, s, s, i % 4 == 0 ? WHITE : cols[i % 3]);
+    }
+}
+// Sparkles around the icon in a mix of sizes: 1 px pluses up to glints with diagonal rays.
+static const int SPARK_SIZE[7] = {1, 3, 2, 4, 1, 2, 3};
+static void sparkles(float t, float cx, float cy, float spread, const uint32_t *cols) {
+    for (int i = 0; i < 7; i++) {
+        float per = 1100 + i * 190, ph = t + i * 530, u = fmodf(ph, per) / per;
+        if (u > 0.55f) continue;
+        int n = (int)(ph / per);
+        float a = rndf(n + i * 31, 13) * 2 * (float)M_PI, d = spread + rndf(n + i * 17, 14) * 22;
+        int x = lroundf(cx + cosf(a) * d), y = lroundf(cy + sinf(a) * d);
+        float k = sinf(u / 0.55f * (float)M_PI);
+        int s = lroundf(SPARK_SIZE[i] * k);
+        uint32_t c = i % 3 == 0 ? WHITE : cols[i % 3];
+        pt(x, y, s >= 2 ? WHITE : c);
+        for (int r = 1; r <= s; r++) { pt(x - r, y, c); pt(x + r, y, c); pt(x, y - r, c); pt(x, y + r, c); }
+        for (int r = 1; r <= s - 2; r++) { pt(x - r, y - r, c); pt(x + r, y - r, c); pt(x - r, y + r, c); pt(x + r, y + r, c); }
+        if (s >= 2) { pt(x - 1, y, WHITE); pt(x + 1, y, WHITE); pt(x, y - 1, WHITE); pt(x, y + 1, WHITE); }
+    }
+}
+// Parallax stars drifting left: far dark specks, mid grey dots, a few near 2 px stars.
+static void stars(float t) {
+    for (int i = 0; i < 50; i++) {
+        bool near = i < 6, mid = i < 20;
+        float v = near ? 0.036f : mid ? 0.02f : 0.011f;
+        float x = fmodf(rndf(i, 8) * 260 - t * v, 260);
+        if (x < 0) x += 260;
+        x -= 10;
+        float y = rndf(i, 9) * 240;
+        if (near) rect(lroundf(x), lroundf(y), 2, 2, GREY);
+        else rect(lroundf(x), lroundf(y), 1, 1, mid ? GREY : DARK);
+    }
+}
+
+// --- JUMP ---
+enum { MV_REST, MV_GLEAM, MV_CROUCH, MV_JUMP, MV_SPIN, MV_LAND };
+enum { IMP_NONE, IMP_SMALL, IMP_MID, IMP_BIG };
+struct Move {
+    uint8_t type;
+    uint16_t ms;
+    float a, b, c; // CROUCH / LAND: sx, sy; JUMP: height, dx; SPIN: height
+    uint8_t flag;  // JUMP: trail; LAND: impact
+};
+static const Move MOVES[] = {
+    {MV_REST, 600, 0, 0, 0, 0},
+    {MV_CROUCH, 130, 1.2f, 0.8f, 0, 0}, {MV_JUMP, 300, 18, 0, 0, 0}, {MV_LAND, 132, 1.15f, 0.85f, 0, IMP_SMALL},
+    {MV_REST, 220, 0, 0, 0, 0},
+    {MV_CROUCH, 130, 1.2f, 0.8f, 0, 0}, {MV_JUMP, 300, 18, 0, 0, 0}, {MV_LAND, 132, 1.15f, 0.85f, 0, IMP_SMALL},
+    {MV_REST, 300, 0, 0, 0, 0},
+    {MV_CROUCH, 230, 1.34f, 0.66f, 0, 0}, {MV_JUMP, 720, 72, 0, 0, 1}, {MV_LAND, 198, 1.38f, 0.62f, 0, IMP_BIG},
+    {MV_JUMP, 220, 10, 0, 0, 0}, {MV_LAND, 100, 1.1f, 0.9f, 0, IMP_NONE},
+    {MV_GLEAM, 900, 0, 0, 0, 0},
+    {MV_CROUCH, 120, 1.18f, 0.82f, 0, 0}, {MV_JUMP, 380, 24, -34, 0, 1}, {MV_LAND, 132, 1.18f, 0.82f, 0, IMP_SMALL},
+    {MV_CROUCH, 120, 1.18f, 0.82f, 0, 0}, {MV_JUMP, 480, 30, 68, 0, 1}, {MV_LAND, 132, 1.18f, 0.82f, 0, IMP_SMALL},
+    {MV_CROUCH, 120, 1.18f, 0.82f, 0, 0}, {MV_JUMP, 380, 24, -34, 0, 1}, {MV_LAND, 132, 1.15f, 0.85f, 0, IMP_SMALL},
+    {MV_REST, 500, 0, 0, 0, 0},
+    {MV_CROUCH, 180, 1.28f, 0.72f, 0, 0}, {MV_SPIN, 820, 50, 0, 0, 1}, {MV_LAND, 166, 1.3f, 0.7f, 0, IMP_MID},
+    {MV_REST, 1700, 0, 0, 0, 0},
+    {MV_CROUCH, 90, 1.12f, 0.88f, 0, 0}, {MV_JUMP, 230, 12, 0, 0, 0}, {MV_LAND, 90, 1.1f, 0.9f, 0, IMP_SMALL},
+    {MV_CROUCH, 90, 1.12f, 0.88f, 0, 0}, {MV_JUMP, 230, 12, 0, 0, 0}, {MV_LAND, 90, 1.1f, 0.9f, 0, IMP_SMALL},
+    {MV_REST, 500, 0, 0, 0, 0},
+};
+#define N_MOVES ((int)(sizeof(MOVES) / sizeof(MOVES[0])))
+static uint32_t s_move_t[N_MOVES]; // start time of each move
+static int16_t s_move_x[N_MOVES];  // x offset at its start
+static uint32_t s_jump_ms = 0;     // loop length
+static const uint8_t IMPACT[4][3] = {{0, 0, 0}, {4, 0, 0}, {8, 2, 6}, {10, 4, 10}}; // dust, shake px, debris
+
+struct JState { float x, up, sx, sy; bool flip, trail, rest; float gleam; };
+static JState jump_state(float t, float hs) {
+    t = fmodf(t, (float)s_jump_ms);
+    if (t < 0) t += s_jump_ms;
+    int i = 0;
+    while (i + 1 < N_MOVES && s_move_t[i + 1] <= t) i++;
+    const Move &m = MOVES[i];
+    float k = (t - s_move_t[i]) / m.ms;
+    JState st = {(float)s_move_x[i], 0, 1, 1, false, false, false, -1};
+    switch (m.type) {
+        case MV_REST:
+        case MV_GLEAM: {
+            st.rest = true;
+            float in = fmodf(t - s_move_t[i], 1200);
+            if (m.ms > 1000 && in > 1000 && in < 1132) { st.sx = 1.04f; st.sy = 0.96f; } // breathing
+            if (m.type == MV_GLEAM) st.gleam = k;
+            break;
+        }
+        case MV_CROUCH: {
+            float e = k * 2 > 1 ? 1 : k * 2;
+            st.sx = 1 + (m.a - 1) * e;
+            st.sy = 1 + (m.b - 1) * e;
+            break;
+        }
+        case MV_JUMP:
+        case MV_SPIN: {
+            float a = fabsf(1 - 2 * k);
+            st.up = 4 * m.a * hs * k * (1 - k);
+            if (m.type == MV_JUMP) st.x += m.b * k;
+            st.sx = 1 - 0.18f * a;
+            st.sy = 1 + 0.26f * a;
+            st.trail = m.flag != 0;
+            if (m.type == MV_SPIN) {
+                float c = cosf(k * 4 * (float)M_PI);
+                st.sx *= fabsf(c) > 0.1f ? fabsf(c) : 0.1f;
+                st.flip = c < 0;
             }
-            if (c != BLACK) rect(gx * PLASMA_CELL, gy * PLASMA_CELL, PLASMA_CELL, PLASMA_CELL, c);
+            break;
+        }
+        case MV_LAND: {
+            float e = k < 0.5f ? 1 : 1 - (k - 0.5f) * 2;
+            st.sx = 1 + (m.a - 1) * e;
+            st.sy = 1 + (m.b - 1) * e;
+            break;
+        }
+    }
+    return st;
+}
+static void routine_jump(float t, const Spr &sp, const uint32_t *cols) {
+    float gy = 120 + rest_h(sp) / 2 + 10;
+    float hs = (gy - rest_h(sp) - 14) / 72;
+    if (hs > 1) hs = 1; // the big jump always stays on the glass
+    for (int i = 0; i < N_MOVES; i++) {
+        const Move &m = MOVES[i];
+        if (m.type != MV_LAND || m.flag == IMP_NONE || s_move_t[i] > t) continue;
+        const uint8_t *imp = IMPACT[m.flag];
+        float lx = 120 + s_move_x[i];
+        if (imp[1]) { int sx = shake_at(t, s_move_t[i], imp[1], 240); if (sx) s_ox = sx; }
+        dust(t, s_move_t[i], lx, gy, rest_w(sp) * 0.62f, imp[0], i * 7);
+        if (imp[2]) debris(t, s_move_t[i], lx, gy - 4, imp[2], cols, i * 13, 0.9f);
+    }
+    JState st = jump_state(t, hs);
+    shadow(120 + st.x, gy + 2, rest_w(sp), st.up);
+    if (st.trail) {
+        static const int BACK[3] = {6, 4, 2};
+        for (int k = 0; k < 3; k++) {
+            JState p = jump_state(t - BACK[k] * 33.33f, hs);
+            spr_draw(sp, 120 + p.x, gy - p.up, p.sx, p.sy, k < 2 ? DARK : GREY, true, p.flip);
+        }
+    }
+    int gleam = st.gleam >= 0 ? (int)lroundf(st.gleam * (rest_w(sp) + rest_h(sp) + 16)) - 12 : -1;
+    spr_draw(sp, 120 + st.x, gy - st.up, st.sx, st.sy, 0, false, st.flip, gleam);
+    if (st.rest) sparkles(t, 120 + st.x, gy - rest_h(sp) / 2.0f, rest_w(sp) / 2.0f + 8, cols);
+}
+
+// --- BOUNCE ---
+// Simulated in 33 ms steps from the routine's start; state carried between frames.
+#define BOUNCE_STEP 33
+#define BOUNCE_HIST 16
+#define BOUNCE_HITS 8
+static struct {
+    uint32_t step;
+    float x, y, vx, vy, r;
+    float hx[BOUNCE_HIST], hy[BOUNCE_HIST];
+    uint32_t hit_t[BOUNCE_HITS];
+    float hit_nx[BOUNCE_HITS], hit_ny[BOUNCE_HITS];
+    int n_hits;
+} s_b;
+static void bounce_reset(float radius) {
+    memset(&s_b, 0, sizeof(s_b));
+    s_b.x = 0; s_b.y = -20; s_b.vx = 0.071f; s_b.vy = 0.052f; s_b.r = radius;
+    s_b.hx[0] = s_b.x; s_b.hy[0] = s_b.y;
+    for (int i = 0; i < BOUNCE_HITS; i++) s_b.hit_t[i] = UINT32_MAX;
+}
+static void bounce_advance(uint32_t to_step) {
+    while (s_b.step < to_step) {
+        s_b.x += s_b.vx * BOUNCE_STEP;
+        s_b.y += s_b.vy * BOUNCE_STEP;
+        float d = sqrtf(s_b.x * s_b.x + s_b.y * s_b.y);
+        if (d > s_b.r) {
+            float nx = s_b.x / d, ny = s_b.y / d, dot = s_b.vx * nx + s_b.vy * ny;
+            s_b.vx -= 2 * dot * nx;
+            s_b.vy -= 2 * dot * ny;
+            s_b.x = nx * s_b.r;
+            s_b.y = ny * s_b.r;
+            int h = s_b.n_hits++ % BOUNCE_HITS;
+            s_b.hit_t[h] = s_b.step * BOUNCE_STEP;
+            s_b.hit_nx[h] = nx;
+            s_b.hit_ny[h] = ny;
+        }
+        s_b.step++;
+        s_b.hx[s_b.step % BOUNCE_HIST] = s_b.x;
+        s_b.hy[s_b.step % BOUNCE_HIST] = s_b.y;
+    }
+}
+static void routine_bounce(float t, const Spr &sp, const uint32_t *cols, bool restart) {
+    int big = rest_w(sp) > rest_h(sp) ? rest_w(sp) : rest_h(sp);
+    uint32_t f = (uint32_t)(t / BOUNCE_STEP);
+    if (restart || f < s_b.step) bounce_reset(116 - big / 2.0f - 2);
+    bounce_advance(f);
+    stars(t);
+    int last = -1;
+    for (int i = 0; i < BOUNCE_HITS; i++)
+        if (s_b.hit_t[i] != UINT32_MAX && s_b.hit_t[i] <= t && (last < 0 || s_b.hit_t[i] > s_b.hit_t[last])) last = i;
+    if (last >= 0) s_ox = shake_at(t, s_b.hit_t[last], 2, 130);
+    static const int BACK[3] = {9, 6, 3};
+    for (int k = 0; k < 3; k++) {
+        uint32_t s = f >= (uint32_t)BACK[k] ? f - BACK[k] : 0;
+        spr_draw(sp, 120 + s_b.hx[s % BOUNCE_HIST], 120 + s_b.hy[s % BOUNCE_HIST] + rest_h(sp) / 2.0f, 1, 1, k < 2 ? DARK : GREY, true);
+    }
+    float sx = 1, sy = 1;
+    if (last >= 0 && t - s_b.hit_t[last] < 132) {
+        float sq = 0.3f * (t - s_b.hit_t[last] < 66 ? 1 : 0.5f);
+        if (fabsf(s_b.hit_nx[last]) > fabsf(s_b.hit_ny[last])) { sx = 1 - sq; sy = 1 + sq * 0.8f; }
+        else { sy = 1 - sq; sx = 1 + sq * 0.8f; }
+    }
+    float x = s_b.hx[f % BOUNCE_HIST], y = s_b.hy[f % BOUNCE_HIST];
+    spr_draw(sp, 120 + x, 120 + y + rest_h(sp) * sy / 2, sx, sy);
+    for (int i = 0; i < BOUNCE_HITS; i++) {
+        if (s_b.hit_t[i] == UINT32_MAX) continue;
+        float k = (t - s_b.hit_t[i]) / 260;
+        if (k < 0 || k > 1) continue;
+        float nx = s_b.hit_nx[i], ny = s_b.hit_ny[i], ax = 120 + nx * 117, ay = 120 + ny * 117, a0 = atan2f(ny, nx);
+        for (float d = -0.2f; d <= 0.2f; d += 0.01f) pt(120 + cosf(a0 + d) * 117, 120 + sinf(a0 + d) * 117, k < 0.4f ? WHITE : cols[1]);
+        for (int j = 0; j < 7; j++) {
+            float a = a0 + (float)M_PI + (j - 3) * 0.32f, r0 = 4 + k * 16, r1 = r0 + (k < 0.5f ? 6 : 3);
+            seg(ax + cosf(a) * r0, ay + sinf(a) * r0, ax + cosf(a) * r1, ay + sinf(a) * r1, (j & 1) ? WHITE : cols[j % 3]);
         }
     }
 }
 
-// Distance field from a set of seed cells. Only seeds on the shape's outline are measured
-// against (the nearest seed to an outside cell is always an outline one), which keeps this
-// to a few ms -- cheap enough to build an icon's field when the attract screen starts.
-#define FIELD_CELLS (PLASMA_N * PLASMA_N)
-#define FIELD_MAX_EDGE 1024 // outline cells measured against (a 96px icon has a few hundred)
-static uint8_t s_seed_bits[FIELD_CELLS / 8 + 1]; // scratch: which cells the shape covers
-static inline bool seed_at(int idx) { return s_seed_bits[idx >> 3] & (1 << (idx & 7)); }
-
-static void build_field(uint8_t *dist) {
-    static int16_t edge[FIELD_MAX_EDGE]; // scratch, off the task stack
-    int ne = 0;
-    for (int gy = 0; gy < PLASMA_N; gy++) {
-        for (int gx = 0; gx < PLASMA_N; gx++) {
-            int idx = gy * PLASMA_N + gx;
-            if (!seed_at(idx)) continue;
-            bool outline = gx == 0 || gy == 0 || gx == PLASMA_N - 1 || gy == PLASMA_N - 1
-                        || !seed_at(idx - 1) || !seed_at(idx + 1) || !seed_at(idx - PLASMA_N) || !seed_at(idx + PLASMA_N);
-            if (outline && ne < FIELD_MAX_EDGE) edge[ne++] = (int16_t)idx;
+// --- BOOM ---
+static const float POP[8] = {0.2f, 0.62f, 1.3f, 1.16f, 0.9f, 0.95f, 1.05f, 1.0f}; // one per 66 ms (on twos)
+static const float WOB[8] = {0, 0.14f, -0.12f, 0.08f, -0.06f, 0.04f, -0.02f, 0};
+static void routine_boom(float t, const Spr &sp, const uint32_t *cols) {
+    const float cy = 120;
+    s_ox = shake_at(t, 320, 5, 320);
+    s_oy = t > 320 && t < 480 ? (((int)(t / 33) & 1) ? 2 : -2) : 0;
+    if (t < 320 && ((int)(t / 100)) % 2 == 0) box(119, 119, 3, 3, cols[1]); // the fuse
+    float e = t - 320;
+    if (e >= 0 && e < 1000) {
+        for (int i = 0; i < 8; i++) { // smoke
+            float k = e / 1000, a = i / 8.0f * 2 * (float)M_PI + 0.3f, d = 14 + k * 34;
+            if (k > 0.15f) blob(120 + cosf(a) * d, cy + sinf(a) * d - k * 16, lroundf(5 + k * 6), k < 0.55f ? GREY : DARK, k < 0.75f ? 1 : 0);
         }
+        if (e < 200) blob(120, cy, lroundf(4 + e / 200 * 18), WHITE, 2); // core
+        if (e >= 120 && e < 460) {
+            float k = (e - 120) / 340, r = lroundf(20 + k * 22);
+            for (int w = 0; w < 3; w++) dotted_ring(120, cy, r - w, k < 0.5f ? cols[2] : cols[0], k < 0.6f ? 1 : 2);
+        }
+        debris(t, 320, 120, cy, 16, cols, 11, 1.2f);
     }
-    for (int idx = 0; idx < FIELD_CELLS; idx++) {
-        if (seed_at(idx) || ne == 0) {
-            dist[idx] = seed_at(idx) ? 0 : 255;
-            continue;
-        }
-        int gx = idx % PLASMA_N, gy = idx / PLASMA_N;
-        int best = 1 << 30;
-        for (int k = 0; k < ne; k++) {
-            int dx = gx - edge[k] % PLASMA_N, dy = gy - edge[k] / PLASMA_N;
-            int d2 = dx * dx + dy * dy;
-            if (d2 < best) best = d2;
-        }
-        float d = sqrtf((float)best) * PLASMA_CELL;
-        dist[idx] = (uint8_t)(d > 255 ? 255 : d);
+    float s = 0, w = 0;
+    int bob = 0;
+    const float pop_end = 420 + 8 * 66;
+    if (e >= 100 && t < pop_end) { int i = (int)((e - 100) / 66); s = POP[i]; w = WOB[i]; }
+    else if (t >= pop_end && t < 5300) { s = 1; bob = lroundf(2 * sinf((int)(t / 66) * 0.42f)); }
+    else if (t >= 5300 && t < 5560) { float k = (t - 5300) / 260; s = 1 - k > 0.05f ? 1 - k : 0.05f; w = -0.3f * k; }
+    if (s > 0) {
+        float H = rest_h(sp) * s * (1 - w);
+        if (t < 5300) shadow(120, cy + rest_h(sp) / 2.0f + 6, rest_w(sp) * 0.9f, bob > 0 ? 8 : 0);
+        int gleam = t > 1600 && t < 2000 ? (int)lroundf((t - 1600) / 400 * (rest_w(sp) + rest_h(sp) + 12)) - 12 : -1;
+        spr_draw(sp, 120, cy + H / 2 - bob, s * (1 + w), s * (1 - w), 0, false, false, gleam);
+        if (t > 1100 && t < 5300) sparkles(t, 120, cy, rest_w(sp) / 2.0f + 12, cols);
     }
+    if (t >= 5560 && t < 5700) blob(120, cy, lroundf(8 - (t - 5560) / 20), WHITE, 2);
 }
 
-// The icon's heat ramp, for profiles that don't name their own: its three most common
-// colours, dark to bright (hotter = brighter), exactly as sampled -- dimming them muddied
-// them on hardware. Pixels are binned coarsely (3 bits per channel) so the shading of one
-// colour counts as one; near-black (outlines) is skipped.
+// The icon's accent colours, for profiles that don't name their own: its three most common
+// colours, dark to bright, exactly as sampled. Pixels are binned coarsely (3 bits per channel)
+// so the shading of one colour counts as one; near-black (outlines) is skipped.
+static uint32_t s_icon_heat[3];
+static const uint8_t *s_heat_for = nullptr;
 static float luma(uint32_t c) {
     return 0.30f * ((c >> 16) & 0xFF) + 0.59f * ((c >> 8) & 0xFF) + 0.11f * (c & 0xFF);
 }
@@ -207,7 +488,6 @@ static void build_icon_palette(const uint8_t *icon) {
         bins[k].g += g;
         bins[k].b += b;
     }
-    // Top four by count (average colour of each bin).
     uint32_t pick[3];
     int np = 0;
     for (; np < 3; np++) {
@@ -225,7 +505,6 @@ static void build_icon_palette(const uint8_t *icon) {
         return;
     }
     for (; np < 3; np++) pick[np] = pick[np - 1]; // fewer colours: repeat the last
-    // Dark to bright.
     for (int i = 1; i < 3; i++) {
         for (int j = i; j > 0 && luma(pick[j]) < luma(pick[j - 1]); j--) {
             uint32_t tmp = pick[j];
@@ -236,31 +515,68 @@ static void build_icon_palette(const uint8_t *icon) {
     for (int i = 0; i < 3; i++) s_icon_heat[i] = pick[i];
 }
 
-static void build_icon_field(const uint8_t *icon) {
-    build_icon_palette(icon);
-    memset(s_seed_bits, 0, sizeof(s_seed_bits));
-    for (int j = 0; j < ATTRACT_ICON; j++) {
-        for (int i = 0; i < ATTRACT_ICON; i++) {
-            const uint8_t *px = icon + (j * ATTRACT_ICON + i) * 2;
-            if (px[0] == 0 && px[1] == 0) continue; // black = transparent (image565 skips it)
-            int sx = ATTRACT_ICON_X + i * ATTRACT_ICON_SCALE, sy = ATTRACT_ICON_Y + j * ATTRACT_ICON_SCALE;
-            int idx = (sy / PLASMA_CELL) * PLASMA_N + sx / PLASMA_CELL;
-            s_seed_bits[idx >> 3] |= (uint8_t)(1 << (idx & 7));
-        }
-    }
-    build_field(s_dist_icon);
-    s_dist_icon_for = icon;
+// --- the sequence ---
+static const uint32_t BOUNCE_MS = 16000, BOOM_MS = 6000;
+static uint32_t routine_ms(int r) { return r == ATTRACT_JUMP ? s_jump_ms : r == ATTRACT_BOUNCE ? BOUNCE_MS : BOOM_MS; }
+static uint32_t hash32(uint32_t x) {
+    x ^= x >> 16; x *= 0x7feb352dU; x ^= x >> 15; x *= 0x846ca68bU; x ^= x >> 16;
+    return x;
 }
+// Which routines the random pick may choose. BOUNCE is switched off (user, 2026-09-30) but
+// kept: set it back to true to bring it back. The host preview can still pin it (`only`).
+static const bool ROUTINE_ON[ATTRACT_ROUTINES] = {
+    [ATTRACT_JUMP] = true,
+    [ATTRACT_BOUNCE] = false,
+    [ATTRACT_BOOM] = true,
+};
+// The k-th enabled routine, skipping `except` (-1 = none); count = how many that leaves.
+static int pick_routine(uint32_t h, int except) {
+    int list[ATTRACT_ROUTINES], n = 0;
+    for (int r = 0; r < ATTRACT_ROUTINES; r++)
+        if (ROUTINE_ON[r] && r != except) list[n++] = r;
+    if (n == 0) return except >= 0 ? except : ATTRACT_JUMP; // only one enabled: it repeats
+    return list[h % n];
+}
+static struct {
+    uint32_t seed, last_t, start, n;
+    int routine;
+} s_seq = {0, UINT32_MAX, 0, 0, -1};
 
-void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat) {
-    if (icon48 != nullptr) {
-        if (icon48 != s_dist_icon_for) build_icon_field(icon48);
-        plasma(t_ms, s_dist_icon, heat ? heat : s_icon_heat);
-        image565(ATTRACT_ICON_X, ATTRACT_ICON_Y, ATTRACT_ICON, ATTRACT_ICON, icon48, 1.0f, ATTRACT_ICON_SCALE);
-    } else {
-        plasma(t_ms, s_dist_word, nullptr);
-        text(ATTRACT_WORD, CX, ATTRACT_WORD_Y, WHITE, ATTRACT_WORD_SCALE, CENTER);
+void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat, uint32_t seed, int only) {
+    // A new idle session (time went back, or a new seed): start a fresh random sequence.
+    bool restart = false;
+    if (t_ms < s_seq.last_t || seed != s_seq.seed || s_seq.routine < 0) {
+        s_seq.seed = seed;
+        s_seq.start = 0;
+        s_seq.n = 0;
+        s_seq.routine = only >= 0 ? only : pick_routine(hash32(seed), -1);
+        restart = true;
     }
+    s_seq.last_t = t_ms;
+    while (t_ms - s_seq.start >= routine_ms(s_seq.routine)) {
+        s_seq.start += routine_ms(s_seq.routine);
+        s_seq.n++;
+        if (only < 0) s_seq.routine = pick_routine(hash32(seed + s_seq.n), s_seq.routine);
+        restart = true;
+    }
+    float t = (float)(t_ms - s_seq.start);
+
+    Spr sp = icon48 ? Spr{icon48, ATTRACT_ICON, ATTRACT_ICON, 1} : Spr{nullptr, s_word_w, s_word_h, 2};
+    const uint32_t *cols;
+    static const uint32_t QUADRA_COLS[3] = {AMBER, AMBER, AMBER};
+    if (icon48 == nullptr) cols = QUADRA_COLS;
+    else if (heat) cols = heat;
+    else {
+        if (icon48 != s_heat_for) { build_icon_palette(icon48); s_heat_for = icon48; }
+        cols = s_icon_heat;
+    }
+    s_ox = s_oy = 0;
+    switch (s_seq.routine) {
+        case ATTRACT_JUMP: routine_jump(t, sp, cols); break;
+        case ATTRACT_BOUNCE: routine_bounce(t, sp, cols, restart); break;
+        default: routine_boom(t, sp, cols); break;
+    }
+    s_ox = s_oy = 0;
 }
 
 void fx_init() {
@@ -274,25 +590,36 @@ void fx_init() {
         s_logo_tint[i] = r4 < 0.3f ? 0 : r4 < 0.55f ? 1 : 2;
     }
 
-    for (int i = 0; i < SIN_LUT; i++) s_sin[i] = sinf(i * 2.0f * (float)M_PI / SIN_LUT);
-    for (int d = 0; d < 256; d++) s_glow[d] = 1.25f * expf(-d / 34.0f) + 0.15f;
+    // The idle wordmark: QUADRA's pixels at 1x, as a mask (drawn at 2x, squashable).
     static int16_t word[LOGO_MAX_BLOCKS][2]; // one-time scratch, kept off the task stack
-    int nw = text_blocks(ATTRACT_WORD, CX, ATTRACT_WORD_Y, ATTRACT_WORD_SCALE, word, LOGO_MAX_BLOCKS);
-    for (int gy = 0; gy < PLASMA_N; gy++) {
-        for (int gx = 0; gx < PLASMA_N; gx++) {
-            int idx = gy * PLASMA_N + gx;
-            float x = gx * PLASMA_CELL + 2, y = gy * PLASMA_CELL + 2;
-            if (in_circle(x, y, 118)) s_plasma_mask[idx >> 3] |= (uint8_t)(1 << (idx & 7));
-            float best = 1e9f;
-            for (int k = 0; k < nw; k++) {
-                float dx = x - (word[k][0] + ATTRACT_WORD_SCALE / 2.0f), dy = y - (word[k][1] + ATTRACT_WORD_SCALE / 2.0f);
-                float d2 = dx * dx + dy * dy;
-                if (d2 < best) best = d2;
-            }
-            float d = sqrtf(best);
-            s_dist_word[idx] = (uint8_t)(d > 255 ? 255 : d);
-        }
+    int nw = text_blocks("QUADRA", 0, 0, 1, word, LOGO_MAX_BLOCKS);
+    int x0 = 1 << 15, y0 = 1 << 15, x1 = -(1 << 15), y1 = -(1 << 15);
+    for (int k = 0; k < nw; k++) {
+        if (word[k][0] < x0) x0 = word[k][0];
+        if (word[k][1] < y0) y0 = word[k][1];
+        if (word[k][0] > x1) x1 = word[k][0];
+        if (word[k][1] > y1) y1 = word[k][1];
     }
+    memset(s_word, 0, sizeof(s_word));
+    s_word_w = nw ? x1 - x0 + 1 : 1;
+    s_word_h = nw ? y1 - y0 + 1 : 1;
+    if (s_word_w > WORD_MAX_W) s_word_w = WORD_MAX_W;
+    if (s_word_h > WORD_MAX_H) s_word_h = WORD_MAX_H;
+    for (int k = 0; k < nw; k++) {
+        int x = word[k][0] - x0, y = word[k][1] - y0;
+        if (x < WORD_MAX_W && y < WORD_MAX_H) s_word[y * WORD_MAX_W + x] = 1;
+    }
+
+    // Jump choreography: each move's start time and x offset.
+    uint32_t t = 0;
+    int x = 0;
+    for (int i = 0; i < N_MOVES; i++) {
+        s_move_t[i] = t;
+        s_move_x[i] = (int16_t)x;
+        t += MOVES[i].ms;
+        if (MOVES[i].type == MV_JUMP) x += (int)MOVES[i].b;
+    }
+    s_jump_ms = t;
 }
 
 } // namespace ui

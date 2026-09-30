@@ -13,7 +13,7 @@ the viewport, and it dials fillets, extrusions and rotations to exact values.
   <img src="NanoDepsidf/docs/images/main-figma.png" width="200" alt="Main screen in Figma mode: app icon, live action ZOOM, key legend">
   <img src="NanoDepsidf/docs/images/figma-wheel-wrap.png" width="200" alt="Figma command wheel: WRAP IN FRAME card with keycaps">
   <img src="NanoDepsidf/docs/images/param-chamfer.png" width="200" alt="Plasticity parameter mode: CHAMFER -.85, step row">
-  <img src="NanoDepsidf/docs/images/attract-figma.png" width="200" alt="Idle screen: plasma emitted from the Figma icon">
+  <img src="NanoDepsidf/docs/images/idle-jump.png" width="200" alt="Idle screen: the Onshape icon mid-jump with afterimages">
 </p>
 
 Every screen in this README is rendered by the firmware's own drawing code through the host
@@ -80,8 +80,9 @@ shows, at 2× scale.
 - **Pixel UI.** A console-style interface on a round display: crisp whole-pixel graphics, a
   pixel font, and animated transitions. Screen rotation is selectable for holding the device
   in any orientation.
-- **Idle screen.** A plasma animation that radiates from the QUADRA wordmark, or from the
-  active app's icon in that app's colours.
+- **Idle screen.** Arcade attract mode: the active app's icon (or the QUADRA wordmark)
+  jumps around or explodes onto the screen with squash and stretch, dust, debris and
+  sparkles, in that app's colours. A routine is picked at random each time.
 - **Icon upload.** Send any 48×48 image over USB to show on the main screen (RAM only).
 
 ---
@@ -369,20 +370,31 @@ The two ways the value reaches Onshape:
 ### Idle screen
 
 <p>
-  <img src="NanoDepsidf/docs/images/attract-quadra.png" width="200" alt="Idle plasma around QUADRA">
-  <img src="NanoDepsidf/docs/images/attract-figma.png" width="200" alt="Idle plasma around the Figma icon">
-  <img src="NanoDepsidf/docs/images/attract-plasticity.png" width="200" alt="Idle plasma around the Plasticity icon">
-  <img src="NanoDepsidf/docs/images/attract-onshape.png" width="200" alt="Idle plasma around the Onshape icon">
+  <img src="NanoDepsidf/docs/images/idle-jump.png" width="200" alt="JUMP: the Onshape icon mid-jump with afterimages">
+  <img src="NanoDepsidf/docs/images/idle-boom.png" width="200" alt="BOOM: the icon popping out of a pixel explosion">
+  <img src="NanoDepsidf/docs/images/idle-quadra.png" width="200" alt="The QUADRA wordmark bobbing with sparkles">
 </p>
 
-After 5 s without input, a plasma animation ripples outward from the centre. Any input
-wakes the device, and the waking key press is swallowed.
+After 5 s without input the screen goes into an arcade-style attract mode: the active app's
+48×48 icon, or the QUADRA wordmark outside APP mode, performs a routine. The first is picked
+at random every time the device goes idle, and when it finishes, a different one follows.
 
-The plasma body is always dithered greys. In APP mode it radiates from the profile's icon,
-and its hottest spots step through that app's colours:
-- **Figma:** its brand purple, blue and green.
-- **Onshape:** teal, Onshape green and lime.
-- **Other profiles:** the three most common colours of the icon.
+- **Jump.** Never leaves the screen: two small hops, a crouch and a big jump with
+  afterimages, a hard landing (squash, screen shake, dust, debris), a gleam, hops left and
+  right, a spinning jump, then it breathes with sparkles around it.
+- **Boom.** A fuse blinks, a pixel explosion goes off (white core, a ring in the app's
+  colours, smoke, debris, a hard shake), the icon pops out with a springy overshoot, bobs
+  over its shadow with sparkles, then implodes into a flash.
+
+A third routine, **Bounce** (the icon rattling around inside the glass like a pinball), is
+built but switched off. Set `ROUTINE_ON[ATTRACT_BOUNCE]` to `true` in `src/ui_fx.cpp` to put
+it back into the rotation.
+
+Everything is whole pixels; squash and stretch scale the icon nearest-neighbour. Accents
+(sparks, the explosion ring, sparkles) use the app's colours: Figma's purple, blue and
+green, Onshape's teal, green and lime, and for other profiles the three most common colours
+of the icon. QUADRA uses amber. Any input wakes the device, and the waking key press is
+swallowed.
 
 ---
 
@@ -592,7 +604,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── ui_screens.cpp         every screen's layout
 │   ├── ui_cards.cpp           command cards, wheel, parameter dials (scene renderer)
 │   ├── ui_shape.cpp           the CAD profiles' isometric micro-interaction
-│   └── ui_fx.cpp              boot animation, idle plasma
+│   └── ui_fx.cpp              boot animation, idle screen (arcade attract mode)
 ├── tools/                     host tools (see above)
 └── docs/images/               README screens (rendered by tools/ui_preview)
 ```

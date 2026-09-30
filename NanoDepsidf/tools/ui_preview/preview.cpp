@@ -312,21 +312,27 @@ int main() {
     ui::draw_display(disp, 1, true);
     keep("display rotation 90, unsaved");
 
-    ui::fx_attract(1000);
-    keep("plasma 1s");
-    ui::fx_attract(3000);
-    keep("plasma 3s");
-    ui::fx_attract(9000);
-    keep("plasma 9s");
-    for (uint32_t ms : {1000u, 3000u, 5500u}) {
-        ui::fx_attract(ms, app_icon_figma_48, app_profile_figma.plasma_heat);
-        keep("plasma figma");
+    // Idle screen: each routine pinned, at a few telling moments. Each call restarts the
+    // routine (time goes back between them), so frames are independent.
+    struct Idle { int routine; const char *name; uint32_t ms; };
+    const Idle idles[] = {
+        {ui::ATTRACT_JUMP, "idle JUMP big jump", 2300}, {ui::ATTRACT_JUMP, "idle JUMP landing", 2720},
+        {ui::ATTRACT_JUMP, "idle JUMP spin", 6900}, {ui::ATTRACT_JUMP, "idle JUMP sparkles", 8200},
+        {ui::ATTRACT_BOUNCE, "idle BOUNCE travel", 700}, {ui::ATTRACT_BOUNCE, "idle BOUNCE rim hit", 1420},
+        {ui::ATTRACT_BOOM, "idle BOOM explosion", 500}, {ui::ATTRACT_BOOM, "idle BOOM pop", 700},
+        {ui::ATTRACT_BOOM, "idle BOOM idle", 2600},
+    };
+    for (const Idle &d : idles) {
+        ui::fx_attract(0, app_icon_onshape_48, app_profile_onshape.plasma_heat, 1, d.routine);
+        for (uint32_t t = 33; t < d.ms; t += 33) ui::fx_attract(t, app_icon_onshape_48, app_profile_onshape.plasma_heat, 1, d.routine), g.clear();
+        ui::fx_attract(d.ms, app_icon_onshape_48, app_profile_onshape.plasma_heat, 1, d.routine);
+        keep(d.name);
     }
-    ui::fx_attract(6000, app_icon_plasticity_48);
-    keep("plasma plasticity 6s");
-    for (uint32_t ms : {1000u, 3000u, 5500u}) {
-        ui::fx_attract(ms, app_icon_onshape_48, app_profile_onshape.plasma_heat);
-        keep("plasma onshape");
+    for (int r = 0; r < ui::ATTRACT_ROUTINES; r++) {
+        uint32_t ms = r == ui::ATTRACT_BOOM ? 2600 : 900;
+        for (uint32_t t = 0; t < ms; t += 33) ui::fx_attract(t, nullptr, nullptr, 2, r), g.clear();
+        ui::fx_attract(ms, nullptr, nullptr, 2, r);
+        keep("idle QUADRA");
     }
 
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.
