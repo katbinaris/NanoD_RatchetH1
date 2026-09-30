@@ -11,6 +11,7 @@
 #include "class/hid/hid_device.h"
 #include "icon_store.h"
 #include "app_mode.h"
+#include "sysmon.h"
 
 static const char *TAG = "usb";
 
@@ -183,6 +184,7 @@ static bool send_mouse(uint8_t buttons, int8_t dx, int8_t dy, int8_t wheel) {
         vTaskDelay(1);
     }
     ESP_LOGW(TAG, "mouse report dropped (endpoint busy)");
+    sysmon_note_hid_drop();
     return false;
 }
 
@@ -196,6 +198,7 @@ static bool send_keys(uint8_t modifier, uint8_t keycode) {
         vTaskDelay(1);
     }
     ESP_LOGW(TAG, "keyboard report dropped (endpoint busy)");
+    sysmon_note_hid_drop();
     return false;
 }
 

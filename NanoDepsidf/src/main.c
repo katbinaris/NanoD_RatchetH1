@@ -13,6 +13,7 @@
 #include "display_task.h"
 #include "led_task.h"
 #include "pd_status.h"
+#include "sysmon.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -137,5 +138,6 @@ void app_main(void) {
     i2s_task_start();
     display_task_start();
     led_task_start();
-    pd_status_start(); // one-shot, read-only STUSB4500 read (the DEVICE screen shows it)
+    pd_status_start(); // one-shot, read-only STUSB4500 read (SYS INFO shows it)
+    sysmon_start();    // SYS INFO: load, loop timing, heat, estimated power
 }

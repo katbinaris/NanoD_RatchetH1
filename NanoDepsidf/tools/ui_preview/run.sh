@@ -12,7 +12,7 @@ mkdir -p "$BUILD/fonts" "$(dirname "$OUT")"
 # Copy (not include-path) the sources: a quoted #include resolves next to the including file
 # first, which would pick up the real lgfx_config.hpp from src/ instead of the stub.
 cp "$SRC"/ui_gfx.cpp "$SRC"/ui_gfx.hpp "$SRC"/ui_screens.cpp "$SRC"/ui_screens.hpp \
-   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/ui_shape.cpp "$SRC"/ui_shape.hpp "$SRC"/menu.h "$SRC"/pd_status.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
+   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/ui_shape.cpp "$SRC"/ui_shape.hpp "$SRC"/menu.h "$SRC"/pd_status.h "$SRC"/sysmon.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
    "$SRC"/audio_trigger.h "$SRC"/boot_mode.h "$BUILD/"
 cp "$SRC"/fonts/*.cpp "$SRC"/fonts/*.h "$BUILD/fonts/"
 mkdir -p "$BUILD/icons"

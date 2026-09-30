@@ -11,6 +11,7 @@
 #include "app_mode.h"
 #include "app_colors.h"
 #include "app_profiles/app_profiles.h"
+#include "sysmon.h"
 #include <math.h>
 #include <string.h>
 
@@ -130,6 +131,7 @@ static void flush(int rotation) {
     for (int i = 0; i < NANO_LED_B_NUM; i++) sum += s_keys[i].r + s_keys[i].g + s_keys[i].b;
     float k = LED_MAX, ma = sum * LED_MAX * 20.0f;
     if (ma > LED_BUDGET_MA) k *= LED_BUDGET_MA / ma;
+    sysmon_set_led_ma(ma > LED_BUDGET_MA ? LED_BUDGET_MA : ma);
     if (s_ring_h) {
         bool dirty = false;
         for (int p = 0; p < NANO_LED_A_NUM; p++) {

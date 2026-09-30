@@ -6,8 +6,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/i2s_std.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include <math.h>
+#include <stdatomic.h>
 #include <string.h>
 
 static const char *TAG = "i2s";
@@ -70,6 +72,19 @@ static inline float lut_sine(float phase) {
 
 static i2s_chan_handle_t s_tx_chan = NULL;
 
+// SYS INFO's AUDIO GAPS: the driver's send queue overflows when the DMA finishes a buffer
+// nothing new was written into -- that buffer goes out again.
+static _Atomic uint32_t s_gaps = 0;
+
+static bool IRAM_ATTR on_send_q_ovf(i2s_chan_handle_t handle, i2s_event_data_t *event, void *ctx) {
+    atomic_fetch_add_explicit(&s_gaps, 1, memory_order_relaxed);
+    return false;
+}
+
+uint32_t i2s_task_gap_count(void) {
+    return atomic_load_explicit(&s_gaps, memory_order_relaxed);
+}
+
 static void audio_i2s_init(void) {
     sine_lut_init();
 
@@ -91,6 +106,8 @@ static void audio_i2s_init(void) {
         },
     };
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_tx_chan, &std_cfg));
+    i2s_event_callbacks_t cbs = { .on_send_q_ovf = on_send_q_ovf };
+    ESP_ERROR_CHECK(i2s_channel_register_event_callback(s_tx_chan, &cbs, NULL));
     ESP_ERROR_CHECK(i2s_channel_enable(s_tx_chan));
 }
 
@@ -276,15 +293,9 @@ static void i2s_task_fn(void *arg) {
                     click_phase_tick = 0.0f;
                     click_phase_thud = 0.0f;
                     thump_phase_acc = 0.0f;
-                    // Debug trigger log (Phase 7 bring-up): confirms a click was actually
-                    // consumed/started here on Core 1, independent of whether it's audible
-                    // -- separates "not triggering" from "too quiet to notice". Edge-
-                    // triggered (once per consumed click, not per sample), but a fast
-                    // sustained spin can still fire this often enough to matter for UART
-                    // timing (same class of issue as the Phase 2a per-tick-logging
-                    // incident, see DEVELOPMENT_PLAN.md) -- remove or rate-limit this once
-                    // triggering itself is confirmed working.
-                    ESP_LOGI(TAG, "click trigger consumed, type=%d", (int)type);
+                    // (A per-click "click trigger consumed" log from Phase 7 bring-up was
+                    // removed: in HID mode the console is USB CDC, and with no host reading
+                    // it every write could block this task mid-stream -- an audio gap.)
                 }
             }
 

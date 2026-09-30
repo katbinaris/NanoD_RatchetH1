@@ -2,6 +2,7 @@
 #include "config_store.h"
 #include "haptic_params.h"
 #include "app_profiles/app_profiles.h"
+#include "sysmon.h"
 #include "freertos/FreeRTOS.h"
 #include <stdatomic.h>
 #include <stdio.h>
@@ -13,6 +14,7 @@ typedef enum {
     MENU_ITEM_SUBMENU, // enters a child screen
     MENU_ITEM_VALUE,   // enters edit mode; rendered as "label  value"
     MENU_ITEM_ACTION,  // F1 arms, a second F1 runs `action`; turning or F3 disarms
+    MENU_ITEM_INFO,    // read-only (a SYS INFO page); F1 runs `action` at once, if any
 } menu_item_kind_t;
 // (An older ACTION kind was for the "Save" rows; saving is F2 now -- menu_input_save().)
 
@@ -27,7 +29,7 @@ typedef struct {
     void (*on_rotate)(int8_t direction);               // MENU_ITEM_VALUE, called while editing
     bool (*is_enabled)(void);                          // NULL = always enabled
     bool (*at_end)(int8_t direction);                  // non-wrapping value at its end that way
-    void (*action)(void);                              // MENU_ITEM_ACTION, on the confirming F1
+    void (*action)(void);                              // MENU_ITEM_ACTION (confirming F1), MENU_ITEM_INFO (F1)
 } menu_item_t;
 
 struct menu_screen_s {
@@ -328,18 +330,39 @@ static const menu_screen_t s_display_screen = {
     MENU_SCREEN_DISPLAY, "Display", s_display_items, 1, true, action_save_display
 };
 
-// DEVICE: USB power is drawn from pd_status.h directly (nothing to choose); the one item is
-// RECALIBRATE. Its action only raises a flag -- control_task.c owns the motor, so it does the
+// SYS INFO: read-only pages drawn from sysmon.h (and pd_status.h for the USB contract);
+// turning moves between them, F1 starts the peaks and counters over.
+static const menu_item_t s_sysinfo_items[MENU_SYSINFO_PAGE_COUNT] = {
+    [MENU_SYSINFO_POWER]  = { .label = "POWER",  .kind = MENU_ITEM_INFO, .action = sysmon_reset_peaks },
+    [MENU_SYSINFO_HEAT]   = { .label = "HEAT",   .kind = MENU_ITEM_INFO, .action = sysmon_reset_peaks },
+    [MENU_SYSINFO_CPU]    = { .label = "CPU",    .kind = MENU_ITEM_INFO, .action = sysmon_reset_peaks },
+    [MENU_SYSINFO_LOOP]   = { .label = "LOOP",   .kind = MENU_ITEM_INFO, .action = sysmon_reset_peaks },
+    [MENU_SYSINFO_SYSTEM] = { .label = "SYSTEM", .kind = MENU_ITEM_INFO, .action = sysmon_reset_peaks },
+};
+static const menu_screen_t s_sysinfo_screen = {
+    MENU_SCREEN_SYSINFO, "Sys Info", s_sysinfo_items, MENU_SYSINFO_PAGE_COUNT, false, NULL
+};
+
+// RECALIBRATE: its action only raises a flag -- control_task.c owns the motor, so it does the
 // work there (see menu_take_recalibrate_request()).
 static _Atomic bool s_recal_request = false;
 static void action_recalibrate(void) {
     atomic_store_explicit(&s_recal_request, true, memory_order_relaxed);
 }
-static const menu_item_t s_device_items[] = {
+static const menu_item_t s_recal_items[] = {
     { .label = "RECALIBRATE", .kind = MENU_ITEM_ACTION, .action = action_recalibrate },
 };
+static const menu_screen_t s_recal_screen = {
+    MENU_SCREEN_RECALIBRATE, "Recalibrate", s_recal_items, 1, false, NULL
+};
+
+// DEVICE: a list like the top level.
+static const menu_item_t s_device_items[] = {
+    { .label = "SYS INFO",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_sysinfo_screen },
+    { .label = "RECALIBRATE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_recal_screen },
+};
 static const menu_screen_t s_device_screen = {
-    MENU_SCREEN_DEVICE, "Device", s_device_items, 1, false, NULL
+    MENU_SCREEN_DEVICE, "Device", s_device_items, sizeof(s_device_items) / sizeof(s_device_items[0]), false, NULL
 };
 
 static const menu_item_t s_root_items[] = {
@@ -637,6 +660,8 @@ void menu_input_select(void) {
     if (it->kind == MENU_ITEM_ACTION) {
         if (s_armed) action = it->action; // the confirming press
         s_armed = !s_armed;
+    } else if (it->kind == MENU_ITEM_INFO) {
+        action = it->action;
     } else if (top->screen->direct_edit) {
         // Direct screens: F1 moves to the next field (HID type <-> MIDI channel) -- or, when
         // that field is a submenu (APP -> PROFILE), opens it; focus stays on this screen's

@@ -2,10 +2,21 @@
 #include "board_pins.h"
 #include "driver/spi_master.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 #include <math.h>
+#include <stdatomic.h>
 
 static const char *TAG = "mt6701";
 static spi_device_handle_t s_spi;
+
+// SSI clock. Was a conservative 1 MHz from first bring-up: SYS INFO's LOOP page then showed the
+// read taking 41 of the control loop's 55 us (24 us of it clocking 24 bits). The MT6701's SSI
+// allows up to 15.625 MHz. Watch the CRC error count (LOOP page) after changing this.
+#define MT6701_SPI_HZ (10 * 1000 * 1000)
+
+// Frames whose CRC didn't match, since boot. Counted only: the angle is still used either way,
+// until the check is confirmed on hardware (a wrong CRC formula would otherwise freeze the knob).
+static _Atomic uint32_t s_crc_errors = 0;
 
 esp_err_t mt6701_init(void) {
     // Encoder gets its own SPI host (SPI2), separate from the display's (SPI3, Phase 4) --
@@ -26,10 +37,9 @@ esp_err_t mt6701_init(void) {
     }
 
     // MT6701 SSI is not register-addressed SPI -- it's a continuous serial output, just a
-    // fixed-width clocked frame. SPI mode 0, MSB first. Conservative 1MHz clock for first
-    // bring-up (datasheet allows faster; raise only once reads are verified correct).
+    // fixed-width clocked frame. SPI mode 0, MSB first.
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 1 * 1000 * 1000,
+        .clock_speed_hz = MT6701_SPI_HZ,
         .mode = 0,
         .spics_io_num = PIN_MAG_CS,
         .queue_size = 1,
@@ -40,7 +50,28 @@ esp_err_t mt6701_init(void) {
         ESP_LOGE(TAG, "spi_bus_add_device failed: %s", esp_err_to_name(err));
         return err;
     }
+    // The sensor is the bus's only device and only the control task reads it (mt6701_init()
+    // runs in that task): hold the bus for good, so each read skips the driver's bus lock.
+    err = spi_device_acquire_bus(s_spi, portMAX_DELAY);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "spi_device_acquire_bus failed: %s (reads still work, a little slower)", esp_err_to_name(err));
+    }
     return ESP_OK;
+}
+
+// MT6701 SSI CRC: X^6 + X + 1 over the 18 data bits (14 angle + 4 status), MSB first, init 0.
+static uint8_t crc6(uint32_t data18) {
+    uint8_t crc = 0;
+    for (int i = 17; i >= 0; i--) {
+        uint8_t bit = ((data18 >> i) & 1) ^ ((crc >> 5) & 1);
+        crc = (crc << 1) & 0x3F;
+        if (bit) crc ^= 0x03;
+    }
+    return crc;
+}
+
+uint32_t mt6701_crc_errors(void) {
+    return atomic_load_explicit(&s_crc_errors, memory_order_relaxed);
 }
 
 int32_t mt6701_read_angle_raw(void) {
@@ -57,11 +88,11 @@ int32_t mt6701_read_angle_raw(void) {
         return -1;
     }
 
+    // The 24-bit SSI frame: angle [23:10], status [9:6], CRC [5:0].
     uint32_t raw24 = ((uint32_t)rx[0] << 16) | ((uint32_t)rx[1] << 8) | rx[2];
-    // MT6701's native SSI frame is 18 bits (14-bit angle + status/parity); reading 24
-    // clocks (3 bytes) instead is the standard pragmatic approach -- the sensor just
-    // keeps shifting out data, so over-reading is harmless. The 14-bit angle sits in the
-    // most-significant bits of the transaction, hence shift right by (24-14)=10.
+    if (crc6(raw24 >> 6) != (raw24 & 0x3F)) {
+        atomic_fetch_add_explicit(&s_crc_errors, 1, memory_order_relaxed);
+    }
     uint16_t angle14 = (uint16_t)((raw24 >> 10) & 0x3FFF);
     return angle14;
 }

@@ -128,8 +128,8 @@ reflashing. The knob-direction setting (`KNOB_DIRECTION`) is unrelated to calibr
 ### How to force a new calibration
 
 - **From the menu: DEVICE → RECALIBRATE.** The easiest way.
-  1. Open the menu (F4, or hold F4 in APP mode), go to **DEVICE** and press **F1** on
-     RECALIBRATE. The button fills amber and asks you to take your hands off the knob.
+  1. Open the menu (F4, or hold F4 in APP mode), go to **DEVICE → RECALIBRATE** and press
+     **F1**. The button fills amber and asks you to take your hands off the knob.
   2. Press **F1 again** to start (F3 or turning the knob cancels). The motor switches off,
      the saved calibration is forgotten and the device restarts.
   3. It then calibrates exactly like a first boot (the knob twitches briefly), saves the
@@ -178,7 +178,8 @@ opens the menu** instead.
   <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="PROFILES carousel on APP">
   <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
-  <img src="NanoDepsidf/docs/images/device.png" width="180" alt="DEVICE screen: USB power and RECALIBRATE">
+  <img src="NanoDepsidf/docs/images/sysinfo-power.png" width="180" alt="SYS INFO: estimated power draw against the USB contract">
+  <img src="NanoDepsidf/docs/images/sysinfo-cpu.png" width="180" alt="SYS INFO: core load and control-loop timing">
 </p>
 
 | Screen | Settings |
@@ -187,7 +188,7 @@ opens the menu** instead.
 | **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), FEEL (SAW / SINE / VISCOSE), AMP (click amplitude, 0–100% in 5% steps), PITCH (click pitch). Changes are live while you tune; F2 saves. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
-| **DEVICE** | USB POWER: what the USB-C / PD chip negotiated, read at boot (e.g. `5V 3.00A`, USB PD). RECALIBRATE: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
+| **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
 
 Screens with a single choice (PROFILES, DISPLAY, BOOT MODE) change the value directly as you
 turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
@@ -446,7 +447,7 @@ draw would pass 250 mA.
 | Audio | MAX98357A I²S amplifier driving a transducer |
 | Keys | 4 (F1–F4), active low |
 | LEDs | WS2811: a 60-LED ring around the knob (RGB order) and 8 under the keys, two per key (GRB order), driven over RMT |
-| USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 (I2C 0x28 on GPIO 12 / 13) negotiates USB-C / PD power on its own. The firmware only reads it, once at boot, and shows the result under DEVICE |
+| USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 (I2C 0x28 on GPIO 12 / 13) negotiates USB-C / PD power on its own. The firmware only reads it, once at boot, and shows the result under DEVICE → SYS INFO |
 | USB | USB-C, native USB OTG (TinyUSB) |
 
 <details>
@@ -485,6 +486,7 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | `display` | 1 | 9 | Renders frames into a full-screen sprite and pushes them over SPI |
 | `led` | 1 | 10 | LED ring and key LEDs at 30 fps; above the display so its animations can't stall it, asleep between frames |
 | `pd` | 1 | 10 | One-shot at boot: reads the STUSB4500's contract over I2C (read-only), then exits |
+| `sysmon` | 1 | 10 | SYS INFO: samples load, loop timing, temperature and the power estimate twice a second; logs a line every 5 s |
 
 **Knob direction.** Which way counts as forward is one constant, `KNOB_DIRECTION` in
 `control_task.c` (currently inverted, -1). It flips what a turn means everywhere (menu, APP
@@ -665,6 +667,8 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 
 **Milestone 1 (in progress):**
 - USB power reading and DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
+- DEVICE → SYS INFO: load, loop timing, heat, estimated power (built, not yet confirmed on
+  hardware); the readout for the integration tests.
 - LED power budget scaled from that USB power reading.
 - KEYBOARD, MOUSE and MIDI modes.
 - Host configuration protocol.

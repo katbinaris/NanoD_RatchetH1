@@ -12,6 +12,8 @@
 #include "menu.h"
 #include "haptic_params.h"
 #include "app_mode.h"
+#include "sysmon.h"
+#include "esp_cpu.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
@@ -57,6 +59,7 @@ static uint32_t s_cl_target_idx = 0;
 static foc_calibration_t s_cal;
 static float s_base_mech_rad = 0.0f;
 static float s_last_vq = 0.0f;
+static float s_applied_vq = 0.0f; // haptic mode's q-axis voltage last sent to the driver (SYS INFO)
 static float s_prev_mech_rad = 0.0f;
 static bool s_prev_mech_rad_valid = false;
 
@@ -530,8 +533,19 @@ static void control_task_fn(void *arg) {
     }
 
     uint32_t iterations = 0;
+    uint32_t prev_wake = 0;
     while (1) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        // SYS INFO timing, in CPU cycles: the previous iteration's work ends here, and the
+        // wake-up after the take starts this one. A notification count above 1 means ticks
+        // arrived while the last iteration was still running -- those ticks are lost.
+        uint32_t done = esp_cpu_get_cycle_count();
+        uint32_t notified = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        uint32_t wake = esp_cpu_get_cycle_count();
+        if (iterations > 0) {
+            sysmon_control_tick(done - prev_wake, wake - prev_wake, notified,
+                                s_haptic_phase == HAPTIC_RUN ? s_applied_vq : 0.0f);
+        }
+        prev_wake = wake;
 
         iterations++;
 
@@ -792,6 +806,13 @@ static void control_task_fn(void *arg) {
         }
 
         if (s_haptic_phase != HAPTIC_DONE) {
+            // SYS INFO's LOOP page: each part of the iteration timed in cycles.
+            uint32_t sec_start = esp_cpu_get_cycle_count();
+#define SECTION_DONE(sec) do { \
+                uint32_t _now = esp_cpu_get_cycle_count(); \
+                sysmon_control_section((sec), _now - sec_start); \
+                sec_start = _now; \
+            } while (0)
             if (s_haptic_phase == HAPTIC_RUN) {
                 // Phase 8: F1-F4 (BTN_A-BTN_D) drive the real config menu (`menu.c`) --
                 // fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the Architecture
@@ -847,8 +868,10 @@ static void control_task_fn(void *arg) {
                     esp_restart();
                 }
             }
+            SECTION_DONE(SYSMON_SEC_INPUT);
 
             int32_t raw = mt6701_read_angle_raw();
+            SECTION_DONE(SYSMON_SEC_SENSOR);
             if (raw < 0) {
                 ESP_LOGE(TAG, "sensor read failed mid-test -- aborting haptic demo");
                 s_haptic_phase = HAPTIC_DONE;
@@ -1101,11 +1124,11 @@ static void control_task_fn(void *arg) {
                                 .type = HID_EVENT_MOUSE_WHEEL,
                                 .wheel_delta = wheel_delta,
                             };
-                            xQueueSend(g_hid_report_queue, &hid_msg, 0); // non-blocking --
-                                                                          // a full queue
-                                                                          // just drops this
-                                                                          // tick's scroll
-                                                                          // event
+                            // Non-blocking -- a full queue just drops this tick's scroll
+                            // event (counted for SYS INFO).
+                            if (xQueueSend(g_hid_report_queue, &hid_msg, 0) != pdTRUE) {
+                                sysmon_note_hid_drop();
+                            }
                         }
                     }
                     s_haptic_prev_detent_index = detent_index;
@@ -1153,23 +1176,22 @@ static void control_task_fn(void *arg) {
                         s_haptic_pulse_ticks_remaining--;
                     }
 
+                    SECTION_DONE(SYSMON_SEC_FORCE);
                     if (s_haptic_phase != HAPTIC_DONE) {
                         foc_dq_t dq = { .d = 0.0f, .q = vq_out };
                         foc_ab_t ab = foc_inverse_park(dq, elec_rad);
                         foc_abc_t abc = foc_inverse_clarke(ab);
                         motor_driver_set_phase_voltages(abc.a, abc.b, abc.c);
+                        s_applied_vq = vq_out;
                     }
-
-                    if (iterations % MS_TO_ITERS(200) == 0 && s_haptic_phase != HAPTIC_DONE) {
-                        ESP_LOGI(TAG, "haptic: detent=%" PRId32 " error=%.4f rad vq=%.3fV",
-                                 detent_index, error, vq_out);
-                    }
+                    SECTION_DONE(SYSMON_SEC_MOTOR);
+                    // No periodic logging here (there was a 5 Hz "haptic:" line and a 1 Hz
+                    // "control loop alive"): SYS INFO showed each costing a ~13 ms stall, as
+                    // the log write waits on the USB console, and ~130 missed ticks with it.
+                    // sysmon's 5 s `sys` line is the heartbeat now.
                 }
             }
-        }
-
-        if (iterations % MS_TO_ITERS(1000) == 0) {
-            ESP_LOGI(TAG, "control loop alive, %lu iterations", (unsigned long)iterations);
+#undef SECTION_DONE
         }
     }
 }

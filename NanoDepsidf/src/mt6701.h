@@ -9,3 +9,6 @@ int32_t mt6701_read_angle_raw(void);
 
 // Angle in radians [0, 2*PI). NAN on read failure.
 float mt6701_read_angle_rad(void);
+
+// Frames whose SSI CRC didn't match, since boot (SYS INFO). Any core.
+uint32_t mt6701_crc_errors(void);

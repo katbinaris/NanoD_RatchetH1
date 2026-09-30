@@ -399,37 +399,187 @@ void draw_boot_mode(const menu_render_snapshot_t &snap, boot_usb_mode_t selected
     save_hint(188, snap.dirty, blink_on);
 }
 
-// --- Device: USB power + RECALIBRATE ---
+// --- Device -> Sys Info: four pages of live readings ---
 
-void draw_device(const menu_render_snapshot_t &snap, const pd_status_t &power) {
-    header("DEVICE");
+// "0.43A" from mA.
+static void fmt_amps(char *buf, size_t n, unsigned ma) {
+    snprintf(buf, n, "%u.%02uA", ma / 1000, (ma % 1000) / 10);
+}
 
-    // USB power: "5V 3.00A" big, where it came from small.
-    char amps[16];
+// Label left in grey, value right-aligned -- the column the glass leaves room for from y 40
+// to 200.
+static void kv(const char *label, const char *value, float y, uint32_t vc = WHITE) {
+    text(label, 52, y, GREY);
+    text(value, 188, y, vc, 1, RIGHT);
+}
+
+// A thin gauge: `frac` of it filled, an optional amber tick at `peak`.
+static void gauge(int x, int y, int w, float frac, uint32_t c, float peak = -1) {
+    frac = frac < 0 ? 0 : frac > 1 ? 1 : frac;
+    rect(x, y, w, 4, DARK);
+    rect(x, y, (int)lroundf(w * frac), 4, c);
+    if (peak > 0) rect(x + (int)lroundf((w - 1) * (peak > 1 ? 1 : peak)), y - 2, 1, 8, AMBER);
+}
+
+static void degree_after(const char *s, float cx, float y, int scale, uint32_t c) {
+    int w = text(s, cx, y, c, scale, CENTER);
+    int d = scale >= 3 ? 5 : 3; // the DISPLAY screen's degree mark at 3x, a smaller one below
+    frame_box((int)lroundf(cx + w / 2.0f) + scale + 1, (int)y, d, d, c);
+}
+
+static void sysinfo_power(const sysmon_info_t &in, const pd_status_t &power) {
+    bool have = power.source != PD_SRC_READING && power.source != PD_SRC_NO_CHIP && power.ma > 0;
+    char buf[48], avail[12];
+    text("DRAW, ESTIMATED", CX, 50, GREY, 1, CENTER);
+    fmt_amps(buf, sizeof(buf), in.total_ma);
+    bool over = have && in.total_ma > power.ma;
+    text(buf, CX, 62, over ? AMBER : WHITE, 3, CENTER);
+    if (have) {
+        float frac = (float)in.total_ma / power.ma;
+        gauge(60, 90, 120, frac, frac > 0.8f ? AMBER : WHITE, (float)in.total_peak_ma / power.ma);
+    }
     const char *source;
     switch (power.source) {
         case PD_SRC_PD: source = "USB PD"; break;
         case PD_SRC_TYPEC_1A5:
-        case PD_SRC_TYPEC_3A0: source = "USB-C, NO PD"; break;
-        case PD_SRC_USB: source = "USB DEFAULT"; break;
+        case PD_SRC_TYPEC_3A0: source = "USB-C"; break;
+        case PD_SRC_USB: source = "USB"; break;
         case PD_SRC_NO_CHIP: source = "PD CHIP NOT FOUND"; break;
-        default: source = "READING"; break;
+        default: source = "USB: READING"; break;
     }
-    if (power.source == PD_SRC_READING || power.source == PD_SRC_NO_CHIP) {
-        snprintf(amps, sizeof(amps), "--");
-    } else if (power.mv > 0) {
-        snprintf(amps, sizeof(amps), "%dV %d.%02dA", (power.mv + 500) / 1000, power.ma / 1000, (power.ma % 1000) / 10);
+    if (have) {
+        fmt_amps(avail, sizeof(avail), power.ma);
+        snprintf(buf, sizeof(buf), "OF %s %dV %s", avail, (power.mv > 0 ? power.mv : 5000) / 1000, source);
+        text(buf, CX, 100, GREY, 1, CENTER);
     } else {
-        snprintf(amps, sizeof(amps), "%d.%02dA", power.ma / 1000, (power.ma % 1000) / 10);
+        text(source, CX, 100, GREY, 1, CENTER);
     }
-    text("USB POWER", CX, 52, GREY, 1, CENTER);
-    text(amps, CX, 66, WHITE, fit_scale(amps, 160, 2), CENTER);
-    text(source, CX, 88, GREY, 1, CENTER);
-    rect(60, 106, 120, 1, DARK);
+    fmt_amps(buf, sizeof(buf), in.motor_ma);
+    kv("MOTOR", buf, 120);
+    fmt_amps(buf, sizeof(buf), in.led_ma);
+    kv("LEDS", buf, 134);
+    fmt_amps(buf, sizeof(buf), in.board_ma);
+    kv("BOARD", buf, 148);
+    fmt_amps(buf, sizeof(buf), in.total_peak_ma);
+    kv("PEAK", buf, 164, AMBER);
+}
 
-    // RECALIBRATE: F1 arms it (filled), a second F1 runs it.
+static void sysinfo_heat(const sysmon_info_t &in) {
+    char buf[24];
+    text("CHIP", CX, 50, GREY, 1, CENTER);
+    if (in.chip_ok) {
+        snprintf(buf, sizeof(buf), "%.1f", (double)in.chip_c);
+        degree_after(buf, CX, 62, 3, WHITE);
+        snprintf(buf, sizeof(buf), "PEAK %.1f", (double)in.chip_peak_c);
+        degree_after(buf, CX, 90, 1, GREY);
+    } else {
+        text("--", CX, 62, WHITE, 3, CENTER);
+        text("NO SENSOR", CX, 90, GREY, 1, CENTER);
+    }
+    rect(60, 106, 120, 1, DARK);
+    text("MOTOR COIL", CX, 114, GREY, 1, CENTER);
+    fmt_amps(buf, sizeof(buf), in.coil_ma);
+    kv("CURRENT", buf, 130);
+    fmt_amps(buf, sizeof(buf), in.coil_peak_ma);
+    kv("PEAK", buf, 144, AMBER);
+    snprintf(buf, sizeof(buf), "%.2fW", (double)in.copper_w);
+    kv("HEAT", buf, 158);
+}
+
+static void sysinfo_cpu(const sysmon_info_t &in) {
+    char buf[24];
+    for (int core = 0; core < 2; core++) {
+        int y = 50 + core * 26;
+        snprintf(buf, sizeof(buf), "CORE %d", core);
+        text(buf, 52, y, GREY);
+        snprintf(buf, sizeof(buf), "%u%%", in.load[core]);
+        text(buf, 188, y, WHITE, 1, RIGHT);
+        gauge(52, y + 12, 136, in.load[core] / 100.0f, WHITE, in.load_peak[core] / 100.0f);
+    }
+    // WORK's average is TOTAL on the LOOP page; here the spike rate takes its row.
+    snprintf(buf, sizeof(buf), "%.2fKHZ", (double)in.loop_khz);
+    kv("LOOP", buf, 106);
+    snprintf(buf, sizeof(buf), "%.0f/S", (double)in.spikes_per_s);
+    kv("SPIKES", buf, 120, in.spikes_per_s >= 1 ? AMBER : WHITE);
+    snprintf(buf, sizeof(buf), "%.1fUS", (double)in.work_max_us);
+    kv("WORK MAX", buf, 134, AMBER);
+    snprintf(buf, sizeof(buf), "%.1fUS", (double)in.jitter_max_us);
+    kv("JITTER", buf, 148, AMBER);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)in.missed);
+    kv("MISSED", buf, 162, in.missed ? AMBER : WHITE);
+}
+
+// One control iteration taken apart: average and worst per part, in microseconds.
+static void sysinfo_loop(const sysmon_info_t &in) {
+    text("US", 52, 54, GREY);
+    text("AVG", 148, 54, GREY, 1, RIGHT);
+    text("MAX", 188, 54, GREY, 1, RIGHT);
+    rect(52, 66, 136, 1, DARK);
+    static const char *const names[SYSMON_SEC_COUNT] = {"INPUT", "SENSOR", "FORCE", "MOTOR"};
+    char buf[16];
+    float y = 74;
+    for (int i = 0; i < SYSMON_SEC_COUNT; i++, y += 14) {
+        text(names[i], 52, y, GREY);
+        snprintf(buf, sizeof(buf), "%.1f", (double)in.sec_avg_us[i]);
+        text(buf, 148, y, WHITE, 1, RIGHT);
+        snprintf(buf, sizeof(buf), "%.1f", (double)in.sec_max_us[i]);
+        text(buf, 188, y, AMBER, 1, RIGHT);
+    }
+    text("OTHER", 52, y, GREY);
+    snprintf(buf, sizeof(buf), "%.1f", (double)in.other_avg_us);
+    text(buf, 148, y, WHITE, 1, RIGHT);
+    y += 18;
+    rect(52, y - 6, 136, 1, DARK);
+    text("TOTAL", 52, y, GREY);
+    snprintf(buf, sizeof(buf), "%.1f", (double)in.work_avg_us);
+    text(buf, 148, y, in.work_avg_us > 80 ? AMBER : WHITE, 1, RIGHT);
+    snprintf(buf, sizeof(buf), "%.0f", (double)in.work_max_us);
+    text(buf, 188, y, AMBER, 1, RIGHT);
+    // Bad sensor frames: should stay 0 (a faster SPI clock that's too fast shows up here).
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)in.sensor_crc_errors);
+    kv("SENSOR CRC ERR", buf, y + 20, in.sensor_crc_errors ? AMBER : WHITE);
+}
+
+static void sysinfo_system(const sysmon_info_t &in) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%luK", (unsigned long)(in.heap_free / 1024));
+    kv("RAM FREE", buf, 64);
+    snprintf(buf, sizeof(buf), "%luK", (unsigned long)(in.heap_min / 1024));
+    kv("RAM LOW", buf, 80);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)in.hid_drops);
+    kv("HID DROPS", buf, 104, in.hid_drops ? AMBER : WHITE);
+    snprintf(buf, sizeof(buf), "%lu", (unsigned long)in.audio_gaps);
+    kv("AUDIO GAPS", buf, 120, in.audio_gaps ? AMBER : WHITE);
+    unsigned long s = in.uptime_s;
+    snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", s / 3600, (s / 60) % 60, s % 60);
+    kv("UPTIME", buf, 144);
+}
+
+void draw_sysinfo(const menu_render_snapshot_t &snap, const sysmon_info_t &info, const pd_status_t &power) {
+    int page = snap.selected < 0 ? 0 : snap.selected;
+    header(page < snap.row_count ? snap.rows[page].label : "SYS INFO");
+    switch (page) {
+        case MENU_SYSINFO_POWER: sysinfo_power(info, power); break;
+        case MENU_SYSINFO_HEAT: sysinfo_heat(info); break;
+        case MENU_SYSINFO_CPU: sysinfo_cpu(info); break;
+        case MENU_SYSINFO_LOOP: sysinfo_loop(info); break;
+        default: sysinfo_system(info); break;
+    }
+    text("F1 RESET PEAKS", CX, 182, GREY, 1, CENTER);
+    int dots_w = snap.row_count * 8 - 4;
+    for (int i = 0; i < snap.row_count; i++) {
+        rect(CX - dots_w / 2.0f + i * 8, 198, 4, 4, i == page ? AMBER : DARK);
+    }
+}
+
+// --- Device -> Recalibrate ---
+
+void draw_recalibrate(const menu_render_snapshot_t &snap) {
+    header("RECALIBRATE");
+
+    // F1 arms it (filled), a second F1 runs it.
     bool armed = snap.row_count > 0 && strcmp(snap.rows[0].value, MENU_RECAL_ARMED) == 0;
-    const int bx = 44, by = 116, bw = 152, bh = 26;
+    const int bx = 44, by = 80, bw = 152, bh = 26;
     if (armed) {
         cut(bx, by, bw, bh, AMBER);
     } else {
@@ -438,13 +588,13 @@ void draw_device(const menu_render_snapshot_t &snap, const pd_status_t &power) {
     int sc = fit_scale("RECALIBRATE", bw - 12, 2);
     text("RECALIBRATE", CX, by + (bh - cap_height(sc)) / 2, armed ? BLACK : WHITE, sc, CENTER);
     if (armed) {
-        text("HANDS OFF THE KNOB", CX, 154, WHITE, 1, CENTER);
-        text("F1 AGAIN TO START", CX, 168, AMBER, 1, CENTER);
-        text("F3 CANCEL", CX, 184, GREY, 1, CENTER);
+        text("HANDS OFF THE KNOB", CX, 124, WHITE, 1, CENTER);
+        text("F1 AGAIN TO START", CX, 140, AMBER, 1, CENTER);
+        text("F3 CANCEL", CX, 158, GREY, 1, CENTER);
     } else {
-        text("F1 RECALIBRATE", CX, 154, GREY, 1, CENTER);
-        text("RESTARTS, THEN", CX, 170, GREY, 1, CENTER);
-        text("REALIGNS THE MOTOR", CX, 183, GREY, 1, CENTER);
+        text("F1 RECALIBRATE", CX, 124, GREY, 1, CENTER);
+        text("RESTARTS, THEN", CX, 142, GREY, 1, CENTER);
+        text("REALIGNS THE MOTOR", CX, 155, GREY, 1, CENTER);
     }
 }
 

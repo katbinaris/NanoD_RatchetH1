@@ -76,5 +76,10 @@ CONFIG_TINYUSB_HID_COUNT=2
 CONFIG_TINYUSB_CDC_ENABLED=y
 CONFIG_TINYUSB_CDC_COUNT=1
 
+# DEVICE -> SYS INFO shows per-core load from FreeRTOS run-time stats (the idle task's share
+# of each core). Costs one esp_timer read per context switch. Also changed directly in
+# sdkconfig.esp32-s3-devkitm-1, since defaults don't override a saved value.
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
 # LVGL settings (CONFIG_LV_*) removed with the LovyanGFX migration -- LVGL is no longer
 # in the build, so those symbols no longer exist.

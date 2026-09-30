@@ -12,6 +12,7 @@ extern "C" {
 #include "audio_trigger.h"
 #include "boot_mode.h"
 #include "pd_status.h"
+#include "sysmon.h"
 }
 
 namespace ui {
@@ -91,9 +92,12 @@ void draw_boot_mode(const menu_render_snapshot_t &snap, boot_usb_mode_t selected
 // which way is up now; the value is the angle in degrees.
 void draw_display(const menu_render_snapshot_t &snap, int rotation, bool blink_on);
 
-// DEVICE: the USB power the STUSB4500 negotiated (read at boot) and the RECALIBRATE action,
-// which takes a second F1 to run (its row value is MENU_RECAL_ARMED in between).
-void draw_device(const menu_render_snapshot_t &snap, const pd_status_t &power);
+// DEVICE -> SYS INFO: one page per snapshot row (MENU_SYSINFO_*), the selected one shown, dots
+// for the others. `power` is the USB contract the STUSB4500 negotiated (read at boot).
+void draw_sysinfo(const menu_render_snapshot_t &snap, const sysmon_info_t &info, const pd_status_t &power);
+
+// DEVICE -> RECALIBRATE: takes a second F1 to run (its row value is MENU_RECAL_ARMED in between).
+void draw_recalibrate(const menu_render_snapshot_t &snap);
 
 void draw_saved_toast();
 

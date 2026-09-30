@@ -316,16 +316,54 @@ int main() {
     menu_render_snapshot_t dev = {};
     dev.open = true;
     dev.screen = MENU_SCREEN_DEVICE;
-    dev.row_count = 1;
-    dev.rows[0] = row("RECALIBRATE", "", "", true);
-    ui::draw_device(dev, {PD_SRC_PD, 3000, 5000});
-    keep("device, PD 5V 3A");
-    snprintf(dev.rows[0].value, sizeof(dev.rows[0].value), "%s", MENU_RECAL_ARMED);
-    ui::draw_device(dev, {PD_SRC_TYPEC_1A5, 1500, 5000});
-    keep("device, USB-C 1.5A, armed");
-    dev.rows[0].value[0] = '\0';
-    ui::draw_device(dev, {PD_SRC_NO_CHIP, 0, 0});
-    keep("device, no chip");
+    dev.selected = 0;
+    dev.rows[0] = row("SYS INFO", "", "", true);
+    dev.rows[1] = row("RECALIBRATE", "", "", false);
+    dev.row_count = 2;
+    ui::draw_menu_list(dev, 0);
+    keep("device list");
+
+    // SYS INFO with plausible numbers: haptics running, LEDs at rest, a missed tick and a
+    // dropped report so the amber cases show.
+    sysmon_info_t si = {};
+    si.motor_ma = 62; si.led_ma = 71; si.board_ma = 150; si.total_ma = 283; si.total_peak_ma = 512;
+    si.chip_ok = true; si.chip_c = 44.6f; si.chip_peak_c = 47.2f;
+    si.coil_ma = 180; si.coil_peak_ma = 640; si.copper_w = 0.13f;
+    si.load[0] = 88; si.load[1] = 41; si.load_peak[0] = 93; si.load_peak[1] = 77;
+    si.loop_khz = 10.0f; si.work_avg_us = 38.4f; si.work_max_us = 212.7f; si.jitter_max_us = 131.2f; si.missed = 3;
+    si.heap_free = 186 * 1024; si.heap_min = 151 * 1024; si.hid_drops = 1; si.audio_gaps = 0; si.uptime_s = 5025;
+    menu_render_snapshot_t sys = {};
+    sys.open = true;
+    sys.screen = MENU_SCREEN_SYSINFO;
+    sys.rows[MENU_SYSINFO_POWER] = row("POWER", "", "", false);
+    sys.rows[MENU_SYSINFO_HEAT] = row("HEAT", "", "", false);
+    sys.rows[MENU_SYSINFO_CPU] = row("CPU", "", "", false);
+    sys.rows[MENU_SYSINFO_LOOP] = row("LOOP", "", "", false);
+    sys.rows[MENU_SYSINFO_SYSTEM] = row("SYSTEM", "", "", false);
+    sys.row_count = MENU_SYSINFO_PAGE_COUNT;
+    const float avg[SYSMON_SEC_COUNT] = {6.2f, 41.8f, 18.4f, 4.1f}, mx[SYSMON_SEC_COUNT] = {88.0f, 63.5f, 402.7f, 9.8f};
+    for (int i = 0; i < SYSMON_SEC_COUNT; i++) { si.sec_avg_us[i] = avg[i]; si.sec_max_us[i] = mx[i]; }
+    si.work_avg_us = 95.0f; si.other_avg_us = 24.5f;
+    const char *sys_names[] = {"sys info POWER", "sys info HEAT", "sys info CPU", "sys info LOOP", "sys info SYSTEM"};
+    for (int p = 0; p < MENU_SYSINFO_PAGE_COUNT; p++) {
+        sys.selected = p;
+        ui::draw_sysinfo(sys, si, {PD_SRC_PD, 3000, 5000});
+        keep(sys_names[p]);
+    }
+    sys.selected = MENU_SYSINFO_POWER;
+    ui::draw_sysinfo(sys, si, {PD_SRC_USB, 500, 5000});
+    keep("sys info POWER, 500mA USB");
+
+    menu_render_snapshot_t rc = {};
+    rc.open = true;
+    rc.screen = MENU_SCREEN_RECALIBRATE;
+    rc.row_count = 1;
+    rc.rows[0] = row("RECALIBRATE", "", "", true);
+    ui::draw_recalibrate(rc);
+    keep("recalibrate");
+    snprintf(rc.rows[0].value, sizeof(rc.rows[0].value), "%s", MENU_RECAL_ARMED);
+    ui::draw_recalibrate(rc);
+    keep("recalibrate, armed");
 
     // Idle screen: each routine pinned, at a few telling moments. Each call restarts the
     // routine (time goes back between them), so frames are independent.

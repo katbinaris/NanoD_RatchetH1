@@ -24,6 +24,7 @@ extern "C" {
 #include "app_mode.h"
 #include "app_profiles/app_profiles.h"
 #include "class/hid/hid.h"
+#include "sysmon.h"
 }
 
 static const char *TAG = "display";
@@ -111,7 +112,9 @@ static bool frame_init(void) {
 
 // --- view state ---
 
-enum View : uint8_t { V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_ATTRACT };
+enum View : uint8_t {
+    V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_SYSINFO, V_RECAL, V_ATTRACT
+};
 
 static View view_for(const menu_render_snapshot_t &s) {
     switch (s.screen) {
@@ -122,12 +125,19 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_APP_PROFILE: return V_APP_PROFILE;
         case MENU_SCREEN_DISPLAY: return V_DISPLAY;
         case MENU_SCREEN_DEVICE: return V_DEVICE;
+        case MENU_SCREEN_SYSINFO: return V_SYSINFO;
+        case MENU_SCREEN_RECALIBRATE: return V_RECAL;
         default: return V_MAIN;
     }
 }
 
 static inline bool is_settings_view(View v) {
-    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_DEVICE;
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY;
+}
+
+// Screens drawn as the scrolling text list.
+static inline bool is_list_screen(menu_screen_id_t s) {
+    return s == MENU_SCREEN_ROOT || s == MENU_SCREEN_DEVICE;
 }
 
 static View s_view = V_BOOT;
@@ -196,7 +206,7 @@ static float list_scroll_now(int64_t now) {
 
 static void list_retarget(const menu_render_snapshot_t &snap, int64_t now) {
     float target = (snap.selected < 0 ? 0 : snap.selected) * (float)MENU_LIST_ROW_PITCH_PX;
-    if (s_list_prev_screen != MENU_SCREEN_ROOT) {
+    if (s_list_prev_screen != snap.screen) {
         // Unconditional jump on (re)entry -- never nested under a "target changed" check;
         // that exact guard caused the first-open pile-up bug under LVGL.
         s_list_to = target;
@@ -541,6 +551,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             break;
         }
         case V_ROOT:
+        case V_DEVICE:
             ui::draw_menu_list(snap, list_scroll_now(now));
             break;
         case V_HAPTIC: {
@@ -584,11 +595,15 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_DISPLAY:
             ui::draw_display(snap, (int)menu_get_display_rotation(), blink_on);
             break;
-        case V_DEVICE: {
-            pd_status_t power = pd_status_get();
-            ui::draw_device(snap, power);
+        case V_SYSINFO: {
+            sysmon_info_t info;
+            sysmon_get(&info);
+            ui::draw_sysinfo(snap, info, pd_status_get());
             break;
         }
+        case V_RECAL:
+            ui::draw_recalibrate(snap);
+            break;
         case V_ATTRACT: {
             // APP mode: the active profile's icon (and colours) instead of the QUADRA wordmark.
             const uint8_t *icon = nullptr;
@@ -675,7 +690,7 @@ static Pace update_ui(void) {
         s_profile_slide_start_us = now;
         s_last_profile = profile;
     }
-    if (snap.screen == MENU_SCREEN_ROOT && (snapshot_changed || first || s_list_prev_screen != MENU_SCREEN_ROOT)) {
+    if (is_list_screen(snap.screen) && (snapshot_changed || first || s_list_prev_screen != snap.screen)) {
         list_retarget(snap, now);
     }
     s_list_prev_screen = snap.screen;
@@ -718,13 +733,18 @@ static Pace update_ui(void) {
     if (param_live != s_param_was) wheel_changed = true;
     s_param_was = param_live;
     if (wheel_live || param_live) s_last_activity_us = now; // no screensaver over the wheel, an echo or a value dial
-    // The USB power read finishes a moment after boot -- redraw DEVICE if it's up by then.
+    // SYS INFO follows sysmon's twice-a-second refresh (and the USB power read, which finishes a
+    // moment after boot).
     static pd_status_t s_last_power = {};
+    static uint32_t s_last_sysmon = 0;
     pd_status_t power = pd_status_get();
-    bool power_changed = memcmp(&power, &s_last_power, sizeof(power)) != 0;
+    sysmon_info_t sys;
+    sysmon_get(&sys);
+    bool sys_changed = memcmp(&power, &s_last_power, sizeof(power)) != 0 || sys.version != s_last_sysmon;
     s_last_power = power;
+    s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
-               || rotation_changed || (power_changed && s_view == V_DEVICE);
+               || rotation_changed || (sys_changed && s_view == V_SYSINFO);
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -742,7 +762,7 @@ static Pace update_ui(void) {
         redraw = true;
     }
     bool fast = s_iris_active
-             || (s_view == V_ROOT && s_list_anim)
+             || ((s_view == V_ROOT || s_view == V_DEVICE) && s_list_anim)
              || (s_view == V_HAPTIC && now - s_morph_start_us < FEEL_MORPH_MS * 1000LL)
              || (s_view == V_HID && now - s_slide_start_us < HID_SLIDE_MS * 1000LL)
              || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL)

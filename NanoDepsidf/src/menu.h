@@ -37,10 +37,22 @@ typedef enum {
     MENU_SCREEN_BOOT,
     MENU_SCREEN_APP_PROFILE, // PROFILES = APP -> F1: choose the app profile
     MENU_SCREEN_DISPLAY,     // screen rotation
-    MENU_SCREEN_DEVICE,      // USB power (read-only) + RECALIBRATE
+    MENU_SCREEN_DEVICE,      // a list: SYS INFO, RECALIBRATE
+    MENU_SCREEN_SYSINFO,     // live readings (sysmon.h), one page per row; F1 resets the peaks
+    MENU_SCREEN_RECALIBRATE, // forget the motor calibration and restart
 } menu_screen_id_t;
 
-// DEVICE's RECALIBRATE row: its value is this while armed (F1 pressed once, waiting for the
+// SYS INFO's pages -- the knob turns through them. display_task.cpp draws each from sysmon.h.
+enum {
+    MENU_SYSINFO_POWER = 0,
+    MENU_SYSINFO_HEAT,
+    MENU_SYSINFO_CPU,
+    MENU_SYSINFO_LOOP,   // where one control iteration's time goes
+    MENU_SYSINFO_SYSTEM,
+    MENU_SYSINFO_PAGE_COUNT,
+};
+
+// RECALIBRATE's row: its value is this while armed (F1 pressed once, waiting for the
 // confirming F1), "" otherwise.
 #define MENU_RECAL_ARMED "ARMED"
 
