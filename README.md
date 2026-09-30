@@ -13,7 +13,7 @@ the viewport, and it dials fillets, extrusions and rotations to exact values.
   <img src="NanoDepsidf/docs/images/main-figma.png" width="200" alt="Main screen in Figma mode: app icon, live action ZOOM, key legend">
   <img src="NanoDepsidf/docs/images/figma-wheel-wrap.png" width="200" alt="Figma command wheel: WRAP IN FRAME card with keycaps">
   <img src="NanoDepsidf/docs/images/param-chamfer.png" width="200" alt="Plasticity parameter mode: CHAMFER -.85, step row">
-  <img src="NanoDepsidf/docs/images/idle-jump.png" width="200" alt="Idle screen: the Onshape icon mid-jump with afterimages">
+  <img src="NanoDepsidf/docs/images/idle-jump.gif" width="200" alt="Idle screen, animated: the Onshape icon hopping, jumping and spinning">
 </p>
 
 Every screen in this README is rendered by the firmware's own drawing code through the host
@@ -370,10 +370,14 @@ The two ways the value reaches Onshape:
 ### Idle screen
 
 <p>
-  <img src="NanoDepsidf/docs/images/idle-jump.png" width="200" alt="JUMP: the Onshape icon mid-jump with afterimages">
-  <img src="NanoDepsidf/docs/images/idle-boom.png" width="200" alt="BOOM: the icon popping out of a pixel explosion">
-  <img src="NanoDepsidf/docs/images/idle-quadra.png" width="200" alt="The QUADRA wordmark bobbing with sparkles">
+  <img src="NanoDepsidf/docs/images/idle-jump.gif" width="240" alt="JUMP, animated: the Onshape icon hops, makes a big jump, lands with dust and debris, hops sideways and spins">
+  <img src="NanoDepsidf/docs/images/idle-boom.gif" width="240" alt="BOOM, animated: a pixel explosion, the Figma icon pops out, bobs with sparkles and implodes">
+  <img src="NanoDepsidf/docs/images/idle-quadra.gif" width="240" alt="JUMP with the QUADRA wordmark, animated">
 </p>
+
+These animations are recorded from the firmware's own drawing code (JUMP with Onshape, BOOM
+with Figma, JUMP with the QUADRA wordmark), at 20 fps; the device runs them at its full frame
+rate.
 
 After 5 s without input the screen goes into an arcade-style attract mode: the active app's
 48×48 icon, or the QUADRA wordmark outside APP mode, performs a routine. The first is picked
