@@ -1,5 +1,7 @@
-// The device, mirrored: the round 240x240 glass at 1x (2 screen pixels each on Retina), drawn like the firmware draws it --
-// the 60-LED ring with the knob's spot, the detents, the knob's job and feel, and F1-F4.
+// The device's screen, mirrored: the round 240x240 glass, drawn like the firmware draws it --
+// the detents, the knob's job and feel, and F1-F4. On its own it also draws the 60-LED ring
+// with the knob's spot; `embedded` (inside the device render, deviceView.ts) leaves the ring
+// and the glass's edge to the render.
 
 import type { Device } from "../device";
 import { HidType } from "../proto";
@@ -11,7 +13,7 @@ const MODE_NAMES: Record<number, string> = { 0: "KEYBOARD", 1: "MOUSE", 2: "MIDI
 const FEEL_NAMES = ["SAW", "SINE", "VISCOSE"];
 const MENU_KEYS = ["SEL", "", "BACK", "MENU"];
 
-export function glass(device: Device) {
+export function glass(device: Device, opts: { embedded?: boolean } = {}) {
   const canvas = document.createElement("canvas");
   canvas.width = S;
   canvas.height = S;
@@ -40,7 +42,7 @@ export function glass(device: Device) {
     ctx.fill();
     // its edge, one pixel of dark, so the round screen reads on the black window
     ctx.fillStyle = C.dark;
-    for (let i = 0; i < 720; i++) {
+    for (let i = 0; i < (opts.embedded ? 0 : 720); i++) {
       const a = (i / 720) * Math.PI * 2;
       ctx.fillRect(Math.round(CX - 0.5 + 119 * Math.cos(a)), Math.round(CY - 0.5 + 119 * Math.sin(a)), 1, 1);
     }
@@ -77,6 +79,7 @@ export function glass(device: Device) {
 
   // 60 dots; the knob's spot lit amber with a short fade either side.
   function ring(angle: number | null) {
+    if (opts.embedded) return;
     const pos = angle === null ? -1 : ((angle / (Math.PI * 2)) * RING) % RING;
     for (let i = 0; i < RING; i++) {
       const a = (i / RING) * Math.PI * 2 - Math.PI / 2;

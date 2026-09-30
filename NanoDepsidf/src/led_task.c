@@ -115,6 +115,14 @@ static bool strip_new(int gpio, int n, led_color_component_format_t fmt, bool dm
 // resting gradient isn't re-sent 30 times a second, so a transmission glitch has nothing to hit.
 static uint8_t s_ring_sent[NANO_LED_A_NUM][3], s_keys_sent[NANO_LED_B_NUM][3];
 static bool s_sent_valid = false;
+// The same values in the order led_task_snapshot() gives them. A read racing a frame gets a
+// mix of two frames -- only ever colours, never torn pointers.
+static uint8_t s_view[LED_VIEW_COUNT][3];
+_Static_assert(LED_VIEW_COUNT == NANO_LED_A_NUM + NANO_LED_B_NUM, "LED_VIEW_COUNT");
+
+void led_task_snapshot(uint8_t out[LED_VIEW_COUNT][3]) {
+    memcpy(out, s_view, sizeof(s_view));
+}
 
 static bool put_pixel(led_strip_handle_t h, uint8_t sent[3], int i, rgbf_t c, float k) {
     uint8_t v[3] = {(uint8_t)lroundf(c.r * k * 255), (uint8_t)lroundf(c.g * k * 255), (uint8_t)lroundf(c.b * k * 255)};
@@ -137,12 +145,16 @@ static void flush(int rotation) {
         for (int p = 0; p < NANO_LED_A_NUM; p++) {
             int i = ((RING_OFFSET + RING_DIR * (p + 15 * rotation)) % NANO_LED_A_NUM + NANO_LED_A_NUM) % NANO_LED_A_NUM;
             dirty |= put_pixel(s_ring_h, s_ring_sent[i], i, s_ring[p], k);
+            memcpy(s_view[p], s_ring_sent[i], 3);
         }
         if (dirty) led_strip_refresh(s_ring_h);
     }
     if (s_keys_h) {
         bool dirty = false;
         for (int i = 0; i < NANO_LED_B_NUM; i++) dirty |= put_pixel(s_keys_h, s_keys_sent[i], i, s_keys[i], k);
+        for (int key = 0; key < 4; key++) {
+            for (int j = 0; j < 2; j++) memcpy(s_view[NANO_LED_A_NUM + key * 2 + j], s_keys_sent[KEY_LED[key][j]], 3);
+        }
         if (dirty) led_strip_refresh(s_keys_h);
     }
     s_sent_valid = true;

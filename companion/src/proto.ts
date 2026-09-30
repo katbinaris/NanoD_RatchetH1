@@ -6,6 +6,7 @@ export const REPORT_SIZE = 64;
 export const PROTO_VERSION = 2;
 export const TEXT_CHUNK = 60; // profile JSON per report
 export const ICON_BYTES = 48 * 48 * 2;
+export const LED_COUNT = 68; // 0-59 the ring (clockwise from 12 o'clock), 60-67 the keys, two each
 
 export const Cmd = {
   HELLO: 0x10,
@@ -37,6 +38,7 @@ export const Tag = {
   SETTINGS: 0xb1,
   PROFILE: 0xb2,
   PROFILE_ICON: 0xb3,
+  LEDS: 0xb4,
   STATE: 0xb5,
   SYS_A: 0xb6,
   SYS_B: 0xb7,
@@ -185,6 +187,7 @@ export type Message =
   | { tag: typeof Tag.STATE; state: State }
   | { tag: typeof Tag.SYS_A; sys: SysA }
   | { tag: typeof Tag.SYS_B; sys: SysB }
+  | { tag: typeof Tag.LEDS; first: number; rgb: Uint8Array }
   | { tag: typeof Tag.PROFILE_BEGIN; index: number; length: number; crc: number }
   | { tag: typeof Tag.PROFILE_DATA; offset: number; bytes: Uint8Array }
   | { tag: typeof Tag.RESULT; result: Result }
@@ -385,6 +388,8 @@ export function decode(b: Uint8Array): Message {
           sensorCrcErrors: u32(52),
         },
       };
+    case Tag.LEDS:
+      return { tag: Tag.LEDS, first: b[1], rgb: b.slice(4, 4 + Math.min(20, b[2]) * 3) };
     case Tag.PROFILE_BEGIN:
       return { tag: Tag.PROFILE_BEGIN, index: b[1], length: u32(4), crc: u32(8) };
     case Tag.PROFILE_DATA:

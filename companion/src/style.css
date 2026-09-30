@@ -143,7 +143,7 @@ button {
 
 .main {
   display: grid;
-  grid-template-columns: 264px 1fr;
+  grid-template-columns: clamp(300px, 44%, 440px) 1fr;
   min-height: 0;
 }
 
@@ -155,6 +155,40 @@ button {
   gap: 8px;
   border-right: 1px solid var(--dark);
 }
+/* --- the device render (deviceView.ts) --- */
+.device {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+}
+.device > * {
+  position: absolute;
+}
+.device-body {
+  user-select: none;
+  -webkit-user-drag: none;
+  transition: opacity 0.3s;
+}
+.device.off .device-body {
+  opacity: 0.55;
+}
+.device-leds {
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.device-glass {
+  border-radius: 50%;
+  image-rendering: pixelated;
+}
+.device-key {
+  border-radius: 7%;
+  cursor: default;
+}
+.device-key.down {
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.5);
+}
+
 .glass-caption {
   color: var(--grey);
   text-align: center;

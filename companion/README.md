@@ -3,8 +3,11 @@
 The desktop app for the Quadra knob. It reads the knob live and changes its settings from the
 computer, in the same pixel style as the device's own screens.
 
-- **The glass:** a live mirror of the device. It shows the LED ring with the knob's spot, the
-  detents, the active app or mode with its feel, and F1–F4, which light up while held.
+- **The device:** a render of the knob as it is, live. Its screen shows inside the knob (the
+  detents, the active app or mode with its feel, F1–F4); the LED ring glows round it in the
+  colours the LEDs show right now, and the keys light up and press down while held. Hover a key
+  to see what it does. (Firmware from before the LED stream: the ring is made up from the
+  knob's angle.)
 - **HAPTICS:** FEEL (SAW / SINE / VISCOSE) and the tuning sliders STEPS, SNAP, DAMP, AMP and
   PITCH. Drag, scroll or use the arrow keys; the knob changes as you go.
 - **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI) and, in APP, the app profiles with the icons
@@ -99,7 +102,8 @@ src/profile.ts      profiles as JSON (mirror of profile_json.h), key names, icon
 src/transport.ts    Tauri pipe | WebHID, one interface
 src/device.ts       connection, state, profiles + icons, history
 src/mock.ts         ?demo: a simulated knob
-src/ui/             the glass, the four panels, the profile editor, the shared kit (blocks,
-                    cards, pixel drawing)
+src/ui/             the device view (render + LEDs + screen mirror), the four panels, the editor,
+                    the shared kit (blocks, cards, pixel drawing)
+src/assets/         device.png, the top-down render (geometry in deviceView.ts)
 src-tauri/          the Rust side: HID list / open / write / close, reports as events
 ```

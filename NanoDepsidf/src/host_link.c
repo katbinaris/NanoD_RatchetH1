@@ -6,6 +6,7 @@
 #include "pd_status.h"
 #include "ui_state.h"
 #include "app_mode.h"
+#include "led_task.h"
 #include "app_profiles/app_profiles.h"
 #include "app_profiles/profile_json.h"
 #include "esp_heap_caps.h"
@@ -51,6 +52,14 @@ static bool s_in_bad;
 static _Atomic bool s_in_done = false;
 // HOST_CMD_PROFILE_OP, done in the usb task (file I/O): bit 31 pending, 8-15 index, 0-7 op.
 static _Atomic uint32_t s_op = 0;
+
+// LEDs: a snapshot every LED_FRAME_US while streaming, sent as LED_PARTS reports back to back
+// (from the completion callback, like a profile download). s_tx_lock.
+#define LED_FRAME_US 66000
+#define LED_PER_REPORT 20
+#define LED_PARTS ((LED_VIEW_COUNT + LED_PER_REPORT - 1) / LED_PER_REPORT)
+static uint8_t s_leds[LED_VIEW_COUNT][3];
+static int s_led_part = LED_PARTS; // LED_PARTS = nothing to send
 
 // CRC-32 (IEEE, reflected, zlib.crc32), as icon_store.c.
 static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
@@ -347,8 +356,25 @@ static void send_piece(void) {
     xSemaphoreGive(s_tx_lock);
 }
 
+// The next LED report of the current frame, if the endpoint is free. Caller holds s_tx_lock.
+static void send_led_part_locked(void) {
+    if (s_led_part >= LED_PARTS || !tud_hid_n_ready(s_instance)) return;
+    int first = s_led_part * LED_PER_REPORT;
+    int n = LED_VIEW_COUNT - first < LED_PER_REPORT ? LED_VIEW_COUNT - first : LED_PER_REPORT;
+    uint8_t r[HOST_REPORT_SIZE] = {0};
+    r[0] = HOST_TAG_LEDS;
+    r[1] = (uint8_t)first;
+    r[2] = (uint8_t)n;
+    memcpy(r + 4, s_leds[first], (size_t)n * 3);
+    if (tud_hid_n_report(s_instance, 0, r, sizeof(r))) s_led_part++;
+}
+
 void host_link_report_sent(void) {
     send_piece();
+    if (atomic_load(&s_stream_hz) == 0) return;
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    if (s_out == NULL) send_led_part_locked();
+    xSemaphoreGive(s_tx_lock);
 }
 
 static bool sending_profile(void) {
@@ -471,6 +497,19 @@ void host_link_poll(void) {
         }
         return;
     }
+    // LEDs: a new frame once the last one is out; its first report now, the rest follow as
+    // each one completes.
+    static int64_t s_next_leds = 0;
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    if (s_led_part >= LED_PARTS && now >= s_next_leds) {
+        led_task_snapshot(s_leds);
+        s_led_part = 0;
+        s_next_leds = now + LED_FRAME_US;
+    }
+    bool led_busy = s_led_part < LED_PARTS;
+    if (led_busy) send_led_part_locked();
+    xSemaphoreGive(s_tx_lock);
+    if (led_busy) return;
     if (now >= s_next_state && tud_hid_n_ready(s_instance)) {
         uint8_t st[HOST_REPORT_SIZE] = {0};
         build_state(st, s_seq);
@@ -491,6 +530,7 @@ void host_link_stop(void) {
     xSemaphoreTake(s_tx_lock, portMAX_DELAY);
     free(s_out);
     s_out = NULL;
+    s_led_part = LED_PARTS;
     xSemaphoreGive(s_tx_lock);
     atomic_store(&s_read_req, -1);
     // An upload cut off mid-way: the next BEGIN starts over (and frees the old buffer).

@@ -4,7 +4,7 @@
 import { Device } from "./device";
 import { createTransport, isTauri } from "./transport";
 import { el } from "./ui/kit";
-import { glass } from "./ui/glass";
+import { deviceView as deviceRender } from "./ui/deviceView";
 import { hapticsView } from "./ui/haptics";
 import { profilesView } from "./ui/profiles";
 import { deviceView } from "./ui/devicePanel";
@@ -31,7 +31,10 @@ const top = el(
 // --- body: the glass | tabs + panel ---
 
 const caption = el("div", { class: "glass-caption" });
-const glassCol = el("div", { class: "glass-col" }, glass(device), caption);
+const render3d = deviceRender(device);
+const glassCol = el("div", { class: "glass-col" }, render3d.root, caption);
+// The device fills its column (less padding and the caption), whatever the window size.
+new ResizeObserver(() => render3d.fit(glassCol.clientWidth - 24, glassCol.clientHeight - 48)).observe(glassCol);
 
 const views = {
   HAPTICS: hapticsView(device),

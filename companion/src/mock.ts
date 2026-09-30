@@ -1,7 +1,7 @@
 // A pretend knob for working on the UI without hardware: open the page with ?demo. Answers
 // the protocol like host_link.c does and streams a slowly turning knob.
 
-import { Cmd, ICON_BYTES, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
+import { Cmd, ICON_BYTES, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
 import { b64ToBytes, bytesToB64, blankProfile, ID_RE, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -279,6 +279,35 @@ export class MockTransport implements Transport {
     return px;
   }
 
+  // Like led_task.c: a dim gradient of the profile's colour round the ring, a bright spot at
+  // the knob, keys dim (a held one bright). Values as the strips get them: at most ~51.
+  private ledFrame(angle: number, held: number) {
+    const e = this.reg[this.live.profile];
+    const color = (e && BUILTINS.find((b) => b.json.id === view(e).id)?.color) ?? [255, 201, 77];
+    const rgb = new Uint8Array(LED_COUNT * 3);
+    const pos = (((angle / (2 * Math.PI)) * 60) % 60 + 60) % 60;
+    for (let i = 0; i < 60; i++) {
+      let d = Math.abs(i - pos);
+      d = Math.min(d, 60 - d);
+      const spot = Math.max(0, 1 - d / 2.5);
+      const rest = 0.25 + 0.1 * Math.sin((i / 60) * 2 * Math.PI);
+      for (let c = 0; c < 3; c++) rgb[i * 3 + c] = Math.round(51 * Math.min(1, rest * (color[c] / 255) + spot * ([255, 201, 77][c] / 255)));
+    }
+    for (let k = 0; k < 4; k++) {
+      const on = (held >> k) & 1;
+      for (let j = 0; j < 2; j++) for (let c = 0; c < 3; c++) rgb[(60 + k * 2 + j) * 3 + c] = Math.round((on ? 51 : 10) * (color[c] / 255));
+    }
+    for (let first = 0; first < LED_COUNT; first += 20) {
+      const r = new Uint8Array(REPORT_SIZE);
+      const n = Math.min(20, LED_COUNT - first);
+      r[0] = Tag.LEDS;
+      r[1] = first;
+      r[2] = n;
+      r.set(rgb.subarray(first * 3, (first + n) * 3), 4);
+      this.onReport(r);
+    }
+  }
+
   private stream() {
     const t = (performance.now() - this.t0) / 1000;
     const angle = Math.sin(t * 0.6) * 2.4 + t * 0.3;
@@ -292,6 +321,7 @@ export class MockTransport implements Transport {
     v.setInt32(16, Math.floor(t * 3), true);
     this.onReport(st);
 
+    if (this.tick % 2 === 0) this.ledFrame(angle, st[12]);
     if (++this.tick % 15 !== 0) return; // SYS twice a second at 30 Hz
     const a = new Uint8Array(REPORT_SIZE);
     const av = new DataView(a.buffer);

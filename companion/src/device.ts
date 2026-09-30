@@ -1,7 +1,7 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { Cmd, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { Cmd, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -34,6 +34,10 @@ export class Device {
   sysB: SysB | null = null;
   profiles: ProfileEntry[] = [];
   history: History = { totalMa: [], chipC: [], load0: [], load1: [] };
+  // What the LEDs show (RGB, as sent to the strips), and when that last arrived -- firmware
+  // before the LED stream never sends it, and the view makes it up instead.
+  leds = new Uint8Array(LED_COUNT * 3);
+  ledsAt = 0;
   error: string | null = null;
 
   private listeners = new Set<() => void>();
@@ -239,6 +243,12 @@ export class Device {
         return;
       case Tag.STATE:
         if ("state" in m) this.state = m.state;
+        break;
+      case Tag.LEDS:
+        if ("rgb" in m && m.first * 3 + m.rgb.length <= this.leds.length) {
+          this.leds.set(m.rgb, m.first * 3);
+          this.ledsAt = performance.now();
+        }
         break;
       case Tag.SYS_A:
         if ("sys" in m) {

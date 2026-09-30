@@ -25,7 +25,8 @@ enum {
     HOST_CMD_SAVE = 0x13,         // everything that differs from NVS is saved -> HOST_TAG_SETTINGS
     HOST_CMD_REVERT = 0x14,       // back to what NVS holds -> HOST_TAG_SETTINGS
     HOST_CMD_STREAM = 0x15,       // [1]=state rate in Hz (0 = stop, max 50). While on: HOST_TAG_STATE
-                                  //   at that rate and HOST_TAG_SYS_A / _B twice a second.
+                                  //   at that rate, HOST_TAG_SYS_A / _B twice a second and
+                                  //   HOST_TAG_LEDS ~15 times a second.
     HOST_CMD_PROFILE = 0x16,      // [1]=index -> HOST_TAG_PROFILE
     HOST_CMD_PROFILE_ICON = 0x17, // [1]=index [2..3]=offset -> HOST_TAG_PROFILE_ICON (icon48)
     HOST_CMD_RESET_PEAKS = 0x18,  // SYS INFO peaks and counters start over (F1 there); no reply
@@ -82,6 +83,11 @@ enum {
     // (all NUL-padded strings)
     HOST_TAG_PROFILE_ICON = 0xB3,
     // [1]=index [2..3]=offset [4]=len (<= 56) [8..63]=bytes of icon48 (48x48 RGB565 BE, 4608 B)
+    HOST_TAG_LEDS = 0xB4,
+    // [1]=first LED [2]=count (<= 20) [4..63]=count x RGB. LEDs 0-59: the ring, clockwise from
+    // 12 o'clock in the screen's frame; 60-67: the keys, two each (F1 first). While streaming,
+    // all 68 go out ~15 times a second, in four reports (led_task.h). As sent to the strips:
+    // dim (power-limited to 20%).
     HOST_TAG_STATE = 0xB5,
     // [1..2]=sequence [4..7]=knob angle i32, 1e-4 rad, continuous [8..11]=detent i32
     // [12]=buttons held (bit0 F1..bit3 F4) [13]=menu screen (menu_screen_id_t, 0 = closed)

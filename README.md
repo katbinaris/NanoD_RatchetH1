@@ -574,7 +574,7 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 ## Desktop companion
 
 <p>
-  <img src="companion/docs/app-haptics.png" width="440" alt="Companion app: the device mirror and the HAPTICS panel">
+  <img src="companion/docs/app-haptics.png" width="440" alt="Companion app: the live device and the HAPTICS panel">
   <img src="companion/docs/app-sys-info.png" width="440" alt="Companion app: SYS INFO with power and heat">
 </p>
 
