@@ -13,6 +13,7 @@
 #include "app_mode.h"
 #include "sysmon.h"
 #include "menu.h"
+#include "host_link.h"
 
 static const char *TAG = "usb";
 
@@ -151,14 +152,9 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id, hid_report_type_
     if (instance != HID_INSTANCE_VENDOR) {
         return; // keyboard LED output reports etc. -- unused
     }
-    static uint8_t reply[ICON_HID_REPORT_SIZE];
-    if (icon_store_handle_report(buffer, bufsize, reply)) {
-        // Replies only follow BEGIN/END/CLEAR or a failure; the host waits for each one, so
-        // the IN endpoint is idle here in the normal flow.
-        if (!tud_hid_n_report(HID_INSTANCE_VENDOR, 0, reply, sizeof(reply))) {
-            ESP_LOGW(TAG, "vendor HID reply dropped (IN endpoint busy)");
-        }
-    }
+    // The companion app's commands and the icon upload share this interface; host_link sorts
+    // them and queues any reply for the usb task, which also sends the live stream.
+    host_link_handle_report(buffer, bufsize);
 }
 
 void tud_suspend_cb(bool remote_wakeup_en) {
@@ -290,6 +286,7 @@ static void usb_task_fn(void *arg) {
                                                                              // FS-only, kept
                                                                              // for portability
 #endif
+    host_link_init(HID_INSTANCE_VENDOR); // before the host can send anything
     ESP_ERROR_CHECK(tinyusb_driver_install(&tusb_cfg));
 
     const tinyusb_config_cdcacm_t acm_cfg = {
@@ -324,8 +321,10 @@ static void usb_task_fn(void *arg) {
         if (!tud_mounted()) {
             sent_buttons = 0; // a fresh enumeration starts with nothing held
             sent_modifier = 0;
+            if (host_link_streaming()) host_link_stop();
             continue;
         }
+        host_link_poll();
         // BINDINGS switched while a modifier may be down: the host holds it under the old
         // mapping (Cmd vs Ctrl), so let go of everything; app_sync presses what's wanted again.
         if (menu_get_host() != host) {

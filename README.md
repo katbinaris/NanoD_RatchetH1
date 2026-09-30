@@ -42,6 +42,7 @@ shows, at 2× scale.
 - [Firmware architecture](#firmware-architecture)
 - [Building and flashing](#building-and-flashing)
 - [Tools](#tools)
+- [Desktop companion](#desktop-companion)
 - [Writing an app profile](#writing-an-app-profile)
 - [Repository layout](#repository-layout)
 - [Status and roadmap](#status-and-roadmap)
@@ -570,6 +571,38 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 
 ---
 
+## Desktop companion
+
+<p>
+  <img src="companion/docs/app-haptics.png" width="440" alt="Companion app: the device mirror and the HAPTICS panel">
+  <img src="companion/docs/app-sys-info.png" width="440" alt="Companion app: SYS INFO with power and heat">
+</p>
+
+`companion/` is a macOS app (Tauri, about 4 MB) that reads the knob live and changes its
+settings from the computer, in the device's own pixel style:
+
+- **The glass:** a live mirror of the device. It shows the LED ring with the knob's spot, the
+  detents, the active app or mode, and F1–F4.
+- **HAPTICS:** FEEL and the STEPS, SNAP, DAMP, AMP and PITCH sliders.
+- **PROFILES:** the mode and the built-in app profiles, with their icons.
+- **DEVICE:** BINDINGS, rotation, boot mode and the firmware version.
+- **SYS INFO:** power, heat, CPU and system, with a minute of history.
+
+Changes are live on the knob; **SAVE** stores them, just as F2 does. The same UI also runs as
+a web page in Chrome or Edge over WebHID. It talks to the vendor HID interface with the small
+protocol in `src/host_proto.h`, so it needs no driver.
+
+```sh
+cd companion && pnpm install
+pnpm tauri dev                 # the app
+pnpm dev                       # the page (open http://localhost:1420; add ?demo for a simulated knob)
+pnpm tauri build               # Quadra.app
+```
+
+Building, WebHID and notarizing are covered in [`companion/README.md`](companion/README.md).
+
+---
+
 ## Writing an app profile
 
 1. **Add the file.** Create `src/app_profiles/<app>.c` defining a `const app_profile_t`, and
@@ -639,6 +672,8 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── app_profiles/          one file per app + icons
 │   ├── usb_task.c             TinyUSB composite device, HID state sync
 │   ├── icon_store.c           vendor-HID icon upload protocol
+│   ├── host_link.c, host_proto.h            the desktop companion's protocol (same interface)
+│   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
 │   ├── menu.c, config_store.c               settings menu + NVS persistence
 │   ├── display_task.cpp       view state, transitions, frame pacing
@@ -649,6 +684,8 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   └── ui_fx.cpp              boot animation, idle screen (arcade attract mode)
 ├── tools/                     host tools (see above)
 └── docs/images/               README screens (rendered by tools/ui_preview)
+
+companion/                     the desktop app (Tauri + TypeScript; see companion/README.md)
 ```
 
 ---
@@ -675,7 +712,9 @@ NanoDepsidf/                   the firmware (PlatformIO project)
   Windows PC).
 - LED power budget scaled from the USB power reading.
 - KEYBOARD, MOUSE and MIDI modes.
-- Host configuration software (settings, profiles, a Figma bridge).
+- Desktop companion for macOS: live mirror, settings, SYS INFO (built, not yet confirmed
+  against the knob). Next: profile editing and upload, automatic profile switching, the Figma
+  bridge, Windows.
 - Integration tests: first pass done with SYS INFO. Left, not noticeable in use: occasional
   300–600 µs loop spikes (likely instruction-cache evictions; fix: the loop's code in IRAM)
   and rare audio gaps.

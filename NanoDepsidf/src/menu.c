@@ -3,6 +3,7 @@
 #include "haptic_params.h"
 #include "app_profiles/app_profiles.h"
 #include "sysmon.h"
+#include "host_proto.h"
 #include "freertos/FreeRTOS.h"
 #include <stdatomic.h>
 #include <stdio.h>
@@ -801,6 +802,13 @@ bool menu_take_recalibrate_request(void) {
     return atomic_exchange_explicit(&s_recal_request, false, memory_order_relaxed);
 }
 
+menu_screen_id_t menu_current_screen(void) {
+    portENTER_CRITICAL(&s_state_mux);
+    menu_screen_id_t id = s_stack_depth > 0 ? s_stack[s_stack_depth - 1].screen->id : MENU_SCREEN_NONE;
+    portEXIT_CRITICAL(&s_state_mux);
+    return id;
+}
+
 bool menu_is_open(void) {
     portENTER_CRITICAL(&s_state_mux);
     bool open = (s_stack_depth > 0);
@@ -924,4 +932,117 @@ menu_host_t menu_get_host(void) {
 
 menu_hid_type_t menu_get_hid_type(void) {
     return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
+}
+
+// --- Companion app (host_link.c, Core 1) ---
+// Same atomics, same clamps as the rotate_*() callbacks; s_saved only under s_state_mux, like
+// everywhere else in this file.
+
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+static int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+void menu_remote_get(menu_remote_settings_t *out) {
+    settings_t cur, saved;
+    settings_capture(&cur);
+    portENTER_CRITICAL(&s_state_mux);
+    saved = s_saved;
+    portEXIT_CRITICAL(&s_state_mux);
+
+    out->detents = cur.detents;
+    out->kp = cur.kp;
+    out->kd = cur.kd;
+    out->feel = cur.haptic_type;
+    out->amp = cur.amp;
+    out->pitch = cur.pitch;
+    out->sound = cur.sound;
+    out->hid_type = cur.hid_type;
+    out->midi_channel = cur.midi_channel;
+    out->profile = cur.app_profile;
+    out->boot_mode = cur.boot_mode;
+    out->rotation = cur.rotation;
+    out->host = cur.host;
+
+    uint16_t d = 0;
+    if (cur.detents != saved.detents) d |= 1u << HOST_SET_DETENTS;
+    if (cur.kp != saved.kp) d |= 1u << HOST_SET_KP;
+    if (cur.kd != saved.kd) d |= 1u << HOST_SET_KD;
+    if (cur.haptic_type != saved.haptic_type) d |= 1u << HOST_SET_FEEL;
+    if (cur.amp != saved.amp) d |= 1u << HOST_SET_AMP;
+    if (cur.pitch != saved.pitch) d |= 1u << HOST_SET_PITCH;
+    if (cur.sound != saved.sound) d |= 1u << HOST_SET_SOUND;
+    if (cur.hid_type != saved.hid_type) d |= 1u << HOST_SET_HID_TYPE;
+    if (cur.midi_channel != saved.midi_channel) d |= 1u << HOST_SET_MIDI_CH;
+    if (cur.app_profile != saved.app_profile) d |= 1u << HOST_SET_PROFILE;
+    if (cur.boot_mode != saved.boot_mode) d |= 1u << HOST_SET_BOOT;
+    if (cur.rotation != saved.rotation) d |= 1u << HOST_SET_ROTATION;
+    if (cur.host != saved.host) d |= 1u << HOST_SET_HOST;
+    out->dirty = d;
+}
+
+bool menu_remote_set(int id, int32_t ival, float fval) {
+    switch (id) {
+        case HOST_SET_DETENTS:
+            atomic_store(&s_ph_detents, clampi(ival, HAPTIC_NUM_DETENTS_MIN, HAPTIC_NUM_DETENTS_MAX));
+            break;
+        case HOST_SET_KP: atomic_store(&s_ph_kp, clampf(fval, HAPTIC_KP_MIN, HAPTIC_KP_MAX)); break;
+        case HOST_SET_KD: atomic_store(&s_ph_kd, clampf(fval, HAPTIC_KD_MIN, HAPTIC_KD_MAX)); break;
+        case HOST_SET_FEEL:
+            atomic_store(&s_ph_haptic_type, (haptic_type_t)clampi(ival, 0, HAPTIC_TYPE_COUNT - 1));
+            break;
+        case HOST_SET_AMP: atomic_store(&s_ph_amp, clampi(ival, AUDIO_CLICK_AMP_MIN, AUDIO_CLICK_AMP_MAX)); break;
+        case HOST_SET_PITCH:
+            atomic_store(&s_ph_pitch, clampf(fval, AUDIO_CLICK_PITCH_MIN, AUDIO_CLICK_PITCH_MAX));
+            break;
+        case HOST_SET_SOUND:
+            atomic_store(&s_ph_sound, (audio_click_timbre_t)clampi(ival, 0, AUDIO_TIMBRE_COUNT - 1));
+            break;
+        case HOST_SET_HID_TYPE:
+            atomic_store(&s_ph_hid_type, (menu_hid_type_t)clampi(ival, 0, MENU_HID_TYPE_COUNT - 1));
+            break;
+        case HOST_SET_MIDI_CH: atomic_store(&s_ph_midi_channel, clampi(ival, 1, 16)); break;
+        case HOST_SET_PROFILE: atomic_store(&s_ph_app_profile, clampi(ival, 0, app_profiles_count() - 1)); break;
+        case HOST_SET_BOOT:
+            atomic_store(&s_ph_boot_mode, (boot_usb_mode_t)clampi(ival, 0, BOOT_USB_MODE_COUNT - 1));
+            break;
+        case HOST_SET_ROTATION: atomic_store(&s_ph_rotation, clampi(ival, 0, MENU_DISPLAY_ROTATIONS - 1)); break;
+        case HOST_SET_HOST: atomic_store(&s_ph_host, (menu_host_t)clampi(ival, 0, MENU_HOST_COUNT - 1)); break;
+        default: return false;
+    }
+    return true;
+}
+
+// Each group with its NVS writer -- what F2 on that group's screen saves.
+static const struct {
+    menu_screen_id_t group;
+    void (*save)(void);
+} s_remote_groups[] = {
+    {MENU_SCREEN_HAPTIC, action_save_haptic},   {MENU_SCREEN_HID, action_save_hid},
+    {MENU_SCREEN_BOOT, action_save_boot},       {MENU_SCREEN_DISPLAY, action_save_display},
+    {MENU_SCREEN_BINDINGS, action_save_bindings},
+};
+
+void menu_remote_save(void) {
+    bool any = false;
+    for (size_t i = 0; i < sizeof(s_remote_groups) / sizeof(s_remote_groups[0]); i++) {
+        settings_t cur, saved;
+        settings_capture(&cur);
+        portENTER_CRITICAL(&s_state_mux);
+        saved = s_saved;
+        portEXIT_CRITICAL(&s_state_mux);
+        if (!settings_group_differs(&cur, &saved, s_remote_groups[i].group)) continue;
+        s_remote_groups[i].save(); // NVS, outside the spinlock
+        portENTER_CRITICAL(&s_state_mux);
+        settings_copy_group(&s_saved, &cur, s_remote_groups[i].group);
+        portEXIT_CRITICAL(&s_state_mux);
+        any = true;
+    }
+    if (any) atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed); // the SAVED! toast
+}
+
+void menu_remote_revert(void) {
+    portENTER_CRITICAL(&s_state_mux);
+    settings_t saved = s_saved;
+    s_editing = false;
+    portEXIT_CRITICAL(&s_state_mux);
+    settings_restore(&saved);
 }

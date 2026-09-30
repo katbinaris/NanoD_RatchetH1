@@ -142,6 +142,7 @@ void menu_input_save(void);               // F2: save the current settings scree
 void menu_input_rotate(int8_t direction); // knob tick, +1/-1: navigate list, or adjust value while editing
 
 bool menu_is_open(void);
+menu_screen_id_t menu_current_screen(void); // MENU_SCREEN_NONE when closed; cheap, any core
 
 // DEVICE -> RECALIBRATE confirmed: true once, then false again. control_task.c polls it and
 // does the work (motor off, forget the calibration, restart -- the next boot recalibrates).
@@ -185,3 +186,21 @@ int32_t menu_get_app_profile(void);
 int32_t menu_get_display_rotation(void);
 // DEVICE -> BINDINGS (live while the screen is being turned, like rotation). Any core.
 menu_host_t menu_get_host(void);
+
+// --- Companion app (host_link.c, Core 1) ---
+// The same settings the menu edits, set from the desktop app: a set is live at once (clamped
+// exactly like turning the knob), and shows as unsaved on the device's own screens until
+// saved -- from the app or with F2.
+typedef struct {
+    uint16_t dirty; // 1 << HOST_SET_* (host_proto.h) for each value that differs from NVS
+    int32_t detents;
+    float kp, kd;
+    int32_t feel, amp;
+    float pitch;
+    int32_t sound, hid_type, midi_channel, profile, boot_mode, rotation, host;
+} menu_remote_settings_t;
+
+void menu_remote_get(menu_remote_settings_t *out);
+bool menu_remote_set(int id, int32_t ival, float fval); // false: unknown id
+void menu_remote_save(void);   // NVS for every group that differs (a few ms of flash writes)
+void menu_remote_revert(void); // every group back to what NVS holds

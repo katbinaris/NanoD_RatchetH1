@@ -1,0 +1,417 @@
+/* The device's pixel UI, on a desktop: black glass, Silkscreen on its 4px grid (16 / 24 /
+   32 / 48 px), grey labels, dark 1px rules, amber for focus / editing / unsaved. Cards are
+   1px frames with the corner pixels cut, like frame_box() on the device. */
+
+@font-face {
+  font-family: "Silkscreen";
+  src: url("./fonts/Silkscreen-Regular.ttf") format("truetype");
+  font-display: block;
+}
+
+:root {
+  --black: #000000;
+  --white: #ffffff;
+  --grey: #6e6e6e;
+  --dark: #3a3a3a;
+  --amber: #ffc94d;
+  --face: #e4e4e4;
+  --u: 4px; /* the grid */
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--black);
+  color: var(--white);
+  font-family: "Silkscreen", monospace;
+  font-size: 8px;
+  line-height: 12px;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  text-rendering: optimizeSpeed;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+canvas {
+  image-rendering: pixelated;
+  display: block;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+#app {
+  display: grid;
+  grid-template-rows: 32px 1fr;
+  height: 100%;
+}
+
+/* --- header --- */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px 0 78px; /* the traffic lights sit in the overlay title bar (fixed size, not halved) */
+  border-bottom: 1px solid var(--dark);
+}
+.top.web {
+  padding-left: 12px;
+}
+.brand {
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--grey);
+}
+.status .dot {
+  width: 4px;
+  height: 4px;
+  background: var(--dark);
+}
+.status.on .dot {
+  background: var(--amber);
+}
+.status.on {
+  color: var(--white);
+}
+.spacer {
+  flex: 1;
+}
+
+.btn {
+  height: 20px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--dark);
+  color: var(--grey);
+  clip-path: var(--cut);
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--grey);
+  color: var(--white);
+}
+.btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.btn.primary {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.btn.primary.fill {
+  background: var(--amber);
+  color: var(--black);
+}
+.btn.primary.blink {
+  animation: blink 0.9s steps(1) infinite;
+}
+@keyframes blink {
+  66% {
+    background: transparent;
+    color: var(--amber);
+  }
+}
+
+/* cut corners: one pixel square off each corner at 1px stroke */
+:root {
+  --cut: polygon(1px 0, calc(100% - 1px) 0, 100% 1px, 100% calc(100% - 1px), calc(100% - 1px) 100%, 1px 100%, 0 calc(100% - 1px), 0 1px);
+}
+
+/* --- body --- */
+
+.main {
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  min-height: 0;
+}
+
+.glass-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-right: 1px solid var(--dark);
+}
+.glass-caption {
+  color: var(--grey);
+  text-align: center;
+  min-height: 12px;
+}
+
+.panel-col {
+  display: grid;
+  grid-template-rows: 32px 1fr;
+  min-height: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--dark);
+}
+.tab {
+  color: var(--grey);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover {
+  color: var(--white);
+}
+.tab.on {
+  color: var(--white);
+  border-bottom-color: var(--amber);
+}
+
+.panel {
+  overflow-y: auto;
+  padding: 12px 16px 20px;
+}
+.panel::-webkit-scrollbar {
+  width: 4px;
+}
+.panel::-webkit-scrollbar-thumb {
+  background: var(--dark);
+}
+
+.section {
+  margin-bottom: 16px;
+}
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--grey);
+  padding-bottom: 4px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--dark);
+}
+.section-head .note {
+  margin-left: auto;
+}
+.hint {
+  color: var(--grey);
+}
+.warn {
+  color: var(--amber);
+}
+
+/* --- cards (choices) --- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+}
+.card {
+  position: relative;
+  border: 1px solid var(--dark);
+  clip-path: var(--cut);
+  padding: 8px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--grey);
+  min-height: 56px;
+  justify-content: center;
+  text-align: center;
+}
+.card:hover {
+  border-color: var(--grey);
+  color: var(--white);
+}
+.card.on {
+  border-color: var(--amber);
+  color: var(--white);
+  outline: 1px solid var(--amber);
+  outline-offset: 1px;
+  clip-path: none;
+}
+.card .big {
+  font-size: 12px;
+  line-height: 16px;
+}
+.card .sub {
+  color: var(--grey);
+}
+.card.on .sub {
+  color: var(--amber);
+}
+.card.dirty::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 3px;
+  height: 3px;
+  background: var(--amber);
+}
+
+/* --- stepped sliders --- */
+
+.row {
+  display: grid;
+  grid-template-columns: 80px 1fr 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+.row .name {
+  display: flex;
+  flex-direction: column;
+}
+.row .name .cap {
+  color: var(--grey);
+}
+.row .value {
+  text-align: right;
+  font-size: 12px;
+  line-height: 16px;
+}
+.row.dirty .value {
+  color: var(--amber);
+}
+.blocks {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  cursor: ew-resize;
+  outline: none;
+}
+.blocks i {
+  flex: 1;
+  background: var(--dark);
+}
+.blocks i.on {
+  background: var(--white);
+}
+.blocks:hover i.on,
+.blocks.drag i.on,
+.blocks:focus-visible i.on {
+  background: var(--amber);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  line-height: 20px;
+}
+.stepper button {
+  color: var(--amber);
+}
+
+/* --- key / value readouts --- */
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tile {
+  border: 1px solid var(--dark);
+  clip-path: var(--cut);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tile .head {
+  color: var(--grey);
+  display: flex;
+  justify-content: space-between;
+}
+.tile .big {
+  font-size: 16px;
+  line-height: 22px;
+}
+.tile .sub {
+  color: var(--grey);
+  min-height: 12px;
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.kv span:first-child {
+  color: var(--grey);
+}
+.kv .amber {
+  color: var(--amber);
+}
+.gauge {
+  height: 4px;
+  background: var(--dark);
+  position: relative;
+  margin: 3px 0 5px;
+}
+.gauge i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--white);
+}
+.gauge b {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--amber);
+}
+.spark {
+  width: 100%;
+  height: 24px;
+  margin-top: 4px;
+}
+
+/* --- empty / connect states --- */
+
+.empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--grey);
+  text-align: center;
+}
+.empty .big {
+  font-size: 12px;
+  color: var(--white);
+}
