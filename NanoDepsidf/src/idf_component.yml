@@ -2,6 +2,9 @@
 dependencies:
   espressif/esp_tinyusb:
     version: "^2.3.0"
+  # LEDs: WS2811 rings over RMT (led_task.c).
+  espressif/led_strip:
+    version: "^3.0.0"
   # Display: LovyanGFX (replaced esp_lcd_gc9a01 + esp_lvgl_port). Not on the ESP component
   # registry -- pulled from GitHub, pinned to a release tag.
   lovyan03/lovyangfx:

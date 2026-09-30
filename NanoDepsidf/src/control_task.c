@@ -907,6 +907,9 @@ static void control_task_fn(void *arg) {
                         at_wall = true;
                     }
                 }
+                static bool s_prev_at_wall = false; // LEDs flash once per new push into a wall
+                if (at_wall && !s_prev_at_wall) ui_state_note_wall();
+                s_prev_at_wall = at_wall;
                 float target_rel = (float)detent_index * detent_spacing;
                 float error = wrap_pi(target_rel - rel);
 
@@ -1062,6 +1065,7 @@ static void control_task_fn(void *arg) {
                             // unconditionally, menu open or not -- same physical click either
                             // way, only what the crossing *means* (below) changes.
                             audio_trigger_click(app_on && app_mode_fine_clicks() ? AUDIO_CLICK_FINE : AUDIO_CLICK_NORMAL);
+                            ui_state_note_click();
                         }
 
                         // Direction comes from the filtered rotation velocity's sign at

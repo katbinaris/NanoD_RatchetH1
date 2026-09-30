@@ -33,6 +33,13 @@ void ui_state_set_buttons(uint8_t held_mask);
 // int32 at 1e-4 rad covers ~34,000 turns before wrapping; consumers only use differences.
 void ui_state_set_knob_angle(int32_t angle_1e4_rad);
 
+// LEDs: counters bumped on every detent click and on every new end-stop hit (a push into a
+// haptic wall); consumers watch for changes. Cheap enough for the 10 kHz loop.
+void ui_state_note_click(void);
+void ui_state_note_wall(void);
+uint32_t ui_state_get_clicks(void);
+uint32_t ui_state_get_walls(void);
+
 // Consumer side (Core 1)
 int32_t ui_state_get_knob_angle(void);
 int32_t ui_state_get_detent(void); // no longer drawn, but a change means "knob turned"

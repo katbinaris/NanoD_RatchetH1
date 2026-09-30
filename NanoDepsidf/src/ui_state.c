@@ -6,6 +6,12 @@ static _Atomic uint8_t s_buttons = 0;
 static _Atomic int32_t s_knob_angle = 0;
 static _Atomic bool s_usb_serial_active = false;
 static _Atomic bool s_screensaver = false;
+static _Atomic uint32_t s_clicks = 0, s_walls = 0;
+
+void ui_state_note_click(void) { atomic_fetch_add_explicit(&s_clicks, 1, memory_order_relaxed); }
+void ui_state_note_wall(void) { atomic_fetch_add_explicit(&s_walls, 1, memory_order_relaxed); }
+uint32_t ui_state_get_clicks(void) { return atomic_load_explicit(&s_clicks, memory_order_relaxed); }
+uint32_t ui_state_get_walls(void) { return atomic_load_explicit(&s_walls, memory_order_relaxed); }
 
 void ui_state_init(void) {
     atomic_store_explicit(&s_detent, 0, memory_order_relaxed);

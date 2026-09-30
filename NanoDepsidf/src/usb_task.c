@@ -118,7 +118,7 @@ static const char *s_usb_string_descriptor[7] = {
 // hand-roll a custom device descriptor just to get those three fields right.
 static const uint8_t s_usb_configuration_descriptor[] = {
     // Config number, interface count, string index, total length, attribute, power in mA
-    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 100),
+    TUD_CONFIG_DESCRIPTOR(1, ITF_NUM_TOTAL, 0, TUSB_DESC_TOTAL_LEN, TUSB_DESC_CONFIG_ATT_REMOTE_WAKEUP, 500), // mA: the USB 2.0 maximum (LEDs)
     // Interface number, string index, EP notification address & size, EP data (out, in) & size
     TUD_CDC_DESCRIPTOR(ITF_NUM_CDC, 4, EPNUM_CDC_NOTIF, 16, EPNUM_CDC_OUT, EPNUM_CDC_IN, 64),
     // Interface number, string index, boot protocol, report descriptor len, EP In address, size & polling interval

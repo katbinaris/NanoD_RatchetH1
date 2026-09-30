@@ -37,6 +37,7 @@ shows, at 2× scale.
   - [The command wheel](#the-command-wheel)
   - [Parameter mode](#parameter-mode)
   - [Idle screen](#idle-screen)
+  - [LEDs](#leds)
 - [Hardware](#hardware)
 - [Firmware architecture](#firmware-architecture)
 - [Building and flashing](#building-and-flashing)
@@ -83,6 +84,9 @@ shows, at 2× scale.
 - **Idle screen.** Arcade attract mode: the active app's icon (or the QUADRA wordmark)
   jumps around or explodes onto the screen with squash and stretch, dust, debris and
   sparkles, in that app's colours. A routine is picked at random each time.
+- **LEDs in the app's colours.** A 60-LED ring around the knob and two LEDs under each key:
+  a dim gradient at rest, a spot that follows the knob and pulses on every detent, the
+  command wheel's segments, a flash at an end stop. Never above 20% brightness.
 - **Icon upload.** Send any 48×48 image over USB to show on the main screen (RAM only).
 
 ---
@@ -400,6 +404,26 @@ green, Onshape's teal, green and lime, and for other profiles the three most com
 of the icon. QUADRA uses amber. Any input wakes the device, and the waking key press is
 swallowed.
 
+### LEDs
+
+A ring of 60 LEDs sits around the knob and two LEDs sit under each key. They take the same
+three colours as the idle screen (the app's accents, amber outside APP mode and in the menu)
+and never go above 20% brightness.
+
+| When | Ring around the knob | Key LEDs |
+|---|---|---|
+| At rest | A dim gradient of the app's three colours | Dim, in the same gradient from F1 to F4; a key with no action is nearly off |
+| Turning the knob | A bright spot follows the knob and pulses on every detent click; it fades back into the gradient about a second after the knob stops | — |
+| Holding a key | — | That key lights up fully |
+| Command wheel open | One segment per command (cancel first, dim white); the chosen one is bright | — |
+| End stop | A short white flash of the whole ring | — |
+| Menu | Amber | Amber |
+| Idle | The gradient drifts slowly and dims | Dimmed |
+
+The animations are deliberately calm: 30 updates a second, and a strip is only sent again
+when one of its LEDs changes. A software cap also scales everything down if the estimated
+draw would pass 250 mA.
+
 ---
 
 ## Hardware
@@ -412,7 +436,8 @@ swallowed.
 | Display | GC9A01 round IPS, 240×240, SPI at 80 MHz, PWM backlight |
 | Audio | MAX98357A I²S amplifier driving a transducer |
 | Keys | 4 (F1–F4), active low |
-| LEDs | Two WS2811 rings (60 + 8 LEDs); not driven yet |
+| LEDs | WS2811: a 60-LED ring around the knob (RGB order) and 8 under the keys, two per key (GRB order), driven over RMT |
+| USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 negotiates USB-C / PD power on its own |
 | USB | USB-C, native USB OTG (TinyUSB) |
 
 <details>
@@ -449,7 +474,7 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | TinyUSB device task | 1 | 11 | The USB stack itself (kept above the display so animations never delay reports) |
 | `i2s` | 1 | 9 | Click synthesis and audio output |
 | `display` | 1 | 9 | Renders frames into a full-screen sprite and pushes them over SPI |
-| `led` | 1 | 3 | Reserved for the LED rings |
+| `led` | 1 | 10 | LED ring and key LEDs at 30 fps; above the display so its animations can't stall it, asleep between frames |
 
 **Knob direction.** Which way counts as forward is one constant, `KNOB_DIRECTION` in
 `control_task.c` (currently inverted, -1). It flips what a turn means everywhere (menu, APP
@@ -625,9 +650,10 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 - APP mode with the Figma, Plasticity and Onshape profiles, their command wheels, and
   parameter mode (Plasticity's handle, Onshape's number field).
 - The idle screen, icon upload, and the pixel UI.
+- The LED ring and key LEDs.
 
 **Milestone 1 (in progress):**
-- LED rings.
+- LED power budget from the negotiated USB-C / PD current (read the STUSB4500).
 - KEYBOARD, MOUSE and MIDI modes.
 - Host configuration protocol.
 - Integration, load and power tests.

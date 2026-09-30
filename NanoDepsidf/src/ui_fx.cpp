@@ -1,5 +1,6 @@
 #include "ui_fx.hpp"
 #include "ui_gfx.hpp"
+#include "app_colors.h"
 #include <math.h>
 #include <string.h>
 
@@ -460,60 +461,11 @@ static void routine_boom(float t, const Spr &sp, const uint32_t *cols) {
     if (t >= 5560 && t < 5700) blob(120, cy, lroundf(8 - (t - 5560) / 20), WHITE, 2);
 }
 
-// The icon's accent colours, for profiles that don't name their own: its three most common
-// colours, dark to bright, exactly as sampled. Pixels are binned coarsely (3 bits per channel)
-// so the shading of one colour counts as one; near-black (outlines) is skipped.
-static uint32_t s_icon_heat[3];
-static const uint8_t *s_heat_for = nullptr;
-static float luma(uint32_t c) {
-    return 0.30f * ((c >> 16) & 0xFF) + 0.59f * ((c >> 8) & 0xFF) + 0.11f * (c & 0xFF);
-}
-static void build_icon_palette(const uint8_t *icon) {
-    struct Bin { uint16_t key; uint16_t n; uint32_t r, g, b; };
-    static Bin bins[32]; // pixel art has few colours; overflow pixels are simply not counted
-    int nb = 0;
-    for (int i = 0; i < ATTRACT_ICON * ATTRACT_ICON; i++) {
-        uint16_t v = (uint16_t)(icon[i * 2] << 8 | icon[i * 2 + 1]);
-        uint32_t r = ((v >> 11) & 31) * 255 / 31, g = ((v >> 5) & 63) * 255 / 63, b = (v & 31) * 255 / 31;
-        if (r + g + b < 90) continue; // black / outline
-        uint16_t key = (uint16_t)((r >> 5) << 6 | (g >> 5) << 3 | (b >> 5));
-        int k = 0;
-        while (k < nb && bins[k].key != key) k++;
-        if (k == nb) {
-            if (nb == 32) continue;
-            bins[nb++] = {key, 0, 0, 0, 0};
-        }
-        bins[k].n++;
-        bins[k].r += r;
-        bins[k].g += g;
-        bins[k].b += b;
-    }
-    uint32_t pick[3];
-    int np = 0;
-    for (; np < 3; np++) {
-        int best = -1;
-        for (int k = 0; k < nb; k++) {
-            if (bins[k].n && (best < 0 || bins[k].n > bins[best].n)) best = k;
-        }
-        if (best < 0) break;
-        const Bin &b = bins[best];
-        pick[np] = (b.r / b.n) << 16 | (b.g / b.n) << 8 | (b.b / b.n);
-        bins[best].n = 0;
-    }
-    if (np == 0) {
-        for (int i = 0; i < 3; i++) s_icon_heat[i] = AMBER;
-        return;
-    }
-    for (; np < 3; np++) pick[np] = pick[np - 1]; // fewer colours: repeat the last
-    for (int i = 1; i < 3; i++) {
-        for (int j = i; j > 0 && luma(pick[j]) < luma(pick[j - 1]); j--) {
-            uint32_t tmp = pick[j];
-            pick[j] = pick[j - 1];
-            pick[j - 1] = tmp;
-        }
-    }
-    for (int i = 0; i < 3; i++) s_icon_heat[i] = pick[i];
-}
+// The accent colours: the profile's plasma_heat, or sampled from its icon (app_colors.c,
+// shared with the LEDs). Cached per icon / heat.
+static uint32_t s_accents[3];
+static const uint8_t *s_acc_icon = nullptr;
+static const uint32_t *s_acc_heat = nullptr;
 
 // --- the sequence ---
 static const uint32_t BOUNCE_MS = 16000, BOOM_MS = 6000;
@@ -562,14 +514,12 @@ void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat, uint
     float t = (float)(t_ms - s_seq.start);
 
     Spr sp = icon48 ? Spr{icon48, ATTRACT_ICON, ATTRACT_ICON, 1} : Spr{nullptr, s_word_w, s_word_h, 2};
-    const uint32_t *cols;
-    static const uint32_t QUADRA_COLS[3] = {AMBER, AMBER, AMBER};
-    if (icon48 == nullptr) cols = QUADRA_COLS;
-    else if (heat) cols = heat;
-    else {
-        if (icon48 != s_heat_for) { build_icon_palette(icon48); s_heat_for = icon48; }
-        cols = s_icon_heat;
+    if (icon48 != s_acc_icon || heat != s_acc_heat || s_acc_icon == nullptr) {
+        app_accents(icon48, heat, s_accents); // AMBER x3 without an icon (QUADRA)
+        s_acc_icon = icon48;
+        s_acc_heat = heat;
     }
+    const uint32_t *cols = s_accents;
     s_ox = s_oy = 0;
     switch (s_seq.routine) {
         case ATTRACT_JUMP: routine_jump(t, sp, cols); break;

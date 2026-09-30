@@ -34,7 +34,8 @@
 #define PRIO_TINYUSB 11
 #define PRIO_I2S     9
 #define PRIO_DISPLAY 9
-#define PRIO_LED     3
+#define PRIO_LED     10 // above the display: PACE_FAST only yields, which would starve it;
+                           // it sleeps between its 30 fps frames, so it starves nothing
 
 // Control loop rate. Was a 1kHz placeholder through all of Phase 2's bench-validation work.
 // RAISED to 10kHz once for haptic-feel tuning and immediately REVERTED: at the time, IDLE0
