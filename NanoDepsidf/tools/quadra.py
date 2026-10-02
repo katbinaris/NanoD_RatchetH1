@@ -3,6 +3,9 @@
 
     quadra.py hello                   firmware and extension versions
     quadra.py profile [name]          list app profiles, or switch to one (saved)
+    quadra.py text DVIROS             the idle-screen word ("" = QUADRA)
+    quadra.py lights [--color custom --hue 200 --effect breathe ... --save]
+    quadra.py notify --ask --nudge    test a notification on the knob
     quadra.py reboot [--serial]       restart; --serial = one boot as USB-Serial-JTAG (flashing)
     quadra.py flash [firmware.bin]    serial reboot -> flash the app -> back to HID, no buttons
 
@@ -120,6 +123,79 @@ def cmd_profile(args):
         q.close()
 
 
+EXT_TEXT, EXT_LIGHTS, EXT_PREFS, EXT_NOTIFY = 0x22, 0x23, 0x24, 0x25
+EXT_TAG_PREFS, EXT_TAG_NOTIFY = 0xC2, 0xC3
+FX = ["gradient", "solid", "breathe", "spin", "rainbow", "off"]
+DECISIONS = {1: "ALLOW", 2: "DENY", 3: "LATER", 4: "DISMISS"}
+
+
+def show_prefs(r: bytes):
+    src = "custom" if r[1] == 1 else "app"
+    fx = FX[r[2]] if r[2] < len(FX) else r[2]
+    hue, level = int.from_bytes(r[3:5], "little"), int.from_bytes(r[7:9], "little")
+    print(f"lights: color={src} hue={hue} sat={r[5]}% effect={fx} speed={r[6]} level={level}%"
+          + ("  (unsaved)" if r[9] else ""))
+    print(f"idle text: {cstr(r[16:32]) or '(QUADRA)'}")
+
+
+def cmd_text(args):
+    t = args.text.upper() if args.upper else args.text
+    if len(t) > 12 or any(not (0x20 <= ord(c) <= 0x7E) for c in t):
+        raise SystemExit("up to 12 plain ASCII characters")
+    q = Quadra()
+    try:
+        r = q.request(bytes([EXT_TEXT, 0]) + t.encode().ljust(16, b"\0"), {EXT_TAG_ACK, 0xA0}, 2.0)
+    finally:
+        q.close()
+    if not r or r[0] != EXT_TAG_ACK or r[2] != 0:
+        raise SystemExit("refused" if r else "no answer (firmware without the extension?)")
+    print(f"idle text: {t or '(QUADRA)'}")
+
+
+def cmd_lights(args):
+    q = Quadra()
+    try:
+        if not any(v is not None for v in (args.color, args.hue, args.sat, args.effect, args.speed, args.level)) and not args.save:
+            r = q.request(bytes([EXT_PREFS]), {EXT_TAG_PREFS}, 1.0)
+        else:
+            def b8(v):
+                return 0xFF if v is None else v
+            def b16(v):
+                return (0xFFFF if v is None else v).to_bytes(2, "little")
+            src = None if args.color is None else (1 if args.color == "custom" else 0)
+            fx = None if args.effect is None else FX.index(args.effect)
+            r = q.request(bytes([EXT_LIGHTS, 1 if args.save else 0, b8(src), b8(fx)]) + b16(args.hue)
+                          + bytes([b8(args.sat), b8(args.speed)]) + b16(args.level), {EXT_TAG_PREFS}, 2.0)
+    finally:
+        q.close()
+    if not r:
+        raise SystemExit("no answer (firmware without the extension?)")
+    show_prefs(r)
+
+
+def cmd_notify(args):
+    """Post one notification straight to the knob (no daemon) and wait for its answer."""
+    src = {"claude": 0, "codex": 1, "cursor": 2, "other": 3}[args.agent]
+    kind = (0 if args.ask else 1) | (0x80 if args.nudge else 0)
+    color = bytes.fromhex(args.color.lstrip("#")) if args.color else b"\0\0\0"
+    q = Quadra()
+    try:
+        q.send(bytes([EXT_NOTIFY, 1, 0x34, 0x12, src, kind]) + args.title.encode()[:16].ljust(16, b"\0")
+               + args.body.encode()[:39].ljust(39, b"\0") + color)
+        print(f"posted: {args.agent} {'approval' if args.ask else 'info'} -- answer on the knob (Ctrl+C to clear)")
+        try:
+            while True:
+                data = q.dev.read(REPORT_SIZE, 200)
+                if data and data[0] == EXT_TAG_NOTIFY and data[2] | data[3] << 8 == 0x1234:
+                    print(f"knob: {DECISIONS.get(data[1], data[1])}")
+                    return
+        except KeyboardInterrupt:
+            q.send(bytes([EXT_NOTIFY, 2, 0x34, 0x12]))
+            print("cleared")
+    finally:
+        q.close()
+
+
 def reboot(serial: bool) -> bool:
     """True if the device acknowledged; False if its firmware has no extensions."""
     q = Quadra()
@@ -196,6 +272,27 @@ def main():
     p = sub.add_parser("profile", help="list profiles, or switch to one (saved)")
     p.add_argument("name", nargs="?")
     p.set_defaults(fn=cmd_profile)
+    p = sub.add_parser("text", help="the idle-screen word ('' = QUADRA), stored on the knob")
+    p.add_argument("text")
+    p.add_argument("--upper", action="store_true", help="uppercase it")
+    p.set_defaults(fn=cmd_text)
+    p = sub.add_parser("lights", help="show or change the LED look (live; --save to keep it)")
+    p.add_argument("--color", choices=["app", "custom"])
+    p.add_argument("--hue", type=lambda v: int(v) % 360)
+    p.add_argument("--sat", type=lambda v: max(0, min(100, int(v))))
+    p.add_argument("--effect", choices=FX)
+    p.add_argument("--speed", type=lambda v: max(1, min(10, int(v))))
+    p.add_argument("--level", type=lambda v: max(10, min(200, int(v))), help="%% of the stock brightness")
+    p.add_argument("--save", action="store_true")
+    p.set_defaults(fn=cmd_lights)
+    p = sub.add_parser("notify", help="test: show a notification and print how it was answered")
+    p.add_argument("--agent", choices=["claude", "codex", "cursor", "other"], default="claude")
+    p.add_argument("--ask", action="store_true", help="an approval (hold F1 / F3) instead of an attention item")
+    p.add_argument("--nudge", action="store_true", help="tap gently every few seconds")
+    p.add_argument("--color", help="#RRGGBB (default: the agent's)")
+    p.add_argument("--title", default="RUN")
+    p.add_argument("--body", default="echo hello from the knob")
+    p.set_defaults(fn=cmd_notify)
     p = sub.add_parser("reboot")
     p.add_argument("--serial", action="store_true", help="one boot as USB-Serial-JTAG (for flashing)")
     p.set_defaults(fn=cmd_reboot)

@@ -16,7 +16,7 @@ import re
 import socket
 import sys
 
-SOCK = os.path.expanduser("~/.quadra/agentd.sock")
+SOCK = os.path.join(os.environ.get("QUADRA_HOME") or os.path.expanduser("~/.quadra"), "agentd.sock")
 TITLE_MAX, BODY_MAX = 16, 42
 
 SOURCES = {"claude": "claude", "codex": "codex", "cursor": "cursor"}

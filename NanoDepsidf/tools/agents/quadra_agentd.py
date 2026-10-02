@@ -22,7 +22,7 @@ import time
 
 import hid
 
-HOME = os.path.expanduser("~/.quadra")
+HOME = os.environ.get("QUADRA_HOME") or os.path.expanduser("~/.quadra")
 SOCK = os.path.join(HOME, "agentd.sock")
 CONFIG = os.path.join(HOME, "config.json")
 DEFAULTS = {
@@ -31,12 +31,17 @@ DEFAULTS = {
     "turn_delay_s": 4,      # ...unless you're already typing back within this
     "run_delay_s": 1.5,     # Cursor: only show "RUN?" if the command is still waiting by then
     "info_ttl_s": 1800,     # attention items clear themselves after this
+    # Each agent's colour on the knob (ring, badge); "#000000" = the knob's own default.
+    "colors": {"claude": "#E8825F", "codex": "#4F9DFF", "cursor": "#B98CFF"},
+    # Which items tap the knob gently every few seconds: approvals, "needs input", an approval
+    # that moved to the app, "your turn", Cursor's "run?".
+    "nudge": {"ask": True, "attention": True, "inapp": True, "turn": False, "run": False},
 }
 
 # --- device (src/ext_proto.h, src/notify.h) ---
 REPORT = 64
 VENDOR_USAGE_PAGE, PRODUCT = 0xFF00, "Quadra"
-EXT_CMD_NOTIFY, EXT_TAG_NOTIFY = 0x25, 0xC3
+EXT_CMD_NOTIFY, EXT_TAG_NOTIFY, EXT_NOTIFY_NUDGE = 0x25, 0xC3, 0x80
 POST, CLEAR, CLEAR_ALL = 1, 2, 3
 ASK, INFO = 0, 1
 SOURCE_ID = {"claude": 0, "codex": 1, "cursor": 2}
@@ -49,12 +54,25 @@ def log(*a):
 
 
 def load_config():
-    cfg = dict(DEFAULTS)
+    cfg = json.loads(json.dumps(DEFAULTS))
     try:
-        cfg.update(json.load(open(CONFIG)))
+        user = json.load(open(CONFIG))
     except (OSError, ValueError):
-        pass
+        user = {}
+    for k, v in user.items():
+        if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+            cfg[k].update(v)
+        else:
+            cfg[k] = v
     return cfg
+
+
+def rgb(spec) -> bytes:
+    try:
+        v = int(str(spec).lstrip("#"), 16)
+        return bytes([(v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF])
+    except ValueError:
+        return b"\0\0\0"
 
 
 def cstr(s: str, n: int) -> bytes:
@@ -124,9 +142,11 @@ class Item:
         self.expires = None
         self.waiter = None  # asyncio.Future for an approval
 
-    def report(self) -> bytes:
+    def report(self, cfg) -> bytes:
+        nudge = cfg["nudge"].get("ask" if self.kind == ASK else self.key, False)
         return (bytes([EXT_CMD_NOTIFY, POST]) + self.id.to_bytes(2, "little")
-                + bytes([SOURCE_ID.get(self.source, 3), self.kind]) + cstr(self.title, 16) + cstr(self.body, 42))
+                + bytes([SOURCE_ID.get(self.source, 3), self.kind | (EXT_NOTIFY_NUDGE if nudge else 0)])
+                + cstr(self.title, 16) + cstr(self.body, 39) + rgb(cfg["colors"].get(self.source, "#000000")))
 
 
 class Daemon:
@@ -153,12 +173,12 @@ class Daemon:
         for iid in self.shown[keep:]:  # everything after the common head comes off...
             self.dev.send(bytes([EXT_CMD_NOTIFY, CLEAR]) + iid.to_bytes(2, "little"))
         for iid in want[keep:]:        # ...and goes back on in the right order
-            self.dev.send(self.items[iid].report())
+            self.dev.send(self.items[iid].report(self.cfg))
         self.shown = want
 
     def repost(self, item: Item):
         if item.id in self.shown:
-            self.dev.send(item.report())  # same id: the knob updates it in place
+            self.dev.send(item.report(self.cfg))  # same id: the knob updates it in place
 
     def new_id(self) -> int:
         while True:
