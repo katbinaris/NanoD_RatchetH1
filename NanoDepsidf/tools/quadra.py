@@ -13,9 +13,12 @@ Talks to the vendor HID interface (no macOS Input Monitoring permission needed).
 Setup: python3 -m pip install hidapi esptool
 """
 import argparse
+import getpass
 import os
+import struct
 import subprocess
 import sys
+import tempfile
 import time
 
 import hid
@@ -44,7 +47,7 @@ CMD_HELLO, TAG_HELLO = 0x10, 0xB0
 EXT_HELLO, EXT_REBOOT = 0x20, 0x21
 EXT_TAG_HELLO, EXT_TAG_ACK = 0xC0, 0xC1
 EXT_REBOOT_NORMAL, EXT_REBOOT_SERIAL = 0, 1
-EXT_ST = {0: "OK", 1: "BAD_PARAM", 2: "UNKNOWN"}
+EXT_ST = {0: "OK", 1: "BAD_PARAM", 2: "UNKNOWN", 3: "STORAGE"}
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FW = os.path.join(HERE, "..", ".pio", "build", "esp32-s3-devkitm-1", "firmware.bin")
@@ -149,6 +152,55 @@ def show_prefs(r: bytes):
     print(f"lights: color={src} hue={hue} sat={r[5]}% effect={fx} speed={r[6]} level={level}%"
           + ("  (unsaved)" if r[9] else ""))
     print(f"idle text: {cstr(r[16:32]) or '(QUADRA)'}")
+
+
+EXT_NET, EXT_TAG_NET = 0x29, 0xC4
+NET_SSID, NET_PASS_A, NET_PASS_B, NET_APPLY, NET_STATUS = 1, 2, 3, 4, 5
+NET_STATE = ["off", "connecting", "connected", "network not found", "wrong password"]
+
+
+def show_net(r: bytes):
+    state = NET_STATE[r[1]] if r[1] < len(NET_STATE) else f"state {r[1]}"
+    ssid, host = cstr(r[9:41]), cstr(r[41:64])
+    line = f"wifi: {'on' if r[8] else 'off'}, {state}" + (f' ("{ssid}")' if ssid else "")
+    if r[1] == 2:
+        rssi = r[2] - 256 if r[2] > 127 else r[2]
+        line += f", {'.'.join(map(str, r[3:7]))}, {rssi} dBm, {host}.local"
+        line += ", clock set" if r[7] else ", clock not set yet"
+    print(line)
+
+
+def cmd_wifi(args):
+    """WiFi: show it, or set it up. The password is asked for (never echoed, never stored here)."""
+    password = None
+    if args.ssid is not None:
+        if not 0 < len(args.ssid.encode()) <= 32:
+            raise SystemExit("SSID: 1-32 bytes")
+        password = getpass.getpass(f'password for "{args.ssid}" (empty for an open network): ')
+        if len(password.encode()) > 63:
+            raise SystemExit("password: 63 characters at most")
+    q = Quadra()
+    try:
+        status = lambda: q.request(bytes([EXT_NET, NET_STATUS]), {EXT_TAG_NET, EXT_TAG_ACK, 0xA0}, 1.0)
+        if args.ssid is None and not (args.on or args.off):
+            r = status()
+        else:
+            if args.ssid is not None:
+                pw = password.encode().ljust(64, b"\0")
+                q.send(bytes([EXT_NET, NET_SSID]) + args.ssid.encode().ljust(32, b"\0"))
+                q.send(bytes([EXT_NET, NET_PASS_A]) + pw[:32])
+                q.send(bytes([EXT_NET, NET_PASS_B]) + pw[32:64])
+            r = q.request(bytes([EXT_NET, NET_APPLY, 0 if args.off else 1]), {EXT_TAG_NET, EXT_TAG_ACK}, 3.0)
+            end = time.monotonic() + 20  # until it's connected, or clearly can't
+            while not args.off and r and r[0] == EXT_TAG_NET and r[1] == 1 and time.monotonic() < end:
+                time.sleep(0.5)
+                r = status() or r
+    finally:
+        q.close()
+    if not r or r[0] != EXT_TAG_NET:
+        raise SystemExit("no answer (firmware without WiFi?)" if not r or r[0] != EXT_TAG_ACK
+                         else f"refused ({EXT_ST.get(r[2], r[2])})")
+    show_net(r)
 
 
 def cmd_text(args):
@@ -291,10 +343,36 @@ def quadra_present():
                for d in hid.enumerate())
 
 
+def partition_table(path):
+    """{label: (offset, size)} from a partition table image (partitions.bin)."""
+    with open(path, "rb") as f:
+        data = f.read()
+    out = {}
+    for i in range(0, len(data) - 31, 32):
+        e = data[i:i + 32]
+        if e[:2] != b"\xaa\x50":  # the end of the entries
+            break
+        off, size = struct.unpack_from("<II", e, 4)
+        out[e[12:28].split(b"\0")[0].decode()] = (off, size)
+    return out
+
+
 def cmd_flash(args):
     fw = os.path.abspath(args.firmware)
     if not os.path.isfile(fw):
         raise SystemExit(f"no firmware at {fw} (build first: pio run)")
+    images = [APP_OFFSET, fw]
+    if args.partitions:
+        # A new layout: the table at 0x8000, and the region it gives the profile store blanked
+        # so that formats cleanly on the first boot. NVS (settings, WiFi) is left alone.
+        table = partition_table(args.partitions)
+        if table.get("app0", (None,))[0] != int(APP_OFFSET, 16) or "spiffs" not in table:
+            raise SystemExit(f"{args.partitions}: not a table with app0 at {APP_OFFSET} and a spiffs partition")
+        off, size = table["spiffs"]
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as blank:
+            blank.write(b"\xff" * size)
+        images = ["0x8000", os.path.abspath(args.partitions), hex(off), blank.name] + images
+        print(f"new partition table; the profile store ({size // 1024} KiB at {hex(off)}) starts empty")
     port = usj_port()
     if port is None:
         if quadra_present() and reboot(True):
@@ -308,7 +386,7 @@ def cmd_flash(args):
     print(f"flashing {os.path.basename(fw)} via {port}")
     rc = subprocess.call([sys.executable, "-m", "esptool", "--chip", "esp32s3", "--port", port,
                           "--baud", "921600", "--before", "default-reset", "--after", "hard-reset",
-                          "write-flash", APP_OFFSET, fw])
+                          "write-flash", *images])
     if rc != 0:
         raise SystemExit(f"esptool failed ({rc})")
     wait_for(quadra_present, 30, "the device to come back in HID mode")
@@ -350,11 +428,19 @@ def main():
     p.add_argument("--title", default="RUN")
     p.add_argument("--body", default="echo hello from the knob")
     p.set_defaults(fn=cmd_notify)
+    p = sub.add_parser("wifi", help="show WiFi; --ssid NAME sets it up (asks for the password), --off / --on")
+    p.add_argument("--ssid")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--off", action="store_true", help="switch it off (the setup is kept)")
+    g.add_argument("--on", action="store_true", help="switch it back on with the stored setup")
+    p.set_defaults(fn=cmd_wifi)
     p = sub.add_parser("reboot")
     p.add_argument("--serial", action="store_true", help="one boot as USB-Serial-JTAG (for flashing)")
     p.set_defaults(fn=cmd_reboot)
     p = sub.add_parser("flash")
     p.add_argument("firmware", nargs="?", default=DEFAULT_FW)
+    p.add_argument("--partitions", metavar="PARTITIONS_BIN",
+                   help="also write this partition table (a new layout: the profile store is cleared)")
     p.set_defaults(fn=cmd_flash)
     args = ap.parse_args()
     args.fn(args)

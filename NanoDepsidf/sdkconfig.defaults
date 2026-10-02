@@ -97,3 +97,17 @@ CONFIG_FREERTOS_IN_IRAM=y
 CONFIG_SPI_MASTER_IN_IRAM=y
 CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y
 CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
+
+# WiFi (net.c) -- added by the fork; the rest of the network stack stays off Core 0, which is
+# the motor loop's: the radio's task and lwIP's on Core 1, mDNS's too (its own component). The
+# WiFi driver's code stays in flash (IRAM is internal RAM), its buffers may go to PSRAM, and
+# what this knob never does (be an access point, enterprise logins) isn't built in.
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU1=y
+CONFIG_MDNS_TASK_AFFINITY_CPU1=y
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_SOFTAP_SUPPORT is not set
+# CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT is not set
+# CONFIG_ESP_WIFI_NVS_ENABLED is not set
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y

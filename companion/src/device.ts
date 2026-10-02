@@ -1,7 +1,7 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { Cmd, ExtCmd, ExtStatus, ExtTag, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Lights, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { Cmd, EXT_NET_VERSION, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Lights, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -44,6 +44,7 @@ export class Device {
   // LIGHTS + the idle word.
   ext: number | null = null;
   prefs: Prefs | null = null;
+  net: Net | null = null; // WiFi, from extensions v4
   error: string | null = null;
 
   private listeners = new Set<() => void>();
@@ -123,7 +124,7 @@ export class Device {
   private onClosed() {
     this.status = "searching";
     this.hello = this.settings = this.state = this.sysA = this.sysB = null;
-    this.ext = this.prefs = null;
+    this.ext = this.prefs = this.net = null;
     window.clearInterval(this.prefsTimer);
     this.changed();
     this.search();
@@ -154,6 +155,19 @@ export class Device {
   }
   setIdleText(text: string) {
     return this.send(encode.idleText(text));
+  }
+  // WiFi: a new network (`ssid` + `password`, "" = open), or on / off with the stored one.
+  async setWifi(on: boolean, ssid?: string, password?: string) {
+    if (ssid !== undefined) {
+      const pw = new Uint8Array(64);
+      pw.set(new TextEncoder().encode(password ?? "").subarray(0, 63));
+      await this.send(encode.net(NetOp.SSID, new TextEncoder().encode(ssid)));
+      await this.send(encode.net(NetOp.PASS_A, pw.subarray(0, 32)));
+      await this.send(encode.net(NetOp.PASS_B, pw.subarray(32, 64)));
+    }
+    const r = encode.net(NetOp.APPLY);
+    r[2] = on ? 1 : 0;
+    await this.send(r);
   }
   setLights(l: Lights, save = false) {
     this.lightsSent = { l: { ...l }, save, retried: false };
@@ -322,12 +336,19 @@ export class Device {
         if ("ext" in m) {
           this.ext = m.ext;
           window.clearInterval(this.prefsTimer);
-          this.prefsTimer = window.setInterval(() => void this.send(encode.extPrefs()), PREFS_MS);
-          void this.send(encode.extPrefs());
+          const poll = () => {
+            void this.send(encode.extPrefs());
+            if ((this.ext ?? 0) >= EXT_NET_VERSION) void this.send(encode.net(NetOp.STATUS));
+          };
+          this.prefsTimer = window.setInterval(poll, PREFS_MS);
+          poll();
         }
         break;
       case ExtTag.PREFS:
         if ("prefs" in m) this.prefs = m.prefs;
+        break;
+      case ExtTag.NET:
+        if ("net" in m) this.net = m.net;
         break;
       case ExtTag.ACK:
         if ("status" in m) {

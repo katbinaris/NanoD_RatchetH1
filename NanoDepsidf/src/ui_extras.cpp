@@ -281,12 +281,12 @@ void draw_now_playing(const NowPlayingInputs &in) {
         const float r = 113;
         int steps = (int)(2 * (float)M_PI * r), fill = (int)(steps * in.volume / 100.0f);
         for (int s = 0; s < steps; s += 2) {
-            float a = (float)s / steps * 2 * (float)M_PI - (float)M_PI / 2;
+            float a = (float)s / steps * 2 * (float)M_PI + (float)M_PI / 2; // from the bottom, clockwise (as the LED arc)
             rect(CX + cosf(a) * r - 1, CY + sinf(a) * r - 1, 3, 3, scale_rgb(DARK, in.volume_k));
         }
         float a = 0;
         for (int s = 0; s <= fill; s++) {
-            a = (float)s / steps * 2 * (float)M_PI - (float)M_PI / 2;
+            a = (float)s / steps * 2 * (float)M_PI + (float)M_PI / 2;
             rect(CX + cosf(a) * r - 2.5f, CY + sinf(a) * r - 2.5f, 5, 5, scale_rgb(in.accent, in.volume_k));
         }
         if (fill > 0) disc(CX + cosf(a) * r, CY + sinf(a) * r, 3.5f, scale_rgb(WHITE, in.volume_k));

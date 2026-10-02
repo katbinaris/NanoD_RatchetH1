@@ -5,7 +5,7 @@
 // range (0x20-0x2F, replies and events 0xC0-0xCF) so upstream can grow 0x10-0x1F freely.
 // Host side: tools/quadra.py, tools/agents/.
 
-#define EXT_PROTO_VERSION 3
+#define EXT_PROTO_VERSION 4 // 4: EXT_CMD_NET
 
 // --- Host -> device ---
 enum {
@@ -28,7 +28,14 @@ enum {
                            //   colours RGB [12..35]=title [36..59]=artist, NUL-padded. No reply.
     EXT_CMD_AGENTS = 0x28, // the AGENTS dashboard (agent_board.h): [1]=rows (<= 4), then 14 bytes
                            //   each from [2]: source, agent_state_t, name (12). No reply.
+    EXT_CMD_NET = 0x29,    // WiFi (net.h), USB only. [1]=EXT_NET_*:
+                           //   SSID: [2..33] the network's name, NUL-padded
+                           //   PASS_A / PASS_B: [2..33] the password's first / second 32 bytes
+                           //   APPLY: [2]=1 on / 0 off -- stores what was sent (the stored SSID /
+                           //     password stay when none was) and (re)connects -> EXT_TAG_NET
+                           //   STATUS -> EXT_TAG_NET. The password is never sent back.
 };
+enum { EXT_NET_SSID = 1, EXT_NET_PASS_A = 2, EXT_NET_PASS_B = 3, EXT_NET_APPLY = 4, EXT_NET_STATUS = 5 };
 enum { EXT_COVER_BEGIN = 1, EXT_COVER_DATA = 2, EXT_COVER_END = 3 };
 #define EXT_COVER_CHUNK 58
 #define EXT_TRACK_PLAYING 0x01
@@ -54,6 +61,8 @@ enum {
     EXT_TAG_PREFS = 0xC2,  // [1]=src [2]=fx [3..4]=hue [5]=sat [6]=speed [7..8]=level
                            // [9]=1: the lights differ from what's saved [16..31]=idle text
     EXT_TAG_NOTIFY = 0xC3, // unsolicited: [1]=notify_decision_t [2..3]=id
+    EXT_TAG_NET = 0xC4,    // [1]=net_state_t [2]=RSSI dBm (int8) [3..6]=IPv4 [7]=1: the clock is set
+                           // (SNTP) [8]=1: on [9..40]=SSID [41..63]=host name (<host>.local)
 };
 
 enum {

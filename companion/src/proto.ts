@@ -52,8 +52,12 @@ export const Tag = {
 
 // Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
 // Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
-export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24 } as const;
-export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2 } as const;
+export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29 } as const;
+export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4 } as const;
+export const EXT_NET_VERSION = 4; // WiFi (EXT_CMD_NET) from this extensions version on
+export const NetOp = { SSID: 1, PASS_A: 2, PASS_B: 3, APPLY: 4, STATUS: 5 } as const;
+export const NET_STATE = ["OFF", "CONNECTING", "CONNECTED", "NETWORK NOT FOUND", "WRONG PASSWORD"] as const; // net_state_t
+export const NetState = { OFF: 0, CONNECTING: 1, CONNECTED: 2 } as const;
 export const ExtStatus = { OK: 0, BAD_PARAM: 1, UNKNOWN: 2, STORAGE: 3 } as const;
 export const EXT_LIGHTS_SAVE = 0x01;
 export const IDLE_TEXT_MAX = 12; // USER_TEXT_MAX: printable ASCII; "" = QUADRA
@@ -72,6 +76,15 @@ export interface Lights {
 export interface Prefs extends Lights {
   lightsDirty: boolean; // differ from what's saved
   idleText: string;
+}
+export interface Net {
+  state: number; // NetState / NET_STATE
+  on: boolean;
+  rssi: number; // dBm, while connected
+  ip: string; // "" = none
+  timeSet: boolean; // the knob's clock is set (SNTP)
+  ssid: string;
+  host: string; // <host>.local
 }
 
 // HOST_SET_* -- also the bit order of Settings.dirty.
@@ -246,6 +259,7 @@ export type Message =
   | { tag: typeof ExtTag.HELLO; ext: number }
   | { tag: typeof ExtTag.ACK; cmd: number; status: number }
   | { tag: typeof ExtTag.PREFS; prefs: Prefs }
+  | { tag: typeof ExtTag.NET; net: Net }
   | { tag: number };
 
 // --- encoding ---
@@ -316,6 +330,12 @@ export const encode = {
     return r;
   },
   extHello: () => report(ExtCmd.HELLO),
+  net: (op: number, bytes?: Uint8Array) => {
+    const r = report(ExtCmd.NET);
+    r[1] = op;
+    if (bytes) r.set(bytes.subarray(0, 32), 2);
+    return r;
+  },
   extPrefs: () => report(ExtCmd.PREFS),
   // The idle word: stored on the knob at once (no SAVE).
   idleText: (text: string) => {
@@ -486,6 +506,11 @@ export function decode(b: Uint8Array): Message {
       return { tag: ExtTag.HELLO, ext: b[1] };
     case ExtTag.ACK:
       return { tag: ExtTag.ACK, cmd: b[1], status: b[2] };
+    case ExtTag.NET:
+      return {
+        tag: ExtTag.NET,
+        net: { state: b[1], rssi: (b[2] << 24) >> 24, ip: b[3] | b[4] | b[5] | b[6] ? `${b[3]}.${b[4]}.${b[5]}.${b[6]}` : "", timeSet: b[7] === 1, on: b[8] === 1, ssid: str(b, 9, 32), host: str(b, 41, 23) },
+      };
     case ExtTag.PREFS:
       return {
         tag: ExtTag.PREFS,

@@ -16,6 +16,7 @@
 #include "user_prefs.h"
 #include "notify.h"
 #include "media.h"
+#include "net.h"
 #include <math.h>
 #include <string.h>
 
@@ -59,14 +60,13 @@ static const char *TAG = "led";
 #define NOTICE_ALLOW 0x22DD66u
 #define NOTICE_DENY 0xFF3B30u
 
-// Ring geometry, from hardware (DISPLAY 270, keys on the right): with the knob the way the
-// companion draws it (keys at the bottom, rotation 0 -- the key legends sit in a row), LED 0 is
-// at 12 o'clock and the indices run clockwise. Each rotation step turns the screen's content a
-// quarter anticlockwise, so the screen's 12 o'clock is 15 LEDs further anticlockwise per step:
-// LED = p - 15 * rotation. (Upstream had -(p + 15 * rotation): the MUSIC volume arc ran
-// anticlockwise from 12 at 270; with the rotation fixed alone it ran anticlockwise from 6.)
+// Ring geometry: position p (clockwise from the screen's 12 o'clock) is LED
+// RING_OFFSET + RING_DIR * (p + 15 * rotation). Upstream's mapping, and right: checked on
+// hardware at DISPLAY 270 (keys on the right) with the MUSIC volume arc -- the two alternatives
+// tried (- 15 * rotation; then RING_DIR +1) lit the wrong half / ran anticlockwise.
 #define RING_OFFSET 0
-#define RING_DIR 1
+#define RING_DIR (-1)
+#define VOL_ARC_START 30 // the volume arc starts at the screen's 6 o'clock, like the screen's ring
 // Keys: two LEDs each on ring B (legacy_fw hmi_thread.cpp).
 static const uint8_t KEY_LED[4][2] = {{3, 4}, {2, 5}, {1, 6}, {0, 7}};
 
@@ -163,7 +163,7 @@ static bool put_pixel(led_strip_handle_t h, uint8_t sent[3], int i, rgbf_t c, fl
 static float budget_ma(void) {
     pd_status_t pd = pd_status_get();
     float avail = pd.ma ? pd.ma : 500.0f; // not read yet, or no PD chip: plain USB
-    float b = avail - LED_RESERVE_MA;
+    float b = avail - LED_RESERVE_MA - net_current_ma(); // the WiFi radio, while it's on
     return b < LED_BUDGET_MIN_MA ? LED_BUDGET_MIN_MA : b > LED_BUDGET_MA ? LED_BUDGET_MA : b;
 }
 
@@ -179,7 +179,7 @@ static void flush(int rotation, float level) {
     if (s_ring_h) {
         bool dirty = false;
         for (int p = 0; p < NANO_LED_A_NUM; p++) {
-            int i = ((RING_OFFSET + RING_DIR * (p - 15 * rotation)) % NANO_LED_A_NUM + NANO_LED_A_NUM) % NANO_LED_A_NUM;
+            int i = ((RING_OFFSET + RING_DIR * (p + 15 * rotation)) % NANO_LED_A_NUM + NANO_LED_A_NUM) % NANO_LED_A_NUM;
             dirty |= put_pixel(s_ring_h, s_ring_sent[i], i, s_ring[p], k);
             memcpy(s_view[p], s_ring_sent[i], 3);
         }
@@ -305,17 +305,18 @@ static void led_task_fn(void *arg) {
                         break;
                 }
             }
-            // MUSIC: while the knob sets the volume, the ring shows it -- the screen's arc, from 12
-            // o'clock clockwise, in the cover's colour, its head whiter -- instead of the knob spot
-            // (whose place says nothing about the volume).
+            // MUSIC: while the knob sets the volume, the ring shows it -- the screen's arc, from the
+            // screen's 6 o'clock clockwise, in the cover's colour, its head whiter -- instead of
+            // the knob spot (whose place says nothing about the volume).
             if (vol_ring) {
                 const float f = vol / 100.0f * NANO_LED_A_NUM;
                 const rgbf_t lit = hexf(music ? cover[0] : gamma_rgb(0xFFC94Du), 1.0f);
                 const rgbf_t head = mixf(lit, (rgbf_t){1, 1, 1}, 0.5f), dim = {lit.r * 0.06f, lit.g * 0.06f, lit.b * 0.06f};
                 const int h = (int)ceilf(f) - 1;
-                for (int i = 0; i < NANO_LED_A_NUM; i++) {
+                for (int i = 0; i < NANO_LED_A_NUM; i++) { // i: along the arc from its start
                     float a = fminf(1.0f, fmaxf(0.0f, f - i)); // how much of this LED the volume covers
-                    s_ring[i] = mixf(s_ring[i], mixf(dim, i == h ? head : lit, a), vol_vis);
+                    int p = (VOL_ARC_START + i) % NANO_LED_A_NUM;
+                    s_ring[p] = mixf(s_ring[p], mixf(dim, i == h ? head : lit, a), vol_vis);
                 }
             }
             // The knob spot: follows the knob, pulses on each click, fades out once it rests.

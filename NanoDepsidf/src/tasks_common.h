@@ -49,6 +49,8 @@
                         // the same reason, and it mostly waits on I2C
 #define PRIO_SYSMON  10 // SYS INFO sampling (sysmon.c), twice a second; same reason again
 #define PRIO_STORE   10 // F2's NVS save (menu.c), off Core 0; mostly asleep, same reason again
+#define PRIO_NET     5  // WiFi housekeeping (net.c): reconnects, RSSI; the radio's own work is in
+                        // its driver's task and lwIP's, both pinned to Core 1 (sdkconfig)
 
 // Control loop rate. Was a 1kHz placeholder through all of Phase 2's bench-validation work.
 // RAISED to 10kHz once for haptic-feel tuning and immediately REVERTED: at the time, IDLE0

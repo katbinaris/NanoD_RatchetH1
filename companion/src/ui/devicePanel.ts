@@ -1,7 +1,8 @@
 // DEVICE: bindings (MAC / PC), screen rotation, boot mode, and what firmware is on the knob.
 
 import type { Device } from "../device";
-import { Boot, Host, Set } from "../proto";
+import { Boot, EXT_NET_VERSION, Host, NET_STATE, NetState, Set } from "../proto";
+import { text } from "./fields";
 import { cards, el, section } from "./kit";
 
 // The DISPLAY screen's arrow: a triangle head on a short shaft, 12x14 px at 2x.
@@ -60,11 +61,38 @@ export function deviceView(device: Device) {
   const bootWarn = el("p", { class: "warn" }, "IN SERIAL MODE THE KNOB HAS NO HID: THIS APP CAN'T REACH IT UNTIL IT BOOTS IN HID AGAIN.");
   bootSec.body.append(boot.root, bootWarn);
 
+  // WiFi (extensions v4): the clock comes from the internet once it's connected.
+  const wifiSec = section("WIFI", "SET OVER USB; THE PASSWORD STAYS ON THE KNOB");
+  const wifiState = el("div", { class: "kv" });
+  const ssidIn = text("", 32, () => (wifiEdited = true), { placeholder: "NETWORK NAME", upper: false });
+  const passIn = el("input", { class: "txt", type: "password", maxlength: 63, spellcheck: "false", autocomplete: "off" });
+  passIn.addEventListener("input", () => (wifiEdited = true));
+  passIn.addEventListener("keydown", (e) => e.stopPropagation());
+  let wifiEdited = false; // being typed here: the knob's status doesn't overwrite the field
+  const connectBtn = el("button", {
+    class: "btn primary",
+    onclick: () => {
+      const n = device.net, ssid = ssidIn.value.trim();
+      // A new network, or a password typed: send them. Otherwise the stored ones, back on.
+      if (ssid && (ssid !== n?.ssid || passIn.value)) void device.setWifi(true, ssid, passIn.value);
+      else void device.setWifi(true);
+      passIn.value = "";
+      wifiEdited = false;
+    },
+  }, "CONNECT");
+  const offBtn = el("button", { class: "btn", onclick: () => void device.setWifi(false) }, "TURN OFF");
+  wifiSec.body.append(
+    wifiState,
+    el("div", { class: "field" }, el("span", { class: "flabel" }, "NETWORK"), el("span", { class: "fctl" }, ssidIn)),
+    el("div", { class: "field" }, el("span", { class: "flabel" }, "PASSWORD"), el("span", { class: "fctl" }, passIn)),
+    el("div", { class: "actions" }, connectBtn, offBtn),
+  );
+
   const fwSec = section("FIRMWARE");
   const fw = el("div", { class: "tile" });
   fwSec.body.append(fw);
 
-  root.append(bindSec.root, rotSec.root, bootSec.root, fwSec.root);
+  root.append(bindSec.root, rotSec.root, bootSec.root, wifiSec.root, fwSec.root);
 
   function update() {
     const s = device.settings;
@@ -74,6 +102,16 @@ export function deviceView(device: Device) {
     rot.update(s.rotation, !!bit(Set.ROTATION));
     boot.update(s.boot, !!bit(Set.BOOT));
     bootWarn.style.display = s.boot === Boot.SERIAL ? "" : "none";
+    const n = device.net;
+    wifiSec.root.style.display = (device.ext ?? 0) >= EXT_NET_VERSION ? "" : "none";
+    if (n) {
+      const state = !n.on ? "OFF" : NET_STATE[n.state] ?? "?";
+      const more = n.state === NetState.CONNECTED ? `   ${n.ip}   ${n.rssi} DBM   ${n.host}.LOCAL${n.timeSet ? "   CLOCK SET" : ""}` : "";
+      wifiState.replaceChildren(el("span", {}, "STATUS"), el("span", {}, `${state}${n.ssid && n.on ? ` (${n.ssid.toUpperCase()})` : ""}${more}`));
+      if (!wifiEdited && document.activeElement !== ssidIn) ssidIn.value = n.ssid;
+      passIn.placeholder = n.ssid ? "UNCHANGED" : "NONE = OPEN NETWORK";
+      offBtn.disabled = !n.on;
+    }
     const h = device.hello;
     fw.replaceChildren(
       ...[

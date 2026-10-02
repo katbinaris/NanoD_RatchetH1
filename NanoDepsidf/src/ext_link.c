@@ -6,6 +6,7 @@
 #include "notify.h"
 #include "media.h"
 #include "agent_board.h"
+#include "net.h"
 #include "tasks_common.h"
 #include "user_prefs.h"
 #include "esp_attr.h"
@@ -38,6 +39,10 @@ static lights_t s_lights_req;
 static bool s_lights_save;
 static _Atomic bool s_lights_pending = false;
 static _Atomic bool s_cover_end_pending = false;
+// WiFi setup, staged until APPLY (EXT_CMD_NET). The password is wiped once it's stored.
+static char s_net_ssid[NET_SSID_MAX + 1], s_net_pass[64];
+static bool s_net_have_ssid, s_net_have_pass, s_net_on;
+static _Atomic bool s_net_apply_pending = false;
 
 bool ext_take_serial_boot(void) {
     bool requested = s_serial_boot == SERIAL_BOOT_MAGIC && esp_reset_reason() == ESP_RST_SW;
@@ -73,6 +78,19 @@ static void ack(uint8_t *r, uint8_t cmd, uint8_t status) {
 }
 
 static uint16_t rd_u16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+static void build_net(uint8_t *r) {
+    net_status_t st;
+    net_status(&st);
+    r[0] = EXT_TAG_NET;
+    r[1] = (uint8_t)st.state;
+    r[2] = (uint8_t)st.rssi;
+    memcpy(r + 3, &st.ip, 4); // network order: a.b.c.d
+    r[7] = st.time_set;
+    r[8] = st.enabled;
+    memcpy(r + 9, st.ssid, strnlen(st.ssid, NET_SSID_MAX));
+    memcpy(r + 41, st.host, strnlen(st.host, NET_HOST_MAX));
+}
 
 bool ext_link_handle(const uint8_t *in, uint8_t *r) {
     switch (in[0]) {
@@ -181,6 +199,36 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             }
             return false;
         }
+        case EXT_CMD_NET:
+            if (atomic_load(&s_net_apply_pending) && in[1] != EXT_NET_STATUS) {
+                ack(r, in[0], EXT_ST_BAD_PARAM);
+                return true;
+            }
+            switch (in[1]) {
+                case EXT_NET_SSID:
+                    memcpy(s_net_ssid, in + 2, NET_SSID_MAX);
+                    s_net_ssid[NET_SSID_MAX] = '\0';
+                    s_net_have_ssid = true;
+                    return false;
+                case EXT_NET_PASS_A:
+                    memset(s_net_pass, 0, sizeof(s_net_pass));
+                    memcpy(s_net_pass, in + 2, 32);
+                    s_net_have_pass = true;
+                    return false;
+                case EXT_NET_PASS_B:
+                    memcpy(s_net_pass + 32, in + 2, 31); // 63 characters at most, NUL-ended
+                    return false;
+                case EXT_NET_APPLY:
+                    s_net_on = in[2] == 1;
+                    atomic_store(&s_net_apply_pending, true); // stored in ext_link_poll
+                    return false;
+                case EXT_NET_STATUS:
+                    build_net(r);
+                    return true;
+                default:
+                    ack(r, in[0], EXT_ST_BAD_PARAM);
+                    return true;
+            }
         default:
             ack(r, in[0], EXT_ST_UNKNOWN);
             return true;
@@ -210,6 +258,16 @@ void ext_link_poll(void) {
         ack(r, EXT_CMD_COVER, ok ? EXT_ST_OK : EXT_ST_BAD_PARAM);
         host_link_queue(r);
         atomic_store(&s_cover_end_pending, false);
+    }
+    if (atomic_load(&s_net_apply_pending)) {
+        bool ok = net_configure(s_net_have_ssid ? s_net_ssid : NULL, s_net_have_pass ? s_net_pass : NULL, s_net_on);
+        memset(s_net_pass, 0, sizeof(s_net_pass));
+        s_net_have_ssid = s_net_have_pass = false;
+        memset(r, 0, sizeof(r));
+        if (ok) build_net(r);
+        else ack(r, EXT_CMD_NET, EXT_ST_STORAGE);
+        host_link_queue(r);
+        atomic_store(&s_net_apply_pending, false);
     }
     uint16_t id;
     uint8_t decision;
