@@ -209,6 +209,44 @@ def cmd_notify(args):
         q.close()
 
 
+EXT_COVER, EXT_TRACK = 0x26, 0x27
+
+
+def cmd_cover(args):
+    """Show an image as the MUSIC profile's now-playing cover (the service does this for real
+    players; this is for testing, or anything it doesn't know)."""
+    import io
+    import zlib
+    from PIL import Image
+    img = Image.open(args.image).convert("RGB")
+    w, h = img.size
+    s = min(w, h)
+    img = img.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2)).resize((240, 240), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=88, optimize=True, progressive=False)
+    data = buf.getvalue()
+    q = Quadra()
+    try:
+        r = q.request(bytes([EXT_COVER, 1, 0, 0]) + len(data).to_bytes(4, "little")
+                      + (zlib.crc32(data) & 0xFFFFFFFF).to_bytes(4, "little"), {EXT_TAG_ACK}, 2.0)
+        if not r or r[1] != EXT_COVER or r[2] != 0:
+            raise SystemExit("the knob refused the cover (firmware without now playing?)")
+        t0 = time.monotonic()
+        for off in range(0, len(data), 58):
+            piece = data[off:off + 58]
+            q.send(bytes([EXT_COVER, 2]) + off.to_bytes(3, "little") + bytes([len(piece)]) + piece)
+        r = q.request(bytes([EXT_COVER, 3]), {EXT_TAG_ACK}, 5.0)
+        if not r or r[2] != 0:
+            raise SystemExit("cover rejected (transfer damaged)")
+        color = bytes.fromhex(args.color.lstrip("#")) if args.color else img.resize((1, 1)).getpixel((0, 0))
+        pal = bytes(color) * 3
+        q.send(bytes([EXT_TRACK, 1, 0xFF]) + pal + args.title.encode()[:24].ljust(24, b"\0")
+               + args.artist.encode()[:24].ljust(24, b"\0"))
+        print(f"cover: {len(data)} B in {time.monotonic() - t0:.2f} s -- switch the knob to MUSIC to see it")
+    finally:
+        q.close()
+
+
 def reboot(serial: bool) -> bool:
     """True if the device acknowledged; False if its firmware has no extensions."""
     q = Quadra()
@@ -298,6 +336,12 @@ def main():
     p.add_argument("--level", type=lambda v: max(10, min(200, int(v))), help="%% of the stock brightness")
     p.add_argument("--save", action="store_true")
     p.set_defaults(fn=cmd_lights)
+    p = sub.add_parser("cover", help="show an image as MUSIC's now-playing cover")
+    p.add_argument("image")
+    p.add_argument("--title", default="TEST COVER")
+    p.add_argument("--artist", default="QUADRA")
+    p.add_argument("--color", help="#RRGGBB for the ring (default: the image's average)")
+    p.set_defaults(fn=cmd_cover)
     p = sub.add_parser("notify", help="test: show a notification and print how it was answered")
     p.add_argument("--agent", choices=["claude", "codex", "cursor", "other"], default="claude")
     p.add_argument("--ask", action="store_true", help="an approval (hold F1 / F3) instead of an attention item")
