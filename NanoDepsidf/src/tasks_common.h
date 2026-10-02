@@ -4,8 +4,8 @@
 
 // Code the control loop runs every tick, placed in IRAM. From flash it goes through the cache
 // Core 1 shares (display, USB, LittleFS, cJSON), and every miss there is a stall on Core 0 --
-// SYS INFO's spikes. Only the per-tick path: event-only code (a detent crossing, a key press)
-// stays in flash. The IDF side of the tick (FreeRTOS, SPI master, MCPWM, GPIO) is placed by
+// SYS INFO's spikes. The per-tick path and the detent crossing (click, menu step, APP-mode
+// step: left in flash, one crossing cost ~90 us of FORCE); a key press stays in flash. The IDF side of the tick (FreeRTOS, SPI master, MCPWM, GPIO) is placed by
 // sdkconfig.defaults.
 #define CONTROL_HOT IRAM_ATTR
 

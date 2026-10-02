@@ -106,14 +106,14 @@ static uint32_t CONTROL_HOT tap_room(void) {
     return APP_TAP_RING - (atomic_load(&s_tap_head) - atomic_load(&s_tap_tail));
 }
 
-static void push_tap_wait(app_key_t key, uint8_t wait_ticks) {
+static void CONTROL_HOT push_tap_wait(app_key_t key, uint8_t wait_ticks) {
     uint32_t head = atomic_load(&s_tap_head);
     if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
     s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, wait_ticks};
     atomic_store(&s_tap_head, head + 1);
 }
 
-static void push_tap(app_key_t key) {
+static void CONTROL_HOT push_tap(app_key_t key) {
     push_tap_wait(key, 0);
 }
 
@@ -237,7 +237,7 @@ static int ring_count(void) {
     return n > (int)sizeof(s_ring_entry) ? (int)sizeof(s_ring_entry) : n;
 }
 
-static void publish_wheel(void) {
+static void CONTROL_HOT publish_wheel(void) {
     atomic_store(&s_wheel, (s_wheel_open && s_wheel_shown ? 1u << 31 : 0u) | ((uint32_t)s_ring << 8) | s_entry);
 }
 
@@ -265,7 +265,7 @@ static void wheel_open(const app_action_t *a) {
 
 // --- parameter mode ---
 
-static bool param_field(void) {
+static bool CONTROL_HOT param_field(void) {
     return s_profile->param_keys.field;
 }
 
@@ -275,7 +275,7 @@ static bool param_typed(void) {
 }
 
 // The held F key's step: F4 > F2 > F1, -1 = free. Number field: F1 / alone / F4 (F2 = A/B).
-static int param_step(void) {
+static int CONTROL_HOT param_step(void) {
     uint8_t h = s_stable_held;
     if (s_param && param_field()) return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F1) ? 0 : 1;
     return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F2) ? 1 : (h & UI_BTN_F1) ? 0 : -1;
@@ -283,11 +283,11 @@ static int param_step(void) {
 
 // Fine clicks (48 per turn, a higher click): Plasticity's free mode, or the number field's
 // finest step (Onshape: F1 = 0.01).
-static bool param_fine(void) {
+static bool CONTROL_HOT param_fine(void) {
     return param_field() ? param_step() == 0 : param_step() < 0;
 }
 
-static void param_publish(void) {
+static void CONTROL_HOT param_publish(void) {
     uint32_t w = 0;
     if (s_param) {
         w = 1u << 31 | (uint32_t)s_pring << 16 | (uint32_t)s_pentry << 8 | s_paxis | (s_pplane ? 4u : 0u)
@@ -307,7 +307,7 @@ static app_key_t param_constraint_key(void) {
     return key;
 }
 
-static void param_set(float v) {
+static void CONTROL_HOT param_set(float v) {
     if (param_field() && !s_ptype) { // A: the field's real value is unknown -- no limits
         s_pvalue = v;
         return;
@@ -461,7 +461,7 @@ static void wheel_close(void) {
     publish_wheel();
 }
 
-static void end_slot(void) {
+static void CONTROL_HOT end_slot(void) {
     s_wheel_open = false;
     publish_wheel();
     atomic_store(&s_want, 0);
@@ -473,7 +473,7 @@ static void end_slot(void) {
     s_accum_px = 0.0f;
 }
 
-static void begin_slot(int slot, int64_t now_us) {
+static void CONTROL_HOT begin_slot(int slot, int64_t now_us) {
     if (s_slot >= 0) end_slot();
     s_slot = slot;
     s_slot_key = SLOT_KEY[slot];
@@ -625,7 +625,7 @@ void CONTROL_HOT app_mode_motion(float delta_rad, int64_t now_us) {
     }
 }
 
-void app_mode_detent(int8_t dir, int64_t now_us) {
+void CONTROL_HOT app_mode_detent(int8_t dir, int64_t now_us) {
     if (s_param && s_active) {
         int i = param_step();
         if (param_field()) {
@@ -703,7 +703,7 @@ uint32_t app_mode_last_tap(int *slot) {
     return t >> 8;
 }
 
-bool app_mode_at_end(int8_t dir) {
+bool CONTROL_HOT app_mode_at_end(int8_t dir) {
     if (s_active && s_param) {
         if (param_field() && !s_ptype) return false; // A: the real value is unknown
         return dir > 0 ? s_pvalue >= s_param->max : s_pvalue <= s_param->min;
@@ -766,7 +766,7 @@ uint32_t app_mode_last_run(int *ring, int *entry) {
     return r >> 16;
 }
 
-bool app_mode_fine_clicks(void) {
+bool CONTROL_HOT app_mode_fine_clicks(void) {
     return s_active && s_param && param_fine();
 }
 

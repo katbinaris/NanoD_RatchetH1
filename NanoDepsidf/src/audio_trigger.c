@@ -1,4 +1,5 @@
 #include "audio_trigger.h"
+#include "tasks_common.h"
 #include <stdatomic.h>
 
 #define AUDIO_CLICK_QUEUE_SIZE 16
@@ -24,7 +25,7 @@ void audio_trigger_init(void) {
     s_consumed_index = 0;
 }
 
-void audio_trigger_click(audio_click_type_t type) {
+void CONTROL_HOT audio_trigger_click(audio_click_type_t type) {
     uint32_t write_index = atomic_load_explicit(&s_trigger_count, memory_order_relaxed);
     s_type_queue[write_index % AUDIO_CLICK_QUEUE_SIZE] = type;
     atomic_store_explicit(&s_trigger_count, write_index + 1, memory_order_release);

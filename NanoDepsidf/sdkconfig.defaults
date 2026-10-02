@@ -45,10 +45,12 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/nano_partitions.csv"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_QUAD=y
 CONFIG_SPIRAM_TYPE_AUTO=y
-# Conservative for first hardware bring-up. Quad PSRAM supports 80MHz without the
-# experimental-feature caveat that applies at 120MHz -- worth trying once boot is
-# confirmed stable on real hardware, but don't start there.
-CONFIG_SPIRAM_SPEED_40M=y
+# 80MHz: Quad PSRAM supports it without the experimental-feature caveat that applies at
+# 120MHz. Was 40MHz for first hardware bring-up. PSRAM shares the cache and the SPI bus
+# with flash, so Core 1's PSRAM traffic is quicker out of Core 0's way. Also changed
+# directly in sdkconfig.esp32-s3-devkitm-1. If boot or PSRAM init ever fails, go back to
+# CONFIG_SPIRAM_SPEED_40M=y in both files.
+CONFIG_SPIRAM_SPEED_80M=y
 
 # Phase 3: TinyUSB composite HID device (one interface, three report IDs -- keyboard,
 # mouse, gamepad; see usb_task.c). This is the only sdkconfig entry TinyUSB's HID class
@@ -90,6 +92,7 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 # over 60 us. Every tick does two context switches and a task notify (FreeRTOS -- in flash by
 # default in this IDF), an SPI transaction (the MT6701), three MCPWM compare updates and four
 # GPIO reads. ~20 KB of IRAM. Also changed directly in sdkconfig.esp32-s3-devkitm-1.
+# sinf/cosf (inverse Park) follow through control_hot.lf, our own functions through CONTROL_HOT.
 CONFIG_FREERTOS_IN_IRAM=y
 CONFIG_SPI_MASTER_IN_IRAM=y
 CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y

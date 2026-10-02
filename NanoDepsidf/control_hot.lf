@@ -1,0 +1,16 @@
+# The control loop's sinf/cosf (inverse Park every tick, the click pulse) and roundf (detent
+# crossings) in IRAM, with the
+# rest of its per-tick path -- see CONTROL_HOT in src/tasks_common.h. picolibc keeps its math
+# in libc.a. Our own sources can't be mapped here: PlatformIO links src/ objects directly,
+# outside ldgen, hence the attribute there and this fragment for the library.
+# After editing this file, delete .pio/build/<env>/sections.ld (or do a clean build):
+# PlatformIO doesn't regenerate the linker script when only a fragment changes.
+[mapping:control_hot_math]
+archive: libc.a
+entries:
+    libm_math_sf_sin (noflash)
+    libm_math_sf_cos (noflash)
+    libm_math_kf_sin (noflash)
+    libm_math_kf_cos (noflash)
+    libm_math_sf_rem_pio2 (noflash)
+    libm_common_sf_round (noflash)

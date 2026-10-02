@@ -124,7 +124,7 @@ static const char *ph_boot_mode_name(boot_usb_mode_t m) {
 static void fmt_detents(char *buf, size_t n) {
     snprintf(buf, n, "%ld", (long)atomic_load_explicit(&s_ph_detents, memory_order_relaxed));
 }
-static void rotate_detents(int8_t dir) {
+static void CONTROL_HOT rotate_detents(int8_t dir) {
     int32_t v = atomic_load_explicit(&s_ph_detents, memory_order_relaxed) + dir;
     if (v < (int32_t)HAPTIC_NUM_DETENTS_MIN) v = (int32_t)HAPTIC_NUM_DETENTS_MIN;
     if (v > (int32_t)HAPTIC_NUM_DETENTS_MAX) v = (int32_t)HAPTIC_NUM_DETENTS_MAX;
@@ -134,7 +134,7 @@ static void rotate_detents(int8_t dir) {
 static void fmt_kp(char *buf, size_t n) {
     snprintf(buf, n, "%.2f", (double)atomic_load_explicit(&s_ph_kp, memory_order_relaxed));
 }
-static void rotate_kp(int8_t dir) {
+static void CONTROL_HOT rotate_kp(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_kp, memory_order_relaxed) + dir * 0.05f;
     if (v < HAPTIC_KP_MIN) v = HAPTIC_KP_MIN;
     if (v > HAPTIC_KP_MAX) v = HAPTIC_KP_MAX;
@@ -147,7 +147,7 @@ static void fmt_kd(char *buf, size_t n) {
     snprintf(tmp, sizeof(tmp), "%.3f", (double)atomic_load_explicit(&s_ph_kd, memory_order_relaxed));
     snprintf(buf, n, "%s", (tmp[0] == '0') ? tmp + 1 : tmp);
 }
-static void rotate_kd(int8_t dir) {
+static void CONTROL_HOT rotate_kd(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_kd, memory_order_relaxed) + dir * 0.005f;
     if (v < HAPTIC_KD_MIN) v = HAPTIC_KD_MIN;
     if (v > HAPTIC_KD_MAX) v = HAPTIC_KD_MAX;
@@ -157,7 +157,7 @@ static void rotate_kd(int8_t dir) {
 static void fmt_haptic_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_haptic_type_name(atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed)));
 }
-static void rotate_haptic_type(int8_t dir) {
+static void CONTROL_HOT rotate_haptic_type(int8_t dir) {
     int v = ((int)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed) + dir) % HAPTIC_TYPE_COUNT;
     if (v < 0) v += HAPTIC_TYPE_COUNT;
     atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)v, memory_order_relaxed);
@@ -178,7 +178,7 @@ __attribute__((unused)) static void rotate_sound(int8_t dir) {
 static void fmt_pitch(char *buf, size_t n) {
     snprintf(buf, n, "%.2fX", (double)atomic_load_explicit(&s_ph_pitch, memory_order_relaxed));
 }
-static void rotate_pitch(int8_t dir) {
+static void CONTROL_HOT rotate_pitch(int8_t dir) {
     float v = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed) + dir * 0.05f;
     if (v < AUDIO_CLICK_PITCH_MIN) v = AUDIO_CLICK_PITCH_MIN;
     if (v > AUDIO_CLICK_PITCH_MAX) v = AUDIO_CLICK_PITCH_MAX;
@@ -188,7 +188,7 @@ static void rotate_pitch(int8_t dir) {
 static void fmt_amp(char *buf, size_t n) {
     snprintf(buf, n, "%ld%%", (long)atomic_load_explicit(&s_ph_amp, memory_order_relaxed));
 }
-static void rotate_amp(int8_t dir) {
+static void CONTROL_HOT rotate_amp(int8_t dir) {
     int32_t v = atomic_load_explicit(&s_ph_amp, memory_order_relaxed) + dir * AUDIO_CLICK_AMP_STEP;
     if (v < AUDIO_CLICK_AMP_MIN) v = AUDIO_CLICK_AMP_MIN;
     if (v > AUDIO_CLICK_AMP_MAX) v = AUDIO_CLICK_AMP_MAX;
@@ -211,7 +211,7 @@ static void action_save_haptic(void) {
 static void fmt_hid_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_hid_type_name(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)));
 }
-static void rotate_hid_type(int8_t dir) {
+static void CONTROL_HOT rotate_hid_type(int8_t dir) {
     int pos = menu_hid_type_pos(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)) + dir;
     atomic_store_explicit(&s_ph_hid_type, menu_hid_type_at(pos), memory_order_relaxed);
 }
@@ -222,7 +222,7 @@ static bool midi_mapping_enabled(void) {
 static void fmt_midi_mapping(char *buf, size_t n) {
     snprintf(buf, n, "%02ld", (long)atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed));
 }
-static void rotate_midi_mapping(int8_t dir) {
+static void CONTROL_HOT rotate_midi_mapping(int8_t dir) {
     int32_t v = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed) + dir;
     if (v < 1) v = 1;
     if (v > 16) v = 16;
@@ -237,11 +237,11 @@ static void fmt_app_profile(char *buf, size_t n) {
 }
 // The profile list stops at both ends instead of wrapping: with only a few apps, a
 // wrapping carousel would show the same app on both sides.
-static bool app_profile_at_end(int8_t dir) {
+static bool CONTROL_HOT app_profile_at_end(int8_t dir) {
     int v = (int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
     return dir > 0 ? v >= app_profiles_count() - 1 : v <= 0;
 }
-static void rotate_app_profile(int8_t dir) {
+static void CONTROL_HOT rotate_app_profile(int8_t dir) {
     int v = (int)atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed) + dir;
     if (v < 0) v = 0;
     if (v >= app_profiles_count()) v = app_profiles_count() - 1;
@@ -260,7 +260,7 @@ static void action_save_hid(void) {
 static void fmt_boot_mode(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_boot_mode_name(atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed)));
 }
-static void rotate_boot_mode(int8_t dir) {
+static void CONTROL_HOT rotate_boot_mode(int8_t dir) {
     int v = ((int)atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed) + dir) % BOOT_USB_MODE_COUNT;
     if (v < 0) v += BOOT_USB_MODE_COUNT;
     atomic_store_explicit(&s_ph_boot_mode, (boot_usb_mode_t)v, memory_order_relaxed);
@@ -268,7 +268,7 @@ static void rotate_boot_mode(int8_t dir) {
 static void fmt_rotation(char *buf, size_t n) {
     snprintf(buf, n, "%ld", (long)atomic_load_explicit(&s_ph_rotation, memory_order_relaxed) * 90);
 }
-static void rotate_rotation(int8_t dir) {
+static void CONTROL_HOT rotate_rotation(int8_t dir) {
     int32_t v = (atomic_load_explicit(&s_ph_rotation, memory_order_relaxed) + dir) % MENU_DISPLAY_ROTATIONS;
     if (v < 0) v += MENU_DISPLAY_ROTATIONS;
     atomic_store_explicit(&s_ph_rotation, v, memory_order_relaxed);
@@ -284,7 +284,7 @@ static _Atomic menu_host_t s_ph_host = MENU_HOST_MAC;
 static void fmt_host(char *buf, size_t n) {
     snprintf(buf, n, "%s", atomic_load_explicit(&s_ph_host, memory_order_relaxed) == MENU_HOST_PC ? "PC" : "MAC");
 }
-static void rotate_host(int8_t dir) {
+static void CONTROL_HOT rotate_host(int8_t dir) {
     int v = ((int)atomic_load_explicit(&s_ph_host, memory_order_relaxed) + dir) % MENU_HOST_COUNT;
     if (v < 0) v += MENU_HOST_COUNT;
     atomic_store_explicit(&s_ph_host, (menu_host_t)v, memory_order_relaxed);
@@ -438,7 +438,7 @@ static bool s_editing = false;
 static bool s_armed = false; // a MENU_ITEM_ACTION waiting for its confirming F1
 static portMUX_TYPE s_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
-static bool item_enabled(const menu_screen_t *screen, int index) {
+static bool CONTROL_HOT item_enabled(const menu_screen_t *screen, int index) {
     const menu_item_t *it = &screen->items[index];
     return it->is_enabled == NULL || it->is_enabled();
 }
@@ -453,7 +453,7 @@ static int first_enabled_index(const menu_screen_t *screen) {
 // Steps the selection by +-1, skipping disabled items, wrapping at both ends. Bounded by
 // item_count iterations (at most 6 today) so this stays cheap and deterministic even
 // though it's called from Core 0's real-time loop.
-static int step_index(const menu_screen_t *screen, int current, int8_t dir) {
+static int CONTROL_HOT step_index(const menu_screen_t *screen, int current, int8_t dir) {
     if (screen->item_count <= 0) return current;
     int idx = current;
     for (int i = 0; i < screen->item_count; i++) {
@@ -789,7 +789,7 @@ void menu_input_save(void) {
     }
 }
 
-void menu_input_rotate(int8_t direction) {
+void CONTROL_HOT menu_input_rotate(int8_t direction) {
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth == 0 || direction == 0) {
         portEXIT_CRITICAL(&s_state_mux);
@@ -808,7 +808,7 @@ void menu_input_rotate(int8_t direction) {
     portEXIT_CRITICAL(&s_state_mux);
 }
 
-bool menu_at_end(int8_t direction) {
+bool CONTROL_HOT menu_at_end(int8_t direction) {
     bool end = false;
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth > 0) {

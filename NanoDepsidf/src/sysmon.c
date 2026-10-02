@@ -104,7 +104,7 @@ static _Atomic uint32_t s_hid_drops = 0;
 static _Atomic uint32_t s_led_ma = 0;
 static _Atomic bool s_reset_request = false;
 
-void sysmon_note_hid_drop(void) {
+void CONTROL_HOT sysmon_note_hid_drop(void) {
     atomic_fetch_add_explicit(&s_hid_drops, 1, memory_order_relaxed);
 }
 

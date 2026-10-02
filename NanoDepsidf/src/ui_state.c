@@ -9,8 +9,8 @@ static _Atomic bool s_usb_serial_active = false;
 static _Atomic bool s_screensaver = false;
 static _Atomic uint32_t s_clicks = 0, s_walls = 0;
 
-void ui_state_note_click(void) { atomic_fetch_add_explicit(&s_clicks, 1, memory_order_relaxed); }
-void ui_state_note_wall(void) { atomic_fetch_add_explicit(&s_walls, 1, memory_order_relaxed); }
+void CONTROL_HOT ui_state_note_click(void) { atomic_fetch_add_explicit(&s_clicks, 1, memory_order_relaxed); }
+void CONTROL_HOT ui_state_note_wall(void) { atomic_fetch_add_explicit(&s_walls, 1, memory_order_relaxed); }
 uint32_t ui_state_get_clicks(void) { return atomic_load_explicit(&s_clicks, memory_order_relaxed); }
 uint32_t ui_state_get_walls(void) { return atomic_load_explicit(&s_walls, memory_order_relaxed); }
 
