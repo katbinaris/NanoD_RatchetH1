@@ -10,6 +10,7 @@
 #include "ui_gfx.hpp"
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
+#include "ui_extras.hpp"
 #include "icons/app_icons.h"
 extern "C" {
 #include "ui_state.h"
@@ -432,9 +433,23 @@ int main() {
         keep("idle word, side hop");
     }
     ui::fx_set_word(nullptr);
+    for (const uint8_t *ic : {app_icon_music_48, app_icon_agents_48}) {
+        for (uint32_t t = 0; t < 2720; t += 33) ui::fx_attract(t, ic, nullptr, 7, ui::ATTRACT_JUMP), g.clear();
+        ui::fx_attract(2720, ic, nullptr, 7, ui::ATTRACT_JUMP);
+        keep("idle: new icon, landing");
+    }
     {
+        // A ring frame as led_task_snapshot() gives it: a blue comet (SPIN), or the app gradient.
+        static uint8_t comet[60][3], grad[60][3];
+        for (int i = 0; i < 60; i++) {
+            float d = fmodf(42 - i + 120, 60), k = d < 20 ? 1 - d / 20 : 0;
+            float lv = 0.06f + 0.94f * k * k;
+            comet[i][0] = (uint8_t)(10 * lv); comet[i][1] = (uint8_t)(34 * lv); comet[i][2] = (uint8_t)(51 * lv);
+            float u = i / 60.0f;
+            grad[i][0] = (uint8_t)(15 + 5 * u); grad[i][1] = (uint8_t)(9 + 4 * u); grad[i][2] = (uint8_t)(2);
+        }
         const char *LV[MENU_LIGHTS_ROW_COUNT][2] = {{"COLOR", "CUSTOM"}, {"HUE", "200"}, {"SAT", "80%"},
-                                                    {"EFFECT", "BREATHE"}, {"SPEED", "4"}, {"LEVEL", "100%"}};
+                                                    {"EFFECT", "SPIN"}, {"SPEED", "4"}, {"LEVEL", "100%"}};
         for (int sel : {0, 3}) {
             menu_render_snapshot_t s = {};
             s.open = true;
@@ -445,24 +460,30 @@ int main() {
             for (int i = 0; i < MENU_LIGHTS_ROW_COUNT; i++) s.rows[i] = row(LV[i][0], "", LV[i][1], i == sel);
             if (sel == 0) { // COLOR = APP: hue and sat are muted
                 snprintf(s.rows[0].value, sizeof(s.rows[0].value), "APP");
-                for (int i : {1, 2}) s.rows[i].muted = true, snprintf(s.rows[i].value, sizeof(s.rows[i].value), "--");
+                snprintf(s.rows[3].value, sizeof(s.rows[3].value), "GRADIENT");
+                for (int i : {1, 2, 4}) s.rows[i].muted = true, snprintf(s.rows[i].value, sizeof(s.rows[i].value), "--");
             }
-            ui::draw_lights(s, {sel == 0 ? 0xFFB030u : 0x33AAFFu, true});
+            ui::draw_lights(s, {sel == 0 ? 0xFFB030u : 0x33AAFFu, sel == 0 ? grad : comet, true});
             keep(sel == 0 ? "lights: APP colour" : "lights: editing EFFECT");
         }
     }
-    ui::draw_notify({"CLAUDE CODE", 0xE8825F, "BASH", "rm -rf node_modules && npm install --force", true, 3, 0, 0, 1200});
-    keep("notify: Claude asks");
-    ui::draw_notify({"CLAUDE CODE", 0xE8825F, "EDIT", "src/app_profiles/agents.c", true, 1, 0.62f, UI_BTN_F1, 2400});
+    static const uint32_t one_claude[1] = {0xE8825F}, three[3] = {0xE8825F, 0x4F9DFF, 0xB98CFF};
+    ui::draw_notify({ui::AGENT_CLAUDE, "CLAUDE CODE", 0xE8825F, "RUN", "rm -rf node_modules && npm install --force", true,
+                     three, 3, 0, 0, 1200});
+    keep("notify: 3 agents waiting");
+    ui::draw_notify({ui::AGENT_CLAUDE, "CLAUDE CODE", 0xE8825F, "EDIT", "agents.c", true, one_claude, 1, 0.62f, UI_BTN_F1, 2400});
     keep("notify: F1 held 62%");
-    ui::draw_notify({"CODEX", 0x4F9DFF, "APPLY PATCH", "3 files: ext_link.c notify.c menu.c", true, 1, 0, 0, 600});
+    static const uint32_t codex1[1] = {0x4F9DFF};
+    ui::draw_notify({ui::AGENT_CODEX, "CODEX", 0x4F9DFF, "PATCH", "ext_link.c, notify.c, menu.c", true, codex1, 1, 0, 0, 600});
     keep("notify: Codex asks");
-    ui::draw_notify({"CURSOR", 0xB98CFF, "RUN?", "npm run build -- --watch (approve in Cursor)", false, 1, 0, 0, 1800});
+    static const uint32_t cursor1[1] = {0xB98CFF};
+    ui::draw_notify({ui::AGENT_CURSOR, "CURSOR", 0xB98CFF, "YOUR TURN", "Cursor finished the refactor", false, cursor1, 1, 0, 0, 1800});
     keep("notify: Cursor, info");
     {
         const app_profile_t &p = app_profile_agents;
+        static char key[12];
         for (int ring = 0; ring < p.ring_count; ring++) {
-            for (int e : {1, 9, 10}) {
+            for (int e : {1, 3, 10}) {
                 if (e > p.rings[ring].count) continue;
                 const app_cmd_t &c = p.rings[ring].cmds[e - 1];
                 ui::WheelView v = {};
@@ -475,11 +496,25 @@ int main() {
                 v.name = c.name;
                 v.scene = c.scene;
                 v.modifier = c.key.modifier;
-                v.key = c.key.keycode == 0x28 ? "ENTER" : c.key.keycode == 0x2A ? "BKSP" : "K";
-                if (c.kind == APP_CMD_MACRO) v.hint = p.macros[c.macro - 1].steps[0].kind == APP_MSTEP_TEXT ? p.macros[c.macro - 1].steps[0].text : "MACRO";
+                uint8_t k = c.key.keycode;
+                if (k >= 0x04 && k <= 0x1D) snprintf(key, sizeof(key), "%c", 'A' + k - 4);
+                else snprintf(key, sizeof(key), "%s", k == 0x28 ? "ENTER" : k == 0x2A ? "BKSP" : k == 0x37 ? "." : "?");
+                v.key = key;
+                v.chord = c.kind == APP_CMD_KEYS && c.scene == nullptr;
+                if (c.kind == APP_CMD_MACRO) {
+                    const app_macro_t &m = p.macros[c.macro - 1];
+                    if (m.steps[0].kind == APP_MSTEP_TEXT) {
+                        v.typed = m.steps[0].text;
+                    } else {
+                        v.chord = true;
+                        v.modifier = m.steps[0].key.modifier;
+                        snprintf(key, sizeof(key), "ESC");
+                        v.chord_repeat = m.count;
+                    }
+                }
                 v.slide = 1;
                 v.slide_dir = 1;
-                v.t_ms = 2000;
+                v.t_ms = 2600;
                 ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F1, nullptr, nullptr, &v};
                 ui::draw_main(in);
                 keep(c.name);

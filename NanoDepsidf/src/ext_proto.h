@@ -17,9 +17,11 @@ enum {
                            //   [8..9]=level (user_prefs.h lights_t); 0xFF / 0xFFFF = keep that
                            //   field. Live at once, like turning the knob. -> EXT_TAG_PREFS
     EXT_CMD_PREFS = 0x24,  // -> EXT_TAG_PREFS
-    EXT_CMD_NOTIFY = 0x25, // [1]=EXT_NOTIFY_* [2..3]=id; POST: [4]=source [5]=kind (notify.h)
-                           //   [6..21]=title [22..63]=body, NUL-padded. No reply.
+    EXT_CMD_NOTIFY = 0x25, // [1]=EXT_NOTIFY_* [2..3]=id; POST: [4]=source [5]=kind (notify.h),
+                           //   | EXT_NOTIFY_NUDGE [6..21]=title [22..60]=body, NUL-padded
+                           //   [61..63]=colour RGB (0,0,0 = the source's own). No reply.
 };
+#define EXT_NOTIFY_NUDGE 0x80 // POST [5]: input is needed -- the knob taps gently every few seconds
 
 enum {
     EXT_REBOOT_NORMAL = 0,

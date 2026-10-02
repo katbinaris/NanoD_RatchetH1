@@ -341,6 +341,7 @@ static float s_haptic_pulse_sign = 1.0f;
 // in Phase 8 and is Save since the Pixel UI (menu_input_save()). One shared cooldown (not
 // per-button) is enough now that each button fires a single, unambiguous action rather than
 // needing combo disambiguation like the retired scheme above did.
+static bool s_notice_shown = false; // an agent notification is up (notify.h), menu closed
 static bool s_menu_prev_btn_a_pressed = false;
 static bool s_menu_prev_btn_b_pressed = false;
 static bool s_menu_prev_btn_c_pressed = false;
@@ -835,6 +836,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // or skip a track, even if it's still held once the notification is gone.
                 bool notice = notify_active() && !menu_is_open();
                 if (notice) notify_keys(ui_state_get_buttons(), esp_timer_get_time());
+                s_notice_shown = notice; // the FORCE section's nudge reads it
                 bool swallow = ui_state_get_screensaver() || notice;
 
                 // APP mode with the menu closed: F1-F4 are app controls (app_mode.c), and
@@ -1218,6 +1220,14 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         if (vq_out > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                         if (vq_out < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                         s_haptic_pulse_ticks_remaining--;
+                    }
+                    // An agent waiting for an answer (notify.h): a gentle double tap now and
+                    // then -- like the click, on top of the spring and not slew-limited.
+                    float nudge = notify_nudge_vq(esp_timer_get_time(), s_notice_shown);
+                    if (nudge != 0.0f) {
+                        vq_out += nudge;
+                        if (vq_out > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                        if (vq_out < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                     }
 
                     SECTION_DONE(SYSMON_SEC_FORCE);

@@ -119,8 +119,13 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             return true;
         case EXT_CMD_NOTIFY: {
             uint16_t id = rd_u16(in + 2);
-            if (in[1] == EXT_NOTIFY_POST && in[4] < NOTIFY_SRC_COUNT && in[5] < NOTIFY_KIND_COUNT) {
-                notify_item_t it = {.id = id, .source = in[4], .kind = in[5]};
+            uint8_t kind = in[5] & 0x7F;
+            if (in[1] == EXT_NOTIFY_POST && in[4] < NOTIFY_SRC_COUNT && kind < NOTIFY_KIND_COUNT) {
+                notify_item_t it = {
+                    .id = id, .source = in[4], .kind = kind,
+                    .flags = (in[5] & EXT_NOTIFY_NUDGE) ? NOTIFY_FLAG_NUDGE : 0,
+                    .color = (uint32_t)in[61] << 16 | (uint32_t)in[62] << 8 | in[63],
+                };
                 memcpy(it.title, in + 6, NOTIFY_TITLE_MAX);
                 memcpy(it.body, in + 22, NOTIFY_BODY_MAX);
                 notify_post(&it);

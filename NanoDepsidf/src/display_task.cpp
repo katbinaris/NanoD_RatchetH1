@@ -5,6 +5,7 @@
 #include "ui_gfx.hpp"
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
+#include "ui_extras.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -26,6 +27,7 @@ extern "C" {
 #include "class/hid/hid.h"
 #include "sysmon.h"
 #include "notify.h"
+#include "led_task.h"
 #include "user_prefs.h"
 #include "app_colors.h"
 }
@@ -398,6 +400,7 @@ static int s_wheel_ring = -1, s_wheel_entry = -1;
 static int64_t s_wheel_entry_us = 0, s_wheel_slide_us = -(1LL << 40);
 static int s_wheel_slide_dir = 1;
 static const app_scene_t *s_wheel_prev = nullptr;
+static const app_cmd_t *s_wheel_prev_cmd = nullptr; // ...and its command (typed / chord cards)
 static bool s_wheel_prev_valid = false;
 static uint32_t s_echo_count = 0;
 static bool s_echo_have = false;
@@ -422,6 +425,7 @@ static bool wheel_tick(int64_t now, bool *changed) {
         } else if (ring != s_wheel_ring || entry != s_wheel_entry) {
             const app_cmd_t *old = wheel_cmd(p, s_wheel_ring, s_wheel_entry);
             s_wheel_prev = old ? old->scene : nullptr;
+            s_wheel_prev_cmd = old;
             s_wheel_prev_valid = true;
             s_wheel_slide_dir = (ring != s_wheel_ring) ? (ring > s_wheel_ring ? 1 : -1) : (entry > s_wheel_entry ? 1 : -1);
             s_wheel_slide_us = now;
@@ -468,12 +472,36 @@ static void key_label(uint8_t k, char *out, size_t n) {
     else snprintf(out, n, "?");
 }
 
-// A macro command's line under its card: the text it types (that's what reaches the app), or
-// "MACRO" when it starts with keys.
-static const char *macro_hint(const app_profile_t *p, const app_cmd_t *c) {
-    if (c->macro == 0 || c->macro > p->macro_count) return "MACRO";
-    const app_macro_t *m = &p->macros[c->macro - 1];
-    return m->count > 0 && m->steps[0].kind == APP_MSTEP_TEXT && m->steps[0].text ? m->steps[0].text : "MACRO";
+// How the wheel draws a command that has no scene of its own: a macro that types text as a
+// little terminal typing it; a shortcut, or a macro that starts with keys, as its chord on big
+// keycaps (a key repeated, like Esc Esc, shows once per press). `key` gets the key's label.
+struct CardOf {
+    const char *typed;
+    bool chord;
+    uint8_t mod, repeat;
+};
+static CardOf card_of(const app_profile_t *p, const app_cmd_t *c, char *key, size_t n) {
+    CardOf k = {nullptr, false, 0, 1};
+    if (c->kind == APP_CMD_MACRO && c->macro != 0 && c->macro <= p->macro_count) {
+        const app_macro_t *m = &p->macros[c->macro - 1];
+        if (m->count > 0 && m->steps[0].kind == APP_MSTEP_TEXT) {
+            k.typed = m->steps[0].text;
+        } else if (m->count > 0 && m->steps[0].kind == APP_MSTEP_KEY) {
+            const app_key_t first = m->steps[0].key;
+            k.chord = true;
+            k.mod = first.modifier;
+            key_label(first.keycode, key, n);
+            while (k.repeat < m->count && k.repeat < 3 && m->steps[k.repeat].kind == APP_MSTEP_KEY
+                   && m->steps[k.repeat].key.keycode == first.keycode && m->steps[k.repeat].key.modifier == first.modifier) {
+                k.repeat++;
+            }
+        }
+    } else if (c->kind == APP_CMD_KEYS && c->scene == nullptr) {
+        k.chord = true;
+        k.mod = c->key.modifier;
+        key_label(c->key.keycode, key, n);
+    }
+    return k;
 }
 
 static ui::WheelView wheel_view(int64_t now) {
@@ -497,7 +525,22 @@ static ui::WheelView wheel_view(int64_t now) {
         v.modifier = k.modifier;
         key_label(k.keycode, key, sizeof(key));
         v.key = key;
-        if (c->kind == APP_CMD_MACRO) v.hint = macro_hint(p, c);
+        CardOf co = card_of(p, c, key, sizeof(key));
+        v.typed = co.typed;
+        v.chord = co.chord;
+        v.chord_repeat = co.repeat;
+        if (co.chord) v.modifier = co.mod;
+    }
+    // The card sliding out, drawn the same way it was drawn in.
+    static char prev_key[12];
+    const app_cmd_t *pc = s_wheel_prev_valid ? s_wheel_prev_cmd : nullptr;
+    if (pc != nullptr) {
+        CardOf co = card_of(p, pc, prev_key, sizeof(prev_key));
+        v.prev_typed = co.typed;
+        v.prev_chord = co.chord;
+        v.prev_modifier = co.mod;
+        v.prev_key = prev_key;
+        v.prev_chord_repeat = co.repeat;
     }
     v.prev = s_wheel_prev;
     v.prev_valid = s_wheel_prev_valid;
@@ -646,14 +689,23 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_BINDINGS:
             ui::draw_bindings(snap, menu_get_host(), blink_on);
             break;
-        case V_LIGHTS:
-            ui::draw_lights(snap, {lights_swatch(), blink_on});
+        case V_LIGHTS: {
+            static uint8_t leds[LED_VIEW_COUNT][3];
+            led_task_snapshot(leds);
+            ui::draw_lights(snap, {lights_swatch(), leds, blink_on});
             break;
+        }
         case V_NOTIFY: {
             const notify_item_t &n = s_notice;
-            ui::draw_notify({notify_source_name(n.source), notify_source_color(n.source), n.title, n.body,
-                             n.kind == NOTIFY_ASK, s_notice_waiting, s_notice_hold, ui_state_get_buttons(),
-                             (uint32_t)(now / 1000)});
+            uint32_t queue[NOTIFY_MAX];
+            int waiting = notify_colors(queue, NOTIFY_MAX);
+            if (waiting < 1) { // the iris closing on an item that's already been answered
+                queue[0] = notify_color(&n);
+                waiting = 1;
+            }
+            ui::draw_notify({n.source < NOTIFY_SRC_OTHER ? (int)n.source : ui::AGENT_OTHER, notify_source_name(n.source),
+                             notify_color(&n), n.title, n.body, n.kind == NOTIFY_ASK, queue, waiting, s_notice_hold,
+                             ui_state_get_buttons(), (uint32_t)(now / 1000)});
             break;
         }
         case V_ATTRACT: {
@@ -852,6 +904,7 @@ static Pace update_ui(void) {
              || (s_view == V_MAIN && shape_live)
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT || s_view == V_NOTIFY // the notification breathes
+                || s_view == V_LIGHTS // the rim mirrors the animated LED ring
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC
                     && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE

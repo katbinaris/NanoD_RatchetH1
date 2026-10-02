@@ -16,28 +16,8 @@
 #define SHIFT KEYBOARD_MODIFIER_LEFTSHIFT
 #define N(a) ((uint8_t)(sizeof(a) / sizeof((a)[0])))
 
-// --- cards: a command being typed, then Enter; a shortcut chord being pressed ---
-static const app_scene_t SCENE_TYPE = {
-    .n_base = 3,
-    .base = EL_LIST(EL_FRAME(6, 8, 54, 48, K_D), EL_BOX(6, 8, 54, 7, K_D), EL_DISC(9, 10, 3, K_G)),
-    .n_frames = 4,
-    .frames = (const app_keyframe_t[]){
-        KEYFRAME(260, EL_BOX(10, 22, 3, 5, K_A), EL_BOX(16, 22, 3, 5, K_W)),
-        KEYFRAME(260, EL_BOX(10, 22, 3, 5, K_A), EL_BOX(16, 23, 10, 3, K_W), EL_BOX(28, 22, 3, 5, K_W)),
-        KEYFRAME(260, EL_BOX(10, 22, 3, 5, K_A), EL_BOX(16, 23, 20, 3, K_W), EL_BOX(38, 22, 3, 5, K_W)),
-        KEYFRAME(900, EL_BOX(10, 22, 3, 5, K_A), EL_BOX(16, 23, 26, 3, K_W),
-                 EL_FRAME(74, 20, 34, 24, K_G), EL_LINE(100, 26, 100, 34, K_W), EL_ARROW(100, 34, 82, 34, K_A)),
-    },
-};
-static const app_scene_t SCENE_KEYS = {
-    .n_base = 2,
-    .base = EL_LIST(EL_LINE(30, 32, 34, 32, K_G), EL_LINE(32, 30, 32, 34, K_G)),
-    .n_frames = 2,
-    .frames = (const app_keyframe_t[]){
-        KEYFRAME(450, EL_FRAME(10, 22, 18, 18, K_G), EL_FRAME(36, 22, 18, 18, K_G)),
-        KEYFRAME(650, EL_BOX(10, 24, 18, 18, K_A), EL_BOX(36, 24, 18, 18, K_A)),
-    },
-};
+// No scenes: the wheel draws these commands from themselves -- a little terminal typing a
+// macro's text, or a shortcut's chord on big keycaps (ui_cards.cpp).
 
 // --- macros (1-based, in this order) ---
 #define TYPE(s) {APP_MSTEP_TEXT, {0, 0}, 0, s}
@@ -70,8 +50,8 @@ static const app_macro_t MACROS[] = {
 };
 
 // --- the wheel: hold F1; while it's open F2 jumps to Codex, F3 to Cursor ---
-#define MACRO_CMD(name, m) {name, APP_CMD_MACRO, {0, 0}, NULL, &SCENE_TYPE, NULL, m}
-#define KEYS_CMD(name, mod, key) {name, APP_CMD_KEYS, {mod, key}, NULL, &SCENE_KEYS, NULL, 0}
+#define MACRO_CMD(name, m) {name, APP_CMD_MACRO, {0, 0}, NULL, NULL, NULL, m}
+#define KEYS_CMD(name, mod, key) {name, APP_CMD_KEYS, {mod, key}, NULL, NULL, NULL, 0}
 static const app_cmd_t CLAUDE[] = {
     MACRO_CMD("CLEAR", M_CLEAR),       MACRO_CMD("COMPACT", M_COMPACT), MACRO_CMD("REWIND", M_REWIND),
     MACRO_CMD("PLAN", M_PLAN),         MACRO_CMD("MODEL", M_MODEL),     MACRO_CMD("CONTEXT", M_CONTEXT),

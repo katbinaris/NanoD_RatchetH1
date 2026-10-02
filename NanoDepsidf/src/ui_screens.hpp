@@ -105,27 +105,4 @@ void draw_recalibrate(const menu_render_snapshot_t &snap);
 
 void draw_saved_toast(const char *msg = "SAVED!");
 
-// LIGHTS: one row per field (MENU_LIGHTS_ROW_*). Direct screen -- the ring itself previews the
-// look while it's turned; `swatch` is the colour it's using (RGB888).
-struct LightsInputs {
-    uint32_t swatch;
-    bool blink_on;
-};
-void draw_lights(const menu_render_snapshot_t &snap, const LightsInputs &in);
-
-// An agent notification (notify.h): who's asking, what, and how to answer. Takes the whole
-// screen while the menu is closed.
-struct NotifyInputs {
-    const char *source; // "CLAUDE CODE"
-    uint32_t color;     // the agent's colour (RGB888)
-    const char *title;  // "BASH"
-    const char *body;   // the command or file, wrapped to three lines
-    bool ask;           // an approval (ALLOW / DENY), else an attention item (any key)
-    int waiting;        // items queued, this one included
-    float hold;         // F1 hold progress, 0..1 -- an arc fills round the glass
-    uint8_t buttons;    // held keys (UI_BTN_*)
-    uint32_t t_ms;      // animation clock
-};
-void draw_notify(const NotifyInputs &in);
-
 } // namespace ui

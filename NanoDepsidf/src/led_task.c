@@ -299,13 +299,25 @@ static void led_task_fn(void *arg) {
             float f = 1 - (float)(now - wall_at) / FLASH_US;
             for (int i = 0; i < NANO_LED_A_NUM; i++) s_ring[i] = mixf(s_ring[i], (rgbf_t){1, 1, 1}, f * 0.8f);
         }
-        // An agent notification (notify.h) takes the whole ring: a slow breath in the agent's
-        // colour; holding F1 on an approval fills it green, clockwise from 12 o'clock.
+        // Agent notifications (notify.h) take the whole ring: a slow breath in the agent's
+        // colour. With several agents waiting the ring splits into one arc each (in queue
+        // order from 12 o'clock); the one on screen breathes, the others glow steady. Holding
+        // F1 on an approval fills the ring green, clockwise.
         if (notice) {
+            uint32_t cols[NOTIFY_MAX];
+            int n = notify_colors(cols, NOTIFY_MAX);
+            if (n < 1) {
+                cols[0] = notify_color(&ni);
+                n = 1;
+            }
             float b = 0.10f + 0.90f * (0.5f - 0.5f * cosf(2 * (float)M_PI * t_s / NOTIFY_BREATH_S));
-            rgbf_t c = hexf(notify_source_color(ni.source), LED_NOTICE * b);
             int filled = (int)(hold * NANO_LED_A_NUM);
-            for (int i = 0; i < NANO_LED_A_NUM; i++) s_ring[i] = i < filled ? hexf(NOTICE_ALLOW, 1.0f) : c;
+            for (int i = 0; i < NANO_LED_A_NUM; i++) {
+                int seg = i * n / NANO_LED_A_NUM;
+                bool gap = n > 1 && (i * n) % NANO_LED_A_NUM < n; // a dark LED between arcs
+                rgbf_t c = gap ? (rgbf_t){0, 0, 0} : hexf(cols[seg], LED_NOTICE * (seg == 0 ? b : 0.30f));
+                s_ring[i] = i < filled ? hexf(NOTICE_ALLOW, 1.0f) : c;
+            }
         }
 
         // Keys: the same gradient F1 -> F4, full on while held, nearly off with no action.
@@ -314,7 +326,7 @@ static void led_task_fn(void *arg) {
             rgbf_t c;
             if (notice) {
                 bool ask = ni.kind == NOTIFY_ASK;
-                uint32_t col = ask && k == 0 ? NOTICE_ALLOW : ask && k == 2 ? NOTICE_DENY : 0xFFFFFFu;
+                uint32_t col = ask && k == 0 ? NOTICE_ALLOW : ask && k == 2 ? NOTICE_DENY : ask ? 0xFFFFFFu : notify_color(&ni);
                 float lv = (held & (1u << k)) ? 1.0f : (ask && (k == 0 || k == 2)) ? 0.85f : 0.25f;
                 c = hexf(col, lv);
             } else {

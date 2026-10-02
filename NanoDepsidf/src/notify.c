@@ -2,6 +2,7 @@
 #include "tasks_common.h"
 #include "ui_state.h"
 #include "freertos/FreeRTOS.h"
+#include <math.h>
 #include <stdatomic.h>
 #include <string.h>
 
@@ -11,9 +12,19 @@
 static notify_item_t s_items[NOTIFY_MAX];
 static int s_count = 0;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-static _Atomic uint32_t s_top = 0;     // 0 = none, else 1 << 31 | kind << 16 | id
+#define TOP_VALID (1u << 31)
+#define TOP_NUDGE (1u << 30)
+static _Atomic uint32_t s_top = 0;     // 0 = none, else TOP_VALID | TOP_NUDGE? | kind << 16 | id
 static _Atomic uint32_t s_version = 0;
 static _Atomic uint32_t s_hold_pm = 0; // F1 hold progress, per mille
+
+// The nudge: two soft bursts, a raised-cosine envelope each, well under the detent click's
+// tail (1 V at 70 Hz) so it reads as a polite tap rather than a click.
+#define NUDGE_V 0.6f
+#define NUDGE_HZ 120.0f
+#define NUDGE_BURST_US 35000
+#define NUDGE_GAP_US 105000
+static int64_t s_nudge_at = 0; // when the current pattern started (0 = none since shown)
 
 // Decisions on their way to the host: control task -> usb task, single producer and consumer.
 #define EVENT_RING 8
@@ -29,7 +40,11 @@ static uint32_t s_shown; // the s_top value the key state belongs to
 static int64_t s_f1_since, s_locked_until;
 
 static void publish_top_locked(void) {
-    uint32_t top = s_count > 0 ? 1u << 31 | (uint32_t)s_items[0].kind << 16 | s_items[0].id : 0;
+    uint32_t top = 0;
+    if (s_count > 0) {
+        top = TOP_VALID | (uint32_t)s_items[0].kind << 16 | s_items[0].id;
+        if (s_items[0].flags & NOTIFY_FLAG_NUDGE) top |= TOP_NUDGE;
+    }
     atomic_store(&s_top, top);
     atomic_fetch_add(&s_version, 1);
 }
@@ -172,6 +187,22 @@ void CONTROL_HOT notify_keys(uint8_t raw, int64_t now_us) {
     }
 }
 
+float CONTROL_HOT notify_nudge_vq(int64_t now_us, bool shown) {
+    uint32_t top = atomic_load_explicit(&s_top, memory_order_relaxed);
+    if (!shown || !(top & TOP_NUDGE) || s_f1_since != 0) {
+        s_nudge_at = 0; // the next time an item needs input, it taps at once
+        return 0.0f;
+    }
+    if (s_nudge_at == 0 || now_us - s_nudge_at >= (int64_t)NOTIFY_NUDGE_PERIOD_MS * 1000) s_nudge_at = now_us;
+    int64_t t = now_us - s_nudge_at;
+    if (t >= NUDGE_BURST_US + NUDGE_GAP_US) t -= NUDGE_BURST_US + NUDGE_GAP_US; // the second tap
+    else if (t >= NUDGE_BURST_US) return 0.0f;
+    if (t >= NUDGE_BURST_US) return 0.0f;
+    float u = (float)t / NUDGE_BURST_US;                    // 0..1 through the burst
+    float env = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * u); // soft in, soft out
+    return NUDGE_V * env * sinf(2.0f * (float)M_PI * NUDGE_HZ * (float)t * 1e-6f);
+}
+
 bool notify_peek(notify_item_t *out, int *count, float *hold) {
     portENTER_CRITICAL(&s_mux);
     int n = s_count;
@@ -182,10 +213,19 @@ bool notify_peek(notify_item_t *out, int *count, float *hold) {
     return n > 0;
 }
 
+int notify_colors(uint32_t *out, int max) {
+    portENTER_CRITICAL(&s_mux);
+    int n = s_count < max ? s_count : max;
+    for (int i = 0; i < n; i++) out[i] = notify_color(&s_items[i]);
+    portEXIT_CRITICAL(&s_mux);
+    return n;
+}
+
 uint32_t notify_version(void) { return atomic_load(&s_version); }
 
-uint32_t notify_source_color(uint8_t source) {
-    switch (source) {
+uint32_t notify_color(const notify_item_t *it) {
+    if (it->color) return it->color & 0xFFFFFFu;
+    switch (it->source) {
         case NOTIFY_SRC_CLAUDE: return 0xE8825Fu; // Claude's coral
         case NOTIFY_SRC_CODEX: return 0x4F9DFFu;
         case NOTIFY_SRC_CURSOR: return 0xB98CFFu;

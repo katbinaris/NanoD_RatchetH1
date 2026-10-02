@@ -141,8 +141,19 @@ struct Spr {
     const uint8_t *icon; // nullptr = the wordmark
     int w, h, scale;
 };
+// The user's word is lit with a sheen: white at the top into the app's accent at the bottom
+// (fx_attract sets it per frame); the stock QUADRA stays plain white.
+static uint32_t s_word_sheen = WHITE;
 static inline uint32_t spr_px(const Spr &sp, int i, int j) {
-    if (sp.icon == nullptr) return s_word[j * WORD_MAX_W + i] ? WHITE : 0;
+    if (sp.icon == nullptr) {
+        if (!s_word[j * WORD_MAX_W + i]) return 0;
+        if (!s_word_custom || s_word_h < 2) return WHITE;
+        float t = (float)j / (s_word_h - 1);
+        uint32_t r = 255 + (uint32_t)((((s_word_sheen >> 16) & 0xFF) - 255.0f) * t);
+        uint32_t g = 255 + (uint32_t)((((s_word_sheen >> 8) & 0xFF) - 255.0f) * t);
+        uint32_t b = 255 + (uint32_t)(((s_word_sheen & 0xFF) - 255.0f) * t);
+        return r << 16 | g << 8 | b | 0x010101; // never 0 (= transparent)
+    }
     const uint8_t *p = sp.icon + (j * sp.w + i) * 2;
     uint16_t v = (uint16_t)(p[0] << 8 | p[1]);
     if (v == 0) return 0;
@@ -528,6 +539,7 @@ void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat, uint
         s_acc_heat = heat;
     }
     const uint32_t *cols = s_accents;
+    s_word_sheen = cols[2];
     s_ox = s_oy = 0;
     switch (s_seq.routine) {
         case ATTRACT_JUMP: routine_jump(t, sp, cols); break;
