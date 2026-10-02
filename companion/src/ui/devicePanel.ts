@@ -81,6 +81,7 @@ export function deviceView(device: Device) {
         ["BUILT", h?.date ?? "-"],
         ["PROTOCOL", h ? String(h.proto) : "-"],
         ["PROFILES", h ? String(h.profileCount) : "-"],
+        ["EXTENSIONS", device.ext ? `V${device.ext} (LOOK)` : device.ext === 0 ? "NONE" : "-"],
         ["LINK", device.kind === "tauri" ? "USB (APP)" : "WEBHID"],
       ].map(([k, v]) => el("div", { class: "kv" }, el("span", {}, k), el("span", {}, v.toUpperCase()))),
     );

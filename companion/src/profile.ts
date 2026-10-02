@@ -7,7 +7,17 @@ export const PROFILE_FORMAT = 1;
 export type Key = [modifier: number, keycode: number];
 export type Element = [op: number, color: number, x: number, y: number, w: number, h: number, arg: number, d: number, flags: number];
 
-export const KINDS = ["none", "drag", "wheel", "keys", "tap", "commands"] as const;
+export const KINDS = ["none", "drag", "wheel", "keys", "tap", "commands", "media"] as const;
+// "media": Consumer-page usages in a key's keycode (`cw` / `ccw` on the knob, `cw` on a key,
+// sent on press) -- the MUSIC profile. Shift+Option on a volume key = a quarter step on a Mac.
+export const MEDIA_USAGES = [
+  { usage: 0xcd, label: "PLAY / PAUSE" },
+  { usage: 0xb5, label: "NEXT" },
+  { usage: 0xb6, label: "PREVIOUS" },
+  { usage: 0xe9, label: "VOLUME +" },
+  { usage: 0xea, label: "VOLUME -" },
+  { usage: 0xe2, label: "MUTE" },
+] as const;
 export const FEELS = ["saw", "sine", "viscose"] as const;
 export const FXS = ["none", "zoom", "orbit", "pan", "flash"] as const;
 export const SLOTS = ["knob", "f1", "f2", "f3", "f4"] as const;

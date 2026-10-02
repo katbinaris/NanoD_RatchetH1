@@ -1,7 +1,7 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { Cmd, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { Cmd, ExtCmd, ExtStatus, ExtTag, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Lights, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -22,6 +22,8 @@ export interface History {
 const STREAM_HZ = 30;
 const SEARCH_MS = 1000;
 const TRANSFER_MS = 8000;
+const PREFS_MS = 1000; // LIGHTS and the idle word can change on the knob too (its menu)
+const LIGHTS_RETRY_MS = 60; // the knob takes one LIGHTS at a time
 
 export class DeviceError extends Error {}
 
@@ -38,6 +40,10 @@ export class Device {
   // before the LED stream never sends it, and the view makes it up instead.
   leds = new Uint8Array(LED_COUNT * 3);
   ledsAt = 0;
+  // ext_proto.h: its version (0 = firmware without the extensions, null = not known yet), and
+  // LIGHTS + the idle word.
+  ext: number | null = null;
+  prefs: Prefs | null = null;
   error: string | null = null;
 
   private listeners = new Set<() => void>();
@@ -49,6 +55,8 @@ export class Device {
   private chain: Promise<unknown> = Promise.resolve();
   private download: { index: number; buf: Uint8Array | null; crc: number; got: number; done: (t: string) => void; fail: (e: Error) => void } | null = null;
   private waitResult: { cmd: number; done: (r: Result) => void } | null = null;
+  private prefsTimer: number | undefined;
+  private lightsSent: { l: Lights; save: boolean; retried: boolean } | null = null;
 
   constructor(private transport: Transport | null) {
     if (!transport) {
@@ -109,11 +117,14 @@ export class Device {
     await this.send(encode.hello());
     await this.send(encode.getSettings());
     await this.send(encode.stream(STREAM_HZ));
+    await this.send(encode.extHello());
   }
 
   private onClosed() {
     this.status = "searching";
     this.hello = this.settings = this.state = this.sysA = this.sysB = null;
+    this.ext = this.prefs = null;
+    window.clearInterval(this.prefsTimer);
     this.changed();
     this.search();
   }
@@ -132,11 +143,21 @@ export class Device {
   set(id: SetId, value: number) {
     return this.send(encode.set(id, value));
   }
-  save() {
-    return this.send(encode.save());
+  // SAVE and REVERT cover LIGHTS too (menu_remote_save / _revert).
+  async save() {
+    await this.send(encode.save());
+    if (this.ext) await this.send(encode.extPrefs());
   }
-  revert() {
-    return this.send(encode.revert());
+  async revert() {
+    await this.send(encode.revert());
+    if (this.ext) await this.send(encode.extPrefs());
+  }
+  setIdleText(text: string) {
+    return this.send(encode.idleText(text));
+  }
+  setLights(l: Lights, save = false) {
+    this.lightsSent = { l: { ...l }, save, retried: false };
+    return this.send(encode.lights(l, save));
   }
   // The shown haptic profile back to its factory feel and values (live, not saved).
   resetHaptic() {
@@ -297,8 +318,35 @@ export class Device {
           w.done(m.result);
         }
         return;
+      case ExtTag.HELLO:
+        if ("ext" in m) {
+          this.ext = m.ext;
+          window.clearInterval(this.prefsTimer);
+          this.prefsTimer = window.setInterval(() => void this.send(encode.extPrefs()), PREFS_MS);
+          void this.send(encode.extPrefs());
+        }
+        break;
+      case ExtTag.PREFS:
+        if ("prefs" in m) this.prefs = m.prefs;
+        break;
+      case ExtTag.ACK:
+        if ("status" in m) {
+          const sent = this.lightsSent;
+          if (m.cmd === ExtCmd.LIGHTS && m.status === ExtStatus.BAD_PARAM && sent && !sent.retried) {
+            sent.retried = true; // the knob was still applying the one before
+            window.setTimeout(() => void this.send(encode.lights(sent.l, sent.save)), LIGHTS_RETRY_MS);
+            return;
+          }
+          if (m.status !== ExtStatus.OK) this.error = m.status === ExtStatus.STORAGE ? "THE KNOB COULDN'T STORE THAT" : `the knob refused 0x${m.cmd.toString(16)} (${m.status})`;
+          else if (m.cmd === ExtCmd.TEXT) void this.send(encode.extPrefs());
+        }
+        break;
       case Tag.ERROR:
         if ("cmd" in m) {
+          if (m.cmd >= ExtCmd.HELLO && m.cmd <= 0x2f) {
+            this.ext = 0; // stock firmware: no extensions
+            break;
+          }
           if (m.cmd === Cmd.PROFILE_READ && this.download) {
             const d = this.download;
             this.download = null;

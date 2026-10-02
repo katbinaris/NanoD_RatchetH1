@@ -50,6 +50,30 @@ export const Tag = {
   ICON_UPLOAD: 0xa0, // icon_store.h
 } as const;
 
+// Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
+// Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
+export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24 } as const;
+export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2 } as const;
+export const ExtStatus = { OK: 0, BAD_PARAM: 1, UNKNOWN: 2, STORAGE: 3 } as const;
+export const EXT_LIGHTS_SAVE = 0x01;
+export const IDLE_TEXT_MAX = 12; // USER_TEXT_MAX: printable ASCII; "" = QUADRA
+export const LightSrc = { APP: 0, CUSTOM: 1 } as const;
+export const LIGHT_FX = ["GRADIENT", "SOLID", "BREATHE", "SPIN", "RAINBOW", "OFF"] as const; // LIGHT_FX_*, in order
+export const LIGHT_FX_MOVING = new globalThis.Set([2, 3, 4]); // the ones SPEED changes
+
+export interface Lights {
+  src: number;
+  fx: number;
+  hue: number; // 0..359
+  sat: number; // 0..100
+  speed: number; // 1..10
+  level: number; // % of the stock brightness, 10..200
+}
+export interface Prefs extends Lights {
+  lightsDirty: boolean; // differ from what's saved
+  idleText: string;
+}
+
 // HOST_SET_* -- also the bit order of Settings.dirty.
 export const Set = {
   DETENTS: 0,
@@ -76,7 +100,7 @@ const FLOAT_SETTINGS: ReadonlySet<number> = new globalThis.Set([Set.KP, Set.KD, 
 export const Feel = { SAW: 0, SINE: 1, VISCOSE: 2 } as const;
 export const HidType = { KEYBOARD: 0, MOUSE: 1, MIDI: 2, APP: 3 } as const;
 export const Host = { MAC: 0, PC: 1 } as const;
-export const Boot = { HID: 0, SERIAL: 1 } as const;
+export const Boot = { SERIAL: 0, HID: 1 } as const; // boot_usb_mode_t
 
 // Limits, as the firmware clamps them (haptic_params.h, audio_trigger.h).
 // The haptic profiles (haptic_params.h HAPTIC_PROFILES), by id. KP, KD, SHAPE, FEEL, AMP and
@@ -219,6 +243,9 @@ export type Message =
   | { tag: typeof Tag.PROFILE_DATA; offset: number; bytes: Uint8Array }
   | { tag: typeof Tag.RESULT; result: Result }
   | { tag: typeof Tag.ERROR; cmd: number; code: number }
+  | { tag: typeof ExtTag.HELLO; ext: number }
+  | { tag: typeof ExtTag.ACK; cmd: number; status: number }
+  | { tag: typeof ExtTag.PREFS; prefs: Prefs }
   | { tag: number };
 
 // --- encoding ---
@@ -286,6 +313,27 @@ export const encode = {
     const r = report(Cmd.PROFILE_OP);
     r[1] = index;
     r[2] = op;
+    return r;
+  },
+  extHello: () => report(ExtCmd.HELLO),
+  extPrefs: () => report(ExtCmd.PREFS),
+  // The idle word: stored on the knob at once (no SAVE).
+  idleText: (text: string) => {
+    const r = report(ExtCmd.TEXT);
+    r.set(new TextEncoder().encode(text.replace(/[^\x20-\x7e]/g, " ").slice(0, IDLE_TEXT_MAX)), 2);
+    return r;
+  },
+  // Live at once; `save` also stores them (otherwise SAVE does, like the other settings).
+  lights: (l: Lights, save: boolean) => {
+    const r = report(ExtCmd.LIGHTS);
+    const v = new DataView(r.buffer);
+    r[1] = save ? EXT_LIGHTS_SAVE : 0;
+    r[2] = l.src;
+    r[3] = l.fx;
+    v.setUint16(4, l.hue, true);
+    r[6] = l.sat;
+    r[7] = l.speed;
+    v.setUint16(8, l.level, true);
     return r;
   },
 };
@@ -434,6 +482,15 @@ export function decode(b: Uint8Array): Message {
       };
     case Tag.ERROR:
       return { tag: Tag.ERROR, cmd: b[1], code: b[2] };
+    case ExtTag.HELLO:
+      return { tag: ExtTag.HELLO, ext: b[1] };
+    case ExtTag.ACK:
+      return { tag: ExtTag.ACK, cmd: b[1], status: b[2] };
+    case ExtTag.PREFS:
+      return {
+        tag: ExtTag.PREFS,
+        prefs: { src: b[1], fx: b[2], hue: u16(3), sat: b[5], speed: b[6], level: u16(7), lightsDirty: b[9] === 1, idleText: str(b, 16, 16) },
+      };
     default:
       return { tag: b[0] };
   }

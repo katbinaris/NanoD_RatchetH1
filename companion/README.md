@@ -71,6 +71,11 @@ Local builds are signed ad-hoc, which needs no Apple account. Ad-hoc signing is 
 own Mac; when someone else opens the app for the first time, macOS warns about an unidentified
 developer.
 
+macOS 27 with Rust 1.93: if the build stops at `can't find crate for phf_macros` (or
+`serde_derive`, ...), the stripped proc-macro libraries are being refused by the loader
+("mis-aligned LINKEDIT string pool"). Build without stripping:
+`CARGO_PROFILE_RELEASE_STRIP=false pnpm tauri build` (the app is a little bigger, ~6 MB).
+
 `bundle.targets` is `["app"]`. Tauri's DMG step styles the disk image by scripting Finder,
 which can hang waiting for a permission prompt. For a DMG, use `CI=true pnpm tauri build
 --bundles dmg`, which skips the Finder styling, or build it in CI.

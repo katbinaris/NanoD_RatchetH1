@@ -17,9 +17,10 @@ real device.
 5. [PROFILES](#5-profiles)
 6. [The profile editor](#6-the-profile-editor)
 7. [Macros](#7-macros)
-8. [DEVICE](#8-device)
-9. [SYS INFO](#9-sys-info)
-10. [When something doesn't work](#10-when-something-doesnt-work)
+8. [LOOK](#8-look)
+9. [DEVICE](#9-device)
+10. [SYS INFO](#10-sys-info)
+11. [When something doesn't work](#11-when-something-doesnt-work)
 
 ---
 
@@ -50,13 +51,14 @@ connected, the header shows **CONNECTED** and the firmware version.
 <img src="fig-window.svg" width="880" alt="Map of the window: connection status, SAVE and REVERT, the live device, the keys, the tabs and panel, amber for unsaved values">
 
 1. **Connection:** the status and the knob's firmware version.
-2. **SAVE / REVERT:** for the settings on the HAPTICS, PROFILES and DEVICE tabs. SAVE shows
+2. **SAVE / REVERT:** for the settings on the HAPTICS, PROFILES, LOOK and DEVICE tabs. SAVE shows
    how many settings differ from what's stored (`SAVE 2`), and reads **SAVED** when none do.
 3. **The device:** the knob as it is now. Its screen shows inside the knob, and the LED ring
    glows in the colours the real LEDs show.
 4. **The keys:** F1–F4 light up and press down while you hold them. Hover over one to see
    what it does in the current profile.
-5. **Tabs and the panel:** HAPTICS, PROFILES, DEVICE and SYS INFO.
+5. **Tabs and the panel:** HAPTICS, PROFILES, LOOK, DEVICE and SYS INFO. LOOK only shows
+   with firmware that has the extensions (DEVICE → FIRMWARE → EXTENSIONS).
 6. **Amber:** a value that is live on the knob but not stored yet.
 
 Under the device, **DETENT** is the step the knob is on and **CLICKS** counts the steps it has
@@ -194,6 +196,7 @@ There are five inputs: the **KNOB** turned by itself, and the knob turned while 
 | **KEYS** | One key combo per step | One for turning right, one for turning left, feel, steps |
 | **TAP** | A key combo or a macro on a press (F1–F3) | The key, or the macro |
 | **WHEEL MENU** | Opens the command wheel (F1–F3) | Steps |
+| **MEDIA** | Media keys: play / pause, next, previous, volume, mute (knob, F1–F3) | The knob: one for each way and the volume step (FINE = a quarter step on a Mac); a key: the one it sends on press |
 
 - **NAME ON SCREEN** is what the knob's screen shows while that input is in use.
 - **FEEL** and **STEPS** together choose a haptic profile for that input: VISCOSE uses SMOOTH, and a step count uses the nearest of WIDE, COARSE, MEDIUM and FINE. The feel and tuning then come from that haptic profile.
@@ -249,7 +252,18 @@ that use it; deleting it clears them.
 
 A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 keys a second.
 
-## 8. DEVICE
+## 8. LOOK
+
+| Section | What it sets |
+|---|---|
+| **IDLE WORD** | The word on the loading and idle screens, up to 12 characters (lowercase draws as small capitals). Empty = **QUADRA**. Stored on the knob as soon as you press **SET** |
+| **COLOR** | The ring and the keys: **APP** (the profile's colours, or the cover's while music plays) or **CUSTOM** with your own **HUE** and **SAT** |
+| **EFFECT** | At rest: GRADIENT, SOLID, BREATHE, SPIN, RAINBOW or OFF; **SPEED** for the moving ones; **LEVEL** is the brightness |
+
+LIGHTS are live on the knob while you change them and kept by **SAVE**, like the other settings
+(or F2 on the knob's own LIGHTS screen). Changes made on the knob show up here within a second.
+
+## 9. DEVICE
 
 <img src="app-device.png" width="720" alt="DEVICE: BINDINGS, DISPLAY rotation, BOOT MODE and the FIRMWARE details">
 
@@ -263,7 +277,7 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 **Take care with BOOT MODE:** once the knob restarts in SERIAL mode, the companion can't
 reach it. Switch back in the knob's own menu: **BOOT MODE → USB MODE → HID**, then restart.
 
-## 9. SYS INFO
+## 10. SYS INFO
 
 <img src="app-sys-info.png" width="720" alt="SYS INFO: POWER, HEAT, CPU and SYSTEM tiles with gauges and history">
 
@@ -278,7 +292,7 @@ that should be zero and aren't.
 | **CPU** | Load on each core. Core 0 runs only the control loop: its rate, work time, jitter, spikes and missed ticks |
 | **SYSTEM** | Uptime, free memory, and counters for dropped HID reports, audio gaps and sensor errors |
 
-## 10. When something doesn't work
+## 11. When something doesn't work
 
 | What you see | What to do |
 |---|---|

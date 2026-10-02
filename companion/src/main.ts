@@ -8,6 +8,7 @@ import { deviceView as deviceRender } from "./ui/deviceView";
 import { hapticsView } from "./ui/haptics";
 import { profilesView } from "./ui/profiles";
 import { deviceView } from "./ui/devicePanel";
+import { lookView } from "./ui/look";
 import { sysinfoView } from "./ui/sysinfo";
 
 const device = new Device(await createTransport());
@@ -39,10 +40,13 @@ new ResizeObserver(() => render3d.fit(glassCol.clientWidth - 24, glassCol.client
 const views = {
   HAPTICS: hapticsView(device),
   PROFILES: profilesView(device),
+  LOOK: lookView(device),
   DEVICE: deviceView(device),
   "SYS INFO": sysinfoView(device),
 };
 type Tab = keyof typeof views;
+// Tabs that need the firmware's extensions (ext_proto.h): hidden on stock firmware.
+const needsExt: ReadonlySet<Tab> = new Set<Tab>(["LOOK"]);
 // ?tab=PROFILES etc. opens on that tab (screenshots, demo links).
 const tabParam = new URLSearchParams(location.search).get("tab")?.toUpperCase().replace("_", " ");
 let tab: Tab = tabParam && tabParam in views ? (tabParam as Tab) : "HAPTICS";
@@ -102,7 +106,7 @@ function render() {
 
   setSawShape(connected ? (device.settings!.shape ?? 0) / 100 : 0);
   const dirty = connected ? device.settings!.dirty : 0;
-  const n = popcount(dirty);
+  const n = popcount(dirty) + (connected && device.prefs?.lightsDirty ? 1 : 0); // SAVE keeps LIGHTS too
   saveBtn.disabled = !connected || n === 0;
   revertBtn.disabled = !connected || n === 0;
   saveBtn.textContent = n > 0 ? `SAVE ${n}` : "SAVED";
@@ -112,7 +116,12 @@ function render() {
   const st = device.state;
   caption.textContent = connected && st ? `DETENT ${st.detent}   CLICKS ${st.clicks}` : "";
 
-  for (const { name, b } of tabButtons) b.classList.toggle("on", name === tab);
+  const hasExt = !!device.ext;
+  if (needsExt.has(tab) && !hasExt && device.ext !== null) tab = "HAPTICS";
+  for (const { name, b } of tabButtons) {
+    b.classList.toggle("on", name === tab);
+    b.style.display = needsExt.has(name) && !hasExt ? "none" : "";
+  }
 
   if (!connected) {
     if (shownConnected || shownTab !== null || panel.childElementCount === 0) {
