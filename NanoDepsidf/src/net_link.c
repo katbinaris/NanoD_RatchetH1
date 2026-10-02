@@ -1,6 +1,7 @@
 #include "net_link.h"
 #include "host_link.h"
 #include "net.h"
+#include "net_pend.h"
 #include "tasks_common.h"
 #include "esp_log.h"
 #include "esp_random.h"
@@ -28,6 +29,7 @@ static const char *TAG = "net_link";
 #define REPLYQ_DEPTH 16  // replies, sent first
 #define TX_BATCH 16      // encrypted and written together
 #define HELLO_MS 2000    // a new connection proves the key within this, or it's closed
+#define PENDING 4        // handshakes going on at once (net_pend.h: one per peer address)
 #define IO_TIMEOUT_S 3   // a write that can't finish means the client is gone
 
 static QueueHandle_t s_txq, s_replyq;
@@ -121,25 +123,37 @@ static bool send_all(int s, const uint8_t *buf, size_t n) {
     return true;
 }
 
-// A connection that hasn't proved the key yet (the handshake, net_link.h). The loop that serves
-// the client steps it as its bytes arrive, and it has HELLO_MS in all: a peer that stalls or
-// drips a byte at a time never holds up the client that's in. One at a time; a newer one
-// replaces it.
-static struct {
-    int fd;           // -1: none
-    int64_t deadline; // esp_timer_get_time()
-    uint8_t buf[20];  // the client's hello, then its proof
-    size_t have;
-    bool replied;     // our half is out: its proof next
-    uint8_t k[32];    // the session key, from its hello on
-} s_pend = {.fd = -1};
+// Connections that haven't proved the key yet (the handshake, net_link.h). The loop that serves
+// the client steps each as its bytes arrive, and each has HELLO_MS in all: a peer that stalls or
+// drips a byte at a time never holds up the client that's in, and the handshakes go on side by
+// side -- a peer that floods only ever replaces its own (net_pend_pick).
+static net_pend_t s_pend[PENDING];
 
-static void drop_pending(const char *why) {
-    if (s_pend.fd < 0) return;
-    close(s_pend.fd);
-    s_pend.fd = -1;
-    memset(s_pend.k, 0, sizeof(s_pend.k));
-    if (why) ESP_LOGW(TAG, "a connection %s: closed", why);
+// A line a second at most: a flood of strangers mustn't flood the console too.
+static void warn_dropped(const char *why) {
+    static int64_t s_next;
+    static unsigned s_quiet;
+    int64_t now = esp_timer_get_time();
+    if (now < s_next) {
+        s_quiet++;
+        return;
+    }
+    if (s_quiet) ESP_LOGW(TAG, "a connection %s: closed (and %u more since)", why, s_quiet);
+    else ESP_LOGW(TAG, "a connection %s: closed", why);
+    s_quiet = 0;
+    s_next = now + 1000000;
+}
+
+static void drop_pending(net_pend_t *p, const char *why) {
+    if (p->fd < 0) return;
+    close(p->fd);
+    p->fd = -1;
+    memset(p->k, 0, sizeof(p->k));
+    if (why) warn_dropped(why);
+}
+
+static void drop_all_pending(void) {
+    for (int i = 0; i < PENDING; i++) drop_pending(&s_pend[i], NULL);
 }
 
 static void close_conn(void) {
@@ -157,29 +171,30 @@ static void close_conn(void) {
 }
 
 static void accept_pending(int lsock) {
-    struct sockaddr_storage from;
+    struct sockaddr_in from = {0};
     socklen_t len = sizeof(from);
     int c = accept(lsock, (struct sockaddr *)&from, &len);
-    if (c < 0) return;
-    drop_pending(NULL);
-    s_pend.fd = c;
-    s_pend.deadline = esp_timer_get_time() + HELLO_MS * 1000LL;
-    s_pend.have = 0;
-    s_pend.replied = false;
+    if (c < 0) { // out of sockets or memory: it stays in the backlog, so don't spin on it
+        vTaskDelay(1);
+        return;
+    }
+    net_pend_t *p = &s_pend[net_pend_pick(s_pend, PENDING, from.sin_addr.s_addr)];
+    drop_pending(p, NULL);
+    *p = (net_pend_t){.fd = c, .addr = from.sin_addr.s_addr, .since = esp_timer_get_time()};
 }
 
-// The pending connection proved the key: it's the client now (a new one takes over).
-static void promote(void) {
-    int c = s_pend.fd;
-    s_pend.fd = -1;
+// A pending connection proved the key: it's the client now (a new one takes over).
+static void promote(net_pend_t *p) {
+    int c = p->fd;
+    p->fd = -1;
     close_conn();
     psa_key_attributes_t a = PSA_KEY_ATTRIBUTES_INIT;
     psa_set_key_type(&a, PSA_KEY_TYPE_AES);
     psa_set_key_bits(&a, 256);
     psa_set_key_algorithm(&a, PSA_ALG_GCM);
     psa_set_key_usage_flags(&a, PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT);
-    bool ok = psa_import_key(&a, s_pend.k, sizeof(s_pend.k), &s_aead) == PSA_SUCCESS;
-    memset(s_pend.k, 0, sizeof(s_pend.k));
+    bool ok = psa_import_key(&a, p->k, sizeof(p->k), &s_aead) == PSA_SUCCESS;
+    memset(p->k, 0, sizeof(p->k));
     if (!ok) {
         close(c);
         return;
@@ -204,21 +219,21 @@ static void promote(void) {
     ESP_LOGI(TAG, "companion in");
 }
 
-// The pending connection's next bytes: its hello (then our half goes out, in one non-blocking
+// A pending connection's next bytes: its hello (then our half goes out, in one non-blocking
 // write -- 36 bytes on a fresh connection always fit), then its proof.
-static void step_pending(void) {
-    size_t want = s_pend.replied ? 16 : 20;
-    int r = recv(s_pend.fd, s_pend.buf + s_pend.have, want - s_pend.have, MSG_DONTWAIT);
+static void step_pending(net_pend_t *p) {
+    size_t want = p->replied ? 16 : 20;
+    int r = recv(p->fd, p->buf + p->have, want - p->have, MSG_DONTWAIT);
     if (r == 0 || (r < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-        drop_pending("that went away mid-handshake");
+        drop_pending(p, "that went away mid-handshake");
         return;
     }
-    if (r < 0 || (s_pend.have += (size_t)r) < want) return;
-    s_pend.have = 0;
+    if (r < 0 || (p->have += (size_t)r) < want) return;
+    p->have = 0;
     uint8_t proof[32];
-    if (s_pend.replied) {
-        if (hmac(s_pend.k, (const uint8_t *)"client", 6, proof) && same(proof, s_pend.buf, 16)) promote();
-        else drop_pending("that couldn't prove the key");
+    if (p->replied) {
+        if (hmac(p->k, (const uint8_t *)"client", 6, proof) && same(proof, p->buf, 16)) promote(p);
+        else drop_pending(p, "that couldn't prove the key");
         return;
     }
     uint8_t key[NET_KEY_BYTES], msg[46], reply[36];
@@ -226,22 +241,22 @@ static void step_pending(void) {
     bool have = s_have_key;
     memcpy(key, s_key, sizeof(key));
     portEXIT_CRITICAL(&s_key_mux);
-    bool ok = have && memcmp(s_pend.buf, "QDR1", 4) == 0;
+    bool ok = have && memcmp(p->buf, "QDR1", 4) == 0;
     if (ok) {
         memcpy(msg, "quadra session", 14);
-        memcpy(msg + 14, s_pend.buf + 4, 16);
+        memcpy(msg + 14, p->buf + 4, 16);
         esp_fill_random(msg + 30, 16);
         memcpy(reply, "QDR1", 4);
         memcpy(reply + 4, msg + 30, 16);
-        ok = hmac(key, msg, sizeof(msg), s_pend.k) && hmac(s_pend.k, (const uint8_t *)"knob", 4, proof);
+        ok = hmac(key, msg, sizeof(msg), p->k) && hmac(p->k, (const uint8_t *)"knob", 4, proof);
         memcpy(reply + 20, proof, 16);
     }
     memset(key, 0, sizeof(key));
-    if (!ok || send(s_pend.fd, reply, sizeof(reply), MSG_DONTWAIT) != (int)sizeof(reply)) {
-        drop_pending(have ? "that isn't a companion" : "before pairing");
+    if (!ok || send(p->fd, reply, sizeof(reply), MSG_DONTWAIT) != (int)sizeof(reply)) {
+        drop_pending(p, have ? "that isn't a companion" : "before pairing");
         return;
     }
-    s_pend.replied = true;
+    p->replied = true;
 }
 
 // Everything waiting, replies first, encrypted, TX_BATCH reports a write, until both queues are
@@ -294,7 +309,7 @@ static int listen_on(void) {
     int one = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     struct sockaddr_in a = {.sin_family = AF_INET, .sin_port = htons(NET_LINK_PORT), .sin_addr.s_addr = htonl(INADDR_ANY)};
-    if (bind(s, (struct sockaddr *)&a, sizeof(a)) != 0 || listen(s, 2) != 0) {
+    if (bind(s, (struct sockaddr *)&a, sizeof(a)) != 0 || listen(s, PENDING) != 0) {
         close(s);
         return -1;
     }
@@ -308,7 +323,7 @@ static void net_link_task(void *arg) {
         net_status(&st);
         if (st.state != NET_CONNECTED) { // no WiFi: nothing to serve
             close_conn();
-            drop_pending(NULL);
+            drop_all_pending();
             if (lsock >= 0) {
                 close(lsock);
                 lsock = -1;
@@ -322,32 +337,34 @@ static void net_link_task(void *arg) {
         }
         if (atomic_exchange(&s_drop, false)) { // a new key: whoever holds the old one is out
             close_conn();
-            drop_pending(NULL);
+            drop_all_pending();
         }
-        int64_t now = esp_timer_get_time();
-        if (s_pend.fd >= 0 && now >= s_pend.deadline) drop_pending("too slow to prove the key");
         fd_set rd;
         FD_ZERO(&rd);
         FD_SET(lsock, &rd);
         FD_SET(s_wake, &rd);
         int top = lsock > s_wake ? lsock : s_wake;
-        int conn = s_conn, pend = s_pend.fd;
+        int conn = s_conn, pend[PENDING];
         if (conn >= 0) {
             FD_SET(conn, &rd);
             if (conn > top) top = conn;
         }
-        struct timeval tv = {.tv_sec = 1}; // WiFi's state, between events
-        if (pend >= 0) {
-            FD_SET(pend, &rd);
-            if (pend > top) top = pend;
-            int64_t left = s_pend.deadline - now; // > 0: checked above
-            if (left < 1000000) tv = (struct timeval){.tv_usec = (suseconds_t)left};
+        int64_t now = esp_timer_get_time(), wake_at = now + 1000000; // WiFi's state, between events
+        for (int i = 0; i < PENDING; i++) {
+            net_pend_t *p = &s_pend[i];
+            int64_t deadline = p->since + HELLO_MS * 1000LL;
+            if (p->fd >= 0 && now >= deadline) drop_pending(p, "too slow to prove the key");
+            if ((pend[i] = p->fd) < 0) continue;
+            FD_SET(p->fd, &rd);
+            if (p->fd > top) top = p->fd;
+            if (deadline < wake_at) wake_at = deadline;
         }
+        struct timeval tv = {.tv_sec = (wake_at - now) / 1000000, .tv_usec = (suseconds_t)((wake_at - now) % 1000000)};
         int n = select(top + 1, &rd, NULL, NULL, &tv);
         if (n < 0) { // shouldn't happen; never spin on it
             ESP_LOGW(TAG, "select: errno %d", errno);
             close_conn();
-            drop_pending(NULL);
+            drop_all_pending();
             close(lsock);
             lsock = -1;
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -359,10 +376,11 @@ static void net_link_task(void *arg) {
         }
         if (atomic_exchange(&s_drop, false)) { // rekeyed while this waited: not one more frame
             close_conn();
-            drop_pending(NULL);
+            drop_all_pending();
         }
         if (n > 0 && conn >= 0 && conn == s_conn && FD_ISSET(conn, &rd) && !read_rx()) close_conn();
-        if (n > 0 && pend >= 0 && pend == s_pend.fd && FD_ISSET(pend, &rd)) step_pending();
+        for (int i = 0; n > 0 && i < PENDING; i++)
+            if (pend[i] >= 0 && pend[i] == s_pend[i].fd && FD_ISSET(pend[i], &rd)) step_pending(&s_pend[i]);
         if (n > 0 && FD_ISSET(lsock, &rd)) accept_pending(lsock);
         if (s_conn >= 0 && !flush_tx()) close_conn();
     }
@@ -380,6 +398,7 @@ void net_link_start(void) {
         return;
     }
     load_key();
+    for (int i = 0; i < PENDING; i++) s_pend[i].fd = -1;
     s_txq = xQueueCreate(TXQ_DEPTH, REPORT);
     s_replyq = xQueueCreate(REPLYQ_DEPTH, REPORT);
     xTaskCreatePinnedToCore(net_link_task, "net_link", 6144, NULL, PRIO_NET_LINK, NULL, CORE_IO);

@@ -680,6 +680,50 @@ def cmd_wifi_check(args):
     check("a stalling peer is cut off", drip[0] is not None and drip[0] < 3, f"after {drip[0] or 0:.1f} s")
     check("...and the live session doesn't wait for it", max(during) < 250, f"max {max(during):.0f} ms")
 
+    # A flood of half-open connections from this address, all held open: the knob keeps one slot
+    # per address (each new attempt replaces that address's last), the live session keeps
+    # answering, and a handshake from here still goes through. (Other addresses keep their own
+    # slots: tools/net_pend_test.)
+    stop, held = threading.Event(), []
+
+    def flooder():
+        while not stop.is_set() and len(held) < 60:
+            try:
+                s = socket.create_connection((ip, port), timeout=2)
+                s.sendall(b"QDR1"[: len(held) % 5])  # nothing, or part of a hello
+                held.append(s)
+            except OSError:
+                time.sleep(0.01)
+
+    def still_open(s):
+        s.setblocking(False)
+        try:
+            return s.recv(1, socket.MSG_PEEK) != b""
+        except BlockingIOError:
+            return True
+        except OSError:
+            return False
+
+    t = threading.Thread(target=flooder)
+    t.start()
+    time.sleep(0.3)
+    during = [live.ask([0x16, i % count], 0xB2)[1] * 1000 for i in range(30)]
+    stop.set()
+    t.join()
+    time.sleep(0.2)
+    kept = sum(still_open(s) for s in held)
+    check(f"a flood of {len(held)} half-open connections held open: the live session keeps answering",
+          max(during) < 250, f"max {max(during):.0f} ms")
+    check("...the knob keeps one of them (one slot per address)", kept <= 1, f"{kept} still open")
+    try:
+        live = Link(key)  # takes over from the session before
+        p, _ = live.ask([EXT_HELLO], EXT_TAG_HELLO)
+        check("...and a handshake from the same address goes through", p[0] == EXT_TAG_HELLO)
+    except (ConnectionError, OSError) as e:
+        check("...and a handshake from the same address goes through", False, str(e))
+    for s in held:
+        s.close()
+
     live.send([EXT_HELLO], tamper=True)
     check("a tampered frame ends the session", live.closed_by_knob())
 
