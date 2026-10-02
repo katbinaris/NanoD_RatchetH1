@@ -15,6 +15,7 @@ Setup: python3 -m pip install hidapi esptool
 import argparse
 import getpass
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -201,6 +202,120 @@ def cmd_wifi(args):
         raise SystemExit("no answer (firmware without WiFi?)" if not r or r[0] != EXT_TAG_ACK
                          else f"refused ({EXT_ST.get(r[2], r[2])})")
     show_net(r)
+
+
+# --- the CLOCK app (src/clock.h): its time, format and zones ---
+EXT_TIME, EXT_CLOCK, EXT_TAG_CLOCK = 0x2A, 0x2B, 0xC5
+CLOCK_FORMAT, CLOCK_ZONE, CLOCK_GET = 1, 2, 3
+CLOCK_FLAGS = [("24h", 0x01), ("seconds", 0x02), ("date", 0x04), ("led", 0x08)]
+CLOCK_SLOTS, CLOCK_TZ_MAX = 5, 45
+ZONEINFO = "/usr/share/zoneinfo"
+_POSIX_HEAD = re.compile(r"^(<[^>]+>|[A-Za-z]{3,})([+-]?\d{1,3}(?::\d{1,2}){0,2})"
+                         r"(?:(<[^>]+>|[A-Za-z]{3,})([+-]?\d{1,3}(?::\d{1,2}){0,2})?)?")
+
+
+def _secs(hms):
+    sign = -1 if hms.startswith("-") else 1
+    h, m, s = ([int(x) for x in hms.lstrip("+-").split(":")] + [0, 0])[:3]
+    return sign * (h * 3600 + m * 60 + s)
+
+
+def fixed_rule(off):
+    """A POSIX rule for a fixed offset (seconds east): 3600 -> "<+01>-1", -12600 -> "<-0330>3:30"."""
+    a = abs(off)
+    h, m = a // 3600, a % 3600 // 60
+    name = f"<{'+' if off >= 0 else '-'}{h:02d}{f'{m:02d}' if m else ''}>"
+    return name + ("-" if off > 0 else "") + (f"{h}:{m:02d}" if m else f"{h}")
+
+
+def zone_label(name):
+    """The knob's name for an IANA zone: its city, upper case, 12 characters at most."""
+    return name.rsplit("/", 1)[-1].replace("_", " ").upper()[:12]
+
+
+def zone_rule(name, now=None):
+    """The POSIX TZ rule the knob follows for IANA zone `name`: the zone file's own (its footer)
+    when that agrees with zoneinfo over the coming year, else the offset it has now, fixed --
+    some zones switch on dates no rule can say (Morocco, around Ramadan) or have a change still
+    pending. Whoever sends a fixed one sends it again now and then (quadrad: every 5 minutes)."""
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    z, now = ZoneInfo(name), now or datetime.now(timezone.utc)
+    try:
+        with open(os.path.join(ZONEINFO, name), "rb") as f:
+            footer = f.read().rstrip(b"\n").rsplit(b"\n", 1)[-1].decode("ascii")
+    except (OSError, UnicodeDecodeError):
+        footer = ""
+    m = _POSIX_HEAD.match(footer)
+    if m and len(footer) <= CLOCK_TZ_MAX:
+        std = -_secs(m.group(2))
+        dst = (-_secs(m.group(4)) if m.group(4) else std + 3600) if m.group(3) else std
+        seen = {int((now + timedelta(hours=12 * i)).astimezone(z).utcoffset().total_seconds()) for i in range(732)}
+        if seen == {std, dst}:
+            return footer
+    return fixed_rule(int(now.astimezone(z).utcoffset().total_seconds()))
+
+
+def local_zone():
+    """(label, rule) for this computer's own zone."""
+    try:
+        name = os.path.realpath("/etc/localtime").split("zoneinfo/", 1)[1]
+        return zone_label(name), zone_rule(name)
+    except (IndexError, OSError, ValueError, KeyError):
+        return "UTC", "UTC0"
+
+
+def time_report(label, rule):
+    """EXT_CMD_TIME: the time now (UTC, ms) and LOCAL's zone."""
+    ms = int(time.time() * 1000)
+    return (bytes([EXT_TIME]) + ms.to_bytes(6, "little") + label.encode()[:12].ljust(12, b"\0")
+            + rule.encode()[:CLOCK_TZ_MAX].ljust(45, b"\0"))
+
+
+def show_clock_slot(r: bytes):
+    off = int.from_bytes(r[4:6], "little", signed=True)
+    label, rule = cstr(r[6:18]), cstr(r[18:64])
+    sign, a = "+" if off >= 0 else "-", abs(off)
+    where = "LOCAL" if r[3] == 0 else f"zone {r[3]}"
+    print(f"{where}: {label or '-'}" + (f"  UTC{sign}{a // 60}{f':{a % 60:02d}' if a % 60 else ''}  {rule}" if label else ""))
+
+
+def cmd_clock(args):
+    """The CLOCK app: show it, or change its format / zones. --sync sends the time (as quadrad does)."""
+    q = Quadra()
+    try:
+        get = lambda slot: q.request(bytes([EXT_CLOCK, CLOCK_GET, slot]), {EXT_TAG_CLOCK, EXT_TAG_ACK, 0xA0}, 1.0)
+        r = get(0)
+        if not r or r[0] != EXT_TAG_CLOCK:
+            raise SystemExit("no answer (firmware without the CLOCK app?)")
+        if args.sync:
+            q.send(time_report(*local_zone()))
+        flags = r[1]
+        for name, bit in CLOCK_FLAGS:
+            v = getattr(args, name.replace("24h", "h24"))
+            if v is not None:
+                flags = flags | bit if v else flags & ~bit
+        if flags != r[1]:
+            q.request(bytes([EXT_CLOCK, CLOCK_FORMAT, flags]), {EXT_TAG_CLOCK}, 1.0)
+        for slot, name in args.zone or []:
+            slot = int(slot)
+            if not 1 <= slot < CLOCK_SLOTS:
+                raise SystemExit("zones 1-4 (LOCAL is this computer's, from the Mac service)")
+            label, rule = "", ""
+            if name.lower() != "none":
+                label, rule = (args.label or zone_label(name)).upper()[:12], zone_rule(name)
+            z = q.request(bytes([EXT_CLOCK, CLOCK_ZONE, slot]) + label.encode().ljust(12, b"\0")
+                          + rule.encode().ljust(46, b"\0"), {EXT_TAG_CLOCK, EXT_TAG_ACK}, 1.0)
+            if not z or z[0] != EXT_TAG_CLOCK:
+                raise SystemExit(f"refused: {rule}")
+        time.sleep(0.05)
+        r = get(0)
+        print("time: " + ("set" if r[2] else "not set yet (WiFi, or the Mac service)") + "; format: "
+              + ", ".join(n for n, b in CLOCK_FLAGS if r[1] & b))
+        for slot in range(CLOCK_SLOTS):
+            show_clock_slot(get(slot))
+    finally:
+        q.close()
 
 
 def cmd_text(args):
@@ -434,6 +549,18 @@ def main():
     g.add_argument("--off", action="store_true", help="switch it off (the setup is kept)")
     g.add_argument("--on", action="store_true", help="switch it back on with the stored setup")
     p.set_defaults(fn=cmd_wifi)
+    p = sub.add_parser("clock", help="the CLOCK app: show it; --24h/--12h, --[no-]seconds, --[no-]date, "
+                                     "--[no-]led, --zone N IANA/Zone|none [--label X], --sync")
+    p.add_argument("--24h", dest="h24", action="store_true", default=None)
+    p.add_argument("--12h", dest="h24", action="store_false")
+    for name in ("seconds", "date", "led"):
+        p.add_argument(f"--{name}", dest=name, action="store_true", default=None)
+        p.add_argument(f"--no-{name}", dest=name, action="store_false")
+    p.add_argument("--zone", nargs=2, action="append", metavar=("N", "ZONE"),
+                   help="zone N (1-4): an IANA name (Europe/London), or none; repeatable")
+    p.add_argument("--label", help="its name on the knob (default: the city)")
+    p.add_argument("--sync", action="store_true", help="send the time and this computer's zone now")
+    p.set_defaults(fn=cmd_clock)
     p = sub.add_parser("reboot")
     p.add_argument("--serial", action="store_true", help="one boot as USB-Serial-JTAG (for flashing)")
     p.set_defaults(fn=cmd_reboot)

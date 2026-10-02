@@ -54,7 +54,10 @@ connected, the header shows **CONNECTED** and the firmware version.
 2. **SAVE / REVERT:** for the settings on the HAPTICS, PROFILES, LOOK and DEVICE tabs. SAVE shows
    how many settings differ from what's stored (`SAVE 2`), and reads **SAVED** when none do.
 3. **The device:** the knob as it is now. Its screen shows inside the knob, and the LED ring
-   glows in the colours the real LEDs show.
+   glows in the colours the real LEDs show. With firmware that has the extensions (v6) the
+   screen is the knob's own, live, and the picture is a remote: click a key (held as long as
+   the button is down), drag round the knob or scroll over it to turn it -- the knob reacts as
+   if you'd touched it (the volume follows in MUSIC, the zones step in CLOCK).
 4. **The keys:** F1–F4 light up and press down while you hold them. Hover over one to see
    what it does in the current profile.
 5. **Tabs and the panel:** HAPTICS, PROFILES, LOOK, DEVICE and SYS INFO. LOOK only shows
@@ -262,6 +265,13 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 
 LIGHTS are live on the knob while you change them and kept by **SAVE**, like the other settings
 (or F2 on the knob's own LIGHTS screen). Changes made on the knob show up here within a second.
+
+**CLOCK** (the CLOCK app): what it shows -- **24 HOUR**, **SECONDS**, **DATE**, and **LED
+SECONDS** (the ring sweeps the seconds) -- and up to four zones besides **LOCAL**, which is this
+Mac's (the Mac service sends the time and the zone; with WiFi on, the knob also sets its clock
+from the internet). Each zone follows its own daylight-saving rules. In the app, turning the
+knob steps through the zones; F1 switches 12 / 24 hours, F2 the seconds, F3 the date. Stored on
+the knob as you change them.
 
 ## 9. DEVICE
 

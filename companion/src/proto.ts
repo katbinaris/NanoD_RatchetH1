@@ -52,8 +52,15 @@ export const Tag = {
 
 // Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
 // Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
-export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29 } as const;
-export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4 } as const;
+export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29, CLOCK: 0x2b, SCREEN: 0x2c, INPUT: 0x2d } as const;
+export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4, CLOCK: 0xc5, SCREEN: 0xc6 } as const;
+export const EXT_SCREEN_VERSION = 6; // the live screen (EXT_CMD_SCREEN) and the knob from here (EXT_CMD_INPUT)
+export const InputOp = { KEYS: 1, TURN: 2 } as const;
+export const SCREEN_SIZE = 240;
+export const EXT_CLOCK_VERSION = 5; // the CLOCK app (EXT_CMD_CLOCK) from this extensions version on
+export const ClockOp = { FORMAT: 1, ZONE: 2, GET: 3 } as const;
+export const ClockFlag = { H24: 0x01, SECONDS: 0x02, DATE: 0x04, LED: 0x08 } as const; // clock.h CLOCK_*
+export const CLOCK_SLOTS = 5; // 0 = LOCAL (the Mac service sends it), 1-4 the user's
 export const EXT_NET_VERSION = 4; // WiFi (EXT_CMD_NET) from this extensions version on
 export const NetOp = { SSID: 1, PASS_A: 2, PASS_B: 3, APPLY: 4, STATUS: 5 } as const;
 export const NET_STATE = ["OFF", "CONNECTING", "CONNECTED", "NETWORK NOT FOUND", "WRONG PASSWORD"] as const; // net_state_t
@@ -76,6 +83,21 @@ export interface Lights {
 export interface Prefs extends Lights {
   lightsDirty: boolean; // differ from what's saved
   idleText: string;
+}
+// One report of the screen stream (screen_stream.h): a slice of the frame numbered `seq`.
+export interface ScreenChunk {
+  seq: number;
+  first: boolean;
+  last: boolean;
+  bytes: Uint8Array;
+}
+export interface ClockSlot {
+  flags: number; // ClockFlag
+  valid: boolean; // the knob's clock is set
+  slot: number;
+  offsetMin: number; // the zone's UTC offset now
+  label: string; // "" = an empty slot
+  rule: string; // POSIX TZ
 }
 export interface Net {
   state: number; // NetState / NET_STATE
@@ -260,6 +282,8 @@ export type Message =
   | { tag: typeof ExtTag.ACK; cmd: number; status: number }
   | { tag: typeof ExtTag.PREFS; prefs: Prefs }
   | { tag: typeof ExtTag.NET; net: Net }
+  | { tag: typeof ExtTag.CLOCK; clock: ClockSlot }
+  | { tag: typeof ExtTag.SCREEN; screen: ScreenChunk }
   | { tag: number };
 
 // --- encoding ---
@@ -330,6 +354,43 @@ export const encode = {
     return r;
   },
   extHello: () => report(ExtCmd.HELLO),
+  screen: (fps: number) => {
+    const r = report(ExtCmd.SCREEN);
+    r[1] = fps;
+    return r;
+  },
+  inputKeys: (mask: number) => {
+    const r = report(ExtCmd.INPUT);
+    r[1] = InputOp.KEYS;
+    r[2] = mask & 0x0f;
+    return r;
+  },
+  inputTurn: (detents: number) => {
+    const r = report(ExtCmd.INPUT);
+    r[1] = InputOp.TURN;
+    r[2] = Math.max(-127, Math.min(127, detents)) & 0xff;
+    return r;
+  },
+  clockGet: (slot: number) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.GET;
+    r[2] = slot;
+    return r;
+  },
+  clockFormat: (flags: number) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.FORMAT;
+    r[2] = flags;
+    return r;
+  },
+  clockZone: (slot: number, label: string, rule: string) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.ZONE;
+    r[2] = slot;
+    r.set(new TextEncoder().encode(label.slice(0, 12)), 3);
+    r.set(new TextEncoder().encode(rule.slice(0, 45)), 15);
+    return r;
+  },
   net: (op: number, bytes?: Uint8Array) => {
     const r = report(ExtCmd.NET);
     r[1] = op;
@@ -506,6 +567,10 @@ export function decode(b: Uint8Array): Message {
       return { tag: ExtTag.HELLO, ext: b[1] };
     case ExtTag.ACK:
       return { tag: ExtTag.ACK, cmd: b[1], status: b[2] };
+    case ExtTag.SCREEN:
+      return { tag: ExtTag.SCREEN, screen: { seq: b[1], first: (b[2] & 1) !== 0, last: (b[2] & 2) !== 0, bytes: b.slice(4, 4 + Math.min(60, b[3])) } };
+    case ExtTag.CLOCK:
+      return { tag: ExtTag.CLOCK, clock: { flags: b[1], valid: b[2] === 1, slot: b[3], offsetMin: (u16(4) << 16) >> 16, label: str(b, 6, 12), rule: str(b, 18, 46) } };
     case ExtTag.NET:
       return {
         tag: ExtTag.NET,

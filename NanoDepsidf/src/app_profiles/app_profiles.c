@@ -23,6 +23,7 @@ static int64_t now_us(void) { return 0; }
 // are still the empty template (app_profile.h APP_PROFILE_EMPTY).
 extern const app_profile_t app_profile_music;
 extern const app_profile_t app_profile_agents;
+extern const app_profile_t app_profile_clock;
 extern const app_profile_t app_profile_plasticity;
 extern const app_profile_t app_profile_figma;
 extern const app_profile_t app_profile_onshape;
@@ -33,6 +34,7 @@ extern const app_profile_t app_profile_empty; // the fallback, not listed
 static const app_profile_t *const s_builtins[] = {
     &app_profile_music, // first = the default on a fresh device
     &app_profile_agents,
+    &app_profile_clock,
     &app_profile_plasticity,
     &app_profile_figma,
     &app_profile_onshape,

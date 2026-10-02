@@ -17,6 +17,7 @@
 #include "notify.h"
 #include "media.h"
 #include "net.h"
+#include "clock.h"
 #include <math.h>
 #include <string.h>
 
@@ -249,6 +250,11 @@ static void led_task_fn(void *arg) {
         float vol_vis;
         const int vol = media_volume(now, &vol_vis);
         const bool vol_ring = now_playing && !menu && vol >= 0 && vol_vis > 0;
+        // CLOCK: the ring is a seconds hand.
+        struct tm clock_tm;
+        int clock_ms = 0;
+        const bool clock_ring = p && strcmp(p->id, "clock") == 0 && !menu && (clock_flags() & CLOCK_LED_SECONDS)
+                             && clock_now(0, &clock_tm, &clock_ms, NULL); // the seconds are the same in every zone
         const uint32_t *look = L.src == LIGHT_SRC_CUSTOM ? custom : music ? cover : acc;
         const uint32_t *pal = menu && !preview ? AMBERS : look;
         const int fx = menu && !preview ? LIGHT_FX_GRADIENT : (int)L.fx;
@@ -319,10 +325,24 @@ static void led_task_fn(void *arg) {
                     s_ring[p] = mixf(s_ring[p], mixf(dim, i == h ? head : lit, a), vol_vis);
                 }
             }
+            // CLOCK: the seconds hand, from the screen's 12 o'clock like a dial's -- smooth between
+            // LEDs, a short tail behind it, the quarters marked.
+            if (clock_ring) {
+                const float pos = clock_tm.tm_sec + clock_ms / 1000.0f;
+                const rgbf_t hand = mixf(hexf(pal[2], 1.0f), (rgbf_t){1, 1, 1}, 0.25f);
+                for (int i = 0; i < NANO_LED_A_NUM; i++) {
+                    float d = fmodf(pos - i + NANO_LED_A_NUM, NANO_LED_A_NUM); // how far the hand is past LED i
+                    float k = d < 1 ? 1 - d : d < 8 ? 0.30f * (1 - (d - 1) / 7) : 0;
+                    float a = fmodf(i - pos + NANO_LED_A_NUM, NANO_LED_A_NUM); // ...or just short of it
+                    if (a < 1) k = fmaxf(k, 1 - a);
+                    if (i % 15 == 0) k = fmaxf(k, 0.12f);
+                    s_ring[i] = maxf(s_ring[i], (rgbf_t){hand.r * k, hand.g * k, hand.b * k});
+                }
+            }
             // The knob spot: follows the knob, pulses on each click, fades out once it rests.
             int64_t since = now - moved_at;
             float vis = since < SPOT_HOLD_US ? 1 : since < SPOT_HOLD_US + SPOT_FADE_US ? 1 - (float)(since - SPOT_HOLD_US) / SPOT_FADE_US : 0;
-            if (vis > 0 && !idle && !vol_ring) {
+            if (vis > 0 && !idle && !vol_ring && !clock_ring) {
                 float pulse = now - click_at < PULSE_US ? 1 - (float)(now - click_at) / PULSE_US : 0;
                 float pos = (float)angle / 10000.0f / (2 * (float)M_PI) * NANO_LED_A_NUM;
                 int c = (int)lroundf(pos);

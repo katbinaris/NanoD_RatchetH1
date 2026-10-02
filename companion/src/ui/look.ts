@@ -3,10 +3,22 @@
 // on the knob's LIGHTS screen), like the other settings.
 
 import type { Device } from "../device";
-import { IDLE_TEXT_MAX, LIGHT_FX, LIGHT_FX_MOVING, LightSrc, type Lights } from "../proto";
-import { text } from "./fields";
+import { CLOCK_SLOTS, ClockFlag, EXT_CLOCK_VERSION, IDLE_TEXT_MAX, LIGHT_FX, LIGHT_FX_MOVING, LightSrc, type Lights } from "../proto";
+import { CITIES } from "../tzdata";
+import { bits, text } from "./fields";
 import { cards, el, section, slider } from "./kit";
 import { throttled } from "./throttle";
+
+const utc = (min: number) => {
+  const a = Math.abs(min);
+  return `UTC${min < 0 ? "-" : "+"}${Math.floor(a / 60)}${a % 60 ? `:${String(a % 60).padStart(2, "0")}` : ""}`;
+};
+const FORMAT = [
+  { bit: ClockFlag.H24, label: "24 HOUR" },
+  { bit: ClockFlag.SECONDS, label: "SECONDS" },
+  { bit: ClockFlag.DATE, label: "DATE" },
+  { bit: ClockFlag.LED, label: "LED SECONDS" },
+];
 
 const hsl = (hue: number, sat: number) => `hsl(${hue} ${sat}% ${50 + (100 - sat) / 4}%)`;
 
@@ -68,9 +80,64 @@ export function lookView(device: Device) {
   const level = slider({ label: "LEVEL", caption: "BRIGHTNESS", min: 10, max: 200, step: 10, format: (v) => `${v}%`, onInput: (v) => change({ level: v }) });
   fxSec.body.append(fx.root, speed.root, level.root);
 
-  root.append(wordSec.root, colorSec.root, fxSec.root);
+  // --- the CLOCK app (extensions v5): stored on the knob as you change it ---
+  const clockSec = section("CLOCK", "THE CLOCK APP");
+  const fmtBox = el("span");
+  let fmtShown = -1;
+  const localLine = el("div", { class: "kv" });
+  const zoneSel: HTMLSelectElement[] = [], zoneOff: HTMLElement[] = [];
+  const zoneRows = el("div");
+  for (let s = 1; s < CLOCK_SLOTS; s++) {
+    const sel = el("select", { class: "txt" });
+    sel.append(el("option", { value: "" }, "NONE"), ...CITIES.map((c, i) => el("option", { value: String(i) }, c.city.toUpperCase())));
+    sel.addEventListener("change", () => {
+      const c = sel.value === "" ? null : CITIES[Number(sel.value)];
+      if (c || sel.value === "") void device.setClockZone(s, c ? c.label : "", c ? c.rule : "");
+    });
+    const off = el("span", { class: "hint" });
+    zoneSel[s] = sel;
+    zoneOff[s] = off;
+    zoneRows.append(el("div", { class: "field" }, el("span", { class: "flabel" }, `ZONE ${s}`), el("span", { class: "fctl" }, sel, off)));
+  }
+  clockSec.body.append(
+    el("div", { class: "field" }, el("span", { class: "flabel" }, "SHOW"), el("span", { class: "fctl" }, fmtBox)),
+    localLine,
+    zoneRows,
+    el("p", { class: "hint" }, "IN THE CLOCK APP: TURN THE KNOB TO STEP THROUGH THE ZONES. F1 12/24 HOURS, F2 SECONDS, F3 DATE."),
+  );
+
+  root.append(wordSec.root, colorSec.root, fxSec.root, clockSec.root);
+
+  function updateClock() {
+    clockSec.root.style.display = (device.ext ?? 0) >= EXT_CLOCK_VERSION ? "" : "none";
+    const c0 = device.clockSlots[0];
+    if (c0) {
+      if (c0.flags !== fmtShown) {
+        fmtShown = c0.flags;
+        fmtBox.replaceChildren(bits(FORMAT, c0.flags, (v) => void device.setClockFlags(v)));
+      }
+      const local = c0.valid ? `${c0.label}   ${utc(c0.offsetMin)}   THIS MAC'S` : "THE TIME ISN'T SET YET: WIFI, OR THE MAC SERVICE";
+      localLine.replaceChildren(el("span", {}, "LOCAL"), el("span", {}, local));
+    }
+    for (let s = 1; s < CLOCK_SLOTS; s++) {
+      const z = device.clockSlots[s];
+      if (!z) continue;
+      zoneOff[s].textContent = z.label ? `  ${utc(z.offsetMin)}` : "";
+      if (document.activeElement === zoneSel[s]) continue;
+      let v = "";
+      if (z.label) {
+        const i = CITIES.findIndex((c) => c.label === z.label && c.rule === z.rule);
+        v = i >= 0 ? String(i) : "other";
+        let other = zoneSel[s].querySelector<HTMLOptionElement>('option[value="other"]');
+        if (i < 0 && !other) zoneSel[s].append((other = el("option", { value: "other" })));
+        if (other) other.textContent = z.label; // set elsewhere (quadra.py clock), not in the list
+      }
+      zoneSel[s].value = v;
+    }
+  }
 
   function update() {
+    updateClock();
     const p = device.prefs;
     if (!p) return;
     // What the knob says, unless a change of ours is still on its way there (not for ever: one

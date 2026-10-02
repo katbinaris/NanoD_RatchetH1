@@ -1,7 +1,7 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { Cmd, EXT_NET_VERSION, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type Lights, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { CLOCK_SLOTS, Cmd, EXT_CLOCK_VERSION, EXT_NET_VERSION, EXT_SCREEN_VERSION, SCREEN_SIZE, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type ClockSlot, type Lights, type ScreenChunk, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -24,6 +24,7 @@ const SEARCH_MS = 1000;
 const TRANSFER_MS = 8000;
 const PREFS_MS = 1000; // LIGHTS and the idle word can change on the knob too (its menu)
 const LIGHTS_RETRY_MS = 60; // the knob takes one LIGHTS at a time
+const SCREEN_FPS = 15;
 
 export class DeviceError extends Error {}
 
@@ -45,6 +46,15 @@ export class Device {
   ext: number | null = null;
   prefs: Prefs | null = null;
   net: Net | null = null; // WiFi, from extensions v4
+  clockSlots: (ClockSlot | null)[] = []; // the CLOCK app, from extensions v5: slot 0 has the format too
+  // The screen as the knob shows it (extensions v6), RGBA; `screenLive` once a whole one came, and
+  // `screenVersion` bumps with each frame.
+  screen = new ImageData(SCREEN_SIZE, SCREEN_SIZE);
+  screenLive = false;
+  screenVersion = 0;
+  private screenBuf = new Uint8Array(120 * 1024);
+  private screenLen = -1; // -1: waiting for a frame's first report
+  private screenSeq = 0;
   error: string | null = null;
 
   private listeners = new Set<() => void>();
@@ -125,6 +135,9 @@ export class Device {
     this.status = "searching";
     this.hello = this.settings = this.state = this.sysA = this.sysB = null;
     this.ext = this.prefs = this.net = null;
+    this.clockSlots = [];
+    this.screenLive = false;
+    this.screenLen = -1;
     window.clearInterval(this.prefsTimer);
     this.changed();
     this.search();
@@ -168,6 +181,13 @@ export class Device {
     const r = encode.net(NetOp.APPLY);
     r[2] = on ? 1 : 0;
     await this.send(r);
+  }
+  // The CLOCK app: its format (ClockFlag), and zone `slot` (1-4; label "" = none). Both stored at once.
+  setClockFlags(flags: number) {
+    return this.send(encode.clockFormat(flags));
+  }
+  setClockZone(slot: number, label: string, rule: string) {
+    return this.send(encode.clockZone(slot, label, rule));
   }
   setLights(l: Lights, save = false) {
     this.lightsSent = { l: { ...l }, save, retried: false };
@@ -336,12 +356,18 @@ export class Device {
         if ("ext" in m) {
           this.ext = m.ext;
           window.clearInterval(this.prefsTimer);
+          let tick = 0;
           const poll = () => {
             void this.send(encode.extPrefs());
+            // CLOCK: the format every second, the zones every 5 (the CLI can change them too)
+            if ((this.ext ?? 0) >= EXT_CLOCK_VERSION && tick++ % 5 === 4) for (let s = 1; s < CLOCK_SLOTS; s++) void this.send(encode.clockGet(s));
             if ((this.ext ?? 0) >= EXT_NET_VERSION) void this.send(encode.net(NetOp.STATUS));
+            if ((this.ext ?? 0) >= EXT_CLOCK_VERSION) void this.send(encode.clockGet(0));
           };
           this.prefsTimer = window.setInterval(poll, PREFS_MS);
           poll();
+          if (m.ext >= EXT_CLOCK_VERSION) for (let s = 1; s < CLOCK_SLOTS; s++) void this.send(encode.clockGet(s));
+          if (m.ext >= EXT_SCREEN_VERSION) void this.send(encode.screen(SCREEN_FPS));
         }
         break;
       case ExtTag.PREFS:
@@ -350,6 +376,12 @@ export class Device {
       case ExtTag.NET:
         if ("net" in m) this.net = m.net;
         break;
+      case ExtTag.CLOCK:
+        if ("clock" in m && m.clock.slot < CLOCK_SLOTS) this.clockSlots[m.clock.slot] = m.clock;
+        break;
+      case ExtTag.SCREEN:
+        if ("screen" in m) this.onScreen(m.screen);
+        return; // changed() once a frame is whole
       case ExtTag.ACK:
         if ("status" in m) {
           const sent = this.lightsSent;
@@ -388,6 +420,71 @@ export class Device {
     this.download = null;
     if (crc32(d.buf!) !== d.crc) d.fail(new DeviceError("PROFILE CORRUPTED ON THE WAY (CRC)"));
     else d.done(new TextDecoder().decode(d.buf!));
+  }
+
+  // --- the live screen (screen_stream.h) ---
+
+  private onScreen(c: ScreenChunk) {
+    if (c.first) {
+      this.screenLen = 0;
+      this.screenSeq = c.seq;
+    } else if (this.screenLen < 0 || c.seq !== this.screenSeq) {
+      return this.screenLost();
+    }
+    if (this.screenLen + c.bytes.length > this.screenBuf.length) return this.screenLost();
+    this.screenBuf.set(c.bytes, this.screenLen);
+    this.screenLen += c.bytes.length;
+    if (!c.last) return;
+    const buf = this.screenBuf, n = this.screenLen, px = this.screen.data;
+    this.screenLen = -1;
+    // Check it all before drawing any: a damaged frame must not leave half a picture behind.
+    for (let i = 0; i < n; ) {
+      const len = buf[i + 2] | (buf[i + 3] << 8);
+      if (buf[i] >= 225 || buf[i + 1] > 1 || len > 512 || i + 4 + len > n) return this.screenLost();
+      i += 4 + len;
+    }
+    for (let i = 0; i < n; ) {
+      const t = buf[i], rle = buf[i + 1] === 1, len = buf[i + 2] | (buf[i + 3] << 8);
+      const x0 = (t % 15) * 16, y0 = Math.floor(t / 15) * 16;
+      let k = 0;
+      const put = (v: number) => {
+        const o = ((y0 + (k >> 4)) * SCREEN_SIZE + x0 + (k & 15)) * 4;
+        px[o] = ((v >> 11) << 3) | (v >> 13);
+        px[o + 1] = (((v >> 5) & 63) << 2) | ((v >> 9) & 3);
+        px[o + 2] = ((v & 31) << 3) | ((v >> 2) & 7);
+        px[o + 3] = 255;
+        k++;
+      };
+      for (let j = i + 4; j < i + 4 + len && k < 256; ) {
+        if (rle) {
+          const v = (buf[j + 1] << 8) | buf[j + 2];
+          for (let r = buf[j]; r > 0 && k < 256; r--) put(v);
+          j += 3;
+        } else {
+          put((buf[j] << 8) | buf[j + 1]);
+          j += 2;
+        }
+      }
+      i += 4 + len;
+    }
+    this.screenLive = true;
+    this.screenVersion++;
+    this.changed();
+  }
+
+  // A report went missing: what the knob thinks we have isn't what we have. Ask for it whole.
+  private screenLost() {
+    this.screenLen = -1;
+    void this.send(encode.screen(0)).then(() => this.send(encode.screen(SCREEN_FPS)));
+  }
+
+  // The keys held on the picture (F1 = 1 .. F4 = 8): the knob lets go 600ms after the last of these.
+  pressKeys(mask: number) {
+    return this.send(encode.inputKeys(mask));
+  }
+  // Detents, + = clockwise: as if the knob had turned.
+  turn(detents: number) {
+    return detents ? this.send(encode.inputTurn(detents)) : Promise.resolve();
   }
 
   // SYS arrives twice a second: HISTORY_SECONDS worth of samples.

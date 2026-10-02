@@ -5,10 +5,15 @@
 //
 // Geometry is in the render's own pixels (800x1100), measured off the image; the view scales
 // it to fit its column.
+//
+// With the fork's extensions (v6) the glass shows the knob's own screen, streamed (the app's
+// re-drawing stays as the fallback), and the picture is a remote: press a key (held while the
+// button is down), drag round the knob or scroll over it to turn it -- the knob reacts as if
+// touched.
 
 import deviceUrl from "../assets/device.png";
 import type { Device } from "../device";
-import { HidType, LED_COUNT } from "../proto";
+import { EXT_SCREEN_VERSION, HidType, LED_COUNT, SCREEN_SIZE } from "../proto";
 import { el } from "./kit";
 import { glass } from "./glass";
 
@@ -20,6 +25,9 @@ const KEYS = [176, 324, 475, 623].map((x) => ({ x, y: 919, w: 118, h: 132 }));
 const LED_MAX = 51; // the firmware caps the LEDs at 20% (led_task.c LED_MAX)
 const LEDS_STALE_MS = 2000;
 const MENU_KEYS = ["SEL", "", "BACK", "MENU"];
+const TURN_STEP = (2 * Math.PI) / 24; // a drag this far round the knob is one detent
+const WHEEL_STEP = 40; // and this much scrolling
+const KEY_REPEAT_MS = 250; // the knob lets a key go 600ms after the last word on it
 
 export function deviceView(device: Device) {
   const root = el("div", { class: "device" });
@@ -27,8 +35,79 @@ export function deviceView(device: Device) {
   const leds = el("canvas", { class: "device-leds" });
   const screen = glass(device, { embedded: true });
   screen.classList.add("device-glass");
+  const mirror = el("canvas", { class: "device-glass device-mirror", width: SCREEN_SIZE, height: SCREEN_SIZE });
+  mirror.style.display = "none";
+  const pad = el("div", { class: "device-turn" }); // over the knob: drag round it, or scroll
   const keys = KEYS.map((_, i) => el("div", { class: "device-key", "data-key": i }));
-  root.append(img, leds, screen, ...keys);
+  root.append(img, leds, screen, mirror, pad, ...keys);
+  const remote = () => device.status === "connected" && (device.ext ?? 0) >= EXT_SCREEN_VERSION;
+
+  // Keys: held while the pointer is down, said again every KEY_REPEAT_MS so the knob keeps them.
+  let held = 0, repeat = 0;
+  const sendKeys = () => void device.pressKeys(held);
+  keys.forEach((k, i) => {
+    k.addEventListener("pointerdown", (e) => {
+      if (!remote()) return;
+      e.preventDefault();
+      k.setPointerCapture(e.pointerId);
+      held |= 1 << i;
+      sendKeys();
+      window.clearInterval(repeat);
+      repeat = window.setInterval(sendKeys, KEY_REPEAT_MS);
+    });
+    const up = () => {
+      if (!(held & (1 << i))) return;
+      held &= ~(1 << i);
+      sendKeys();
+      if (!held) window.clearInterval(repeat);
+    };
+    k.addEventListener("pointerup", up);
+    k.addEventListener("pointercancel", up);
+  });
+
+  // The knob: round it by dragging (clockwise = the knob's clockwise), or by scrolling.
+  let lastAngle: number | null = null, swept = 0, scrolled = 0;
+  const angleAt = (e: PointerEvent) => {
+    const r = root.getBoundingClientRect();
+    return Math.atan2(e.clientY - r.top - (GLASS.y - CROP.y) * s, e.clientX - r.left - (GLASS.x - CROP.x) * s);
+  };
+  pad.addEventListener("pointerdown", (e) => {
+    if (!remote()) return;
+    pad.setPointerCapture(e.pointerId);
+    lastAngle = angleAt(e);
+    swept = 0;
+  });
+  pad.addEventListener("pointermove", (e) => {
+    if (lastAngle === null) return;
+    const a = angleAt(e);
+    let d = a - lastAngle;
+    if (d > Math.PI) d -= 2 * Math.PI;
+    if (d < -Math.PI) d += 2 * Math.PI;
+    lastAngle = a;
+    swept += d;
+    const n = Math.trunc(swept / TURN_STEP);
+    if (n) {
+      swept -= n * TURN_STEP;
+      void device.turn(n);
+    }
+  });
+  const release = () => (lastAngle = null);
+  pad.addEventListener("pointerup", release);
+  pad.addEventListener("pointercancel", release);
+  pad.addEventListener(
+    "wheel",
+    (e) => {
+      if (!remote()) return;
+      e.preventDefault();
+      scrolled += e.deltaY;
+      const n = Math.trunc(scrolled / WHEEL_STEP);
+      if (n) {
+        scrolled -= n * WHEEL_STEP;
+        void device.turn(-n); // scrolling up turns it clockwise
+      }
+    },
+    { passive: false },
+  );
 
   let s = 0.5;
   let fitW = 0, fitH = 0;
@@ -44,6 +123,9 @@ export function deviceView(device: Device) {
     Object.assign(img.style, { left: `${-CROP.x * s}px`, top: `${-CROP.y * s}px`, width: `${IMG.w * s}px`, height: `${IMG.h * s}px` });
     const d = GLASS.r * 2 * s;
     Object.assign(screen.style, { left: `${(GLASS.x - GLASS.r - CROP.x) * s}px`, top: `${(GLASS.y - GLASS.r - CROP.y) * s}px`, width: `${d}px`, height: `${d}px` });
+    Object.assign(mirror.style, { left: screen.style.left, top: screen.style.top, width: `${d}px`, height: `${d}px` });
+    const pr = (RING_R + 36) * s;
+    Object.assign(pad.style, { left: `${(GLASS.x - CROP.x) * s - pr}px`, top: `${(GLASS.y - CROP.y) * s - pr}px`, width: `${pr * 2}px`, height: `${pr * 2}px` });
     keys.forEach((k, i) => {
       const g = KEYS[i];
       Object.assign(k.style, { left: `${(g.x - g.w / 2 - CROP.x) * s}px`, top: `${(g.y - g.h / 2 - CROP.y) * s}px`, width: `${g.w * s}px`, height: `${g.h * s}px` });
@@ -96,7 +178,21 @@ export function deviceView(device: Device) {
     ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
   }
 
+  // The knob's own screen, when it streams one.
+  let shown = -1;
+  function drawScreen() {
+    const live = device.status === "connected" && device.screenLive;
+    mirror.style.display = live ? "" : "none";
+    screen.style.visibility = live ? "hidden" : "";
+    root.classList.toggle("remote", remote());
+    if (live && device.screenVersion !== shown) {
+      shown = device.screenVersion;
+      mirror.getContext("2d")!.putImageData(device.screen, 0, 0);
+    }
+  }
+
   function draw() {
+    drawScreen();
     const ctx = leds.getContext("2d")!;
     const dpr = leds.width / (CROP.w * s || 1);
     ctx.setTransform(1, 0, 0, 1, 0, 0);

@@ -1,6 +1,7 @@
 #include "host_link.h"
 #include "host_proto.h"
 #include "ext_link.h"
+#include "screen_stream.h"
 #include "icon_store.h"
 #include "menu.h"
 #include "sysmon.h"
@@ -391,11 +392,31 @@ static void send_led_part_locked(void) {
     if (tud_hid_n_report(s_instance, 0, r, sizeof(r))) s_led_part++;
 }
 
+// The next report of the screen frame on its way (EXT_CMD_SCREEN), if the endpoint is free.
+// Caller holds s_tx_lock.
+static bool send_screen_locked(void) {
+    uint8_t r[HOST_REPORT_SIZE];
+    if (!tud_hid_n_ready(s_instance) || !screen_stream_next(r)) return false;
+    if (!tud_hid_n_report(s_instance, 0, r, sizeof(r))) return false;
+    screen_stream_sent();
+    return true;
+}
+
 void host_link_report_sent(void) {
     send_piece();
-    if (atomic_load(&s_stream_hz) == 0) return;
     xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    if (s_out == NULL) send_led_part_locked();
+    if (s_out == NULL) {
+        // The screen and the LED frames take turns, so a big screen frame (a new cover) doesn't
+        // stop the LEDs on the companion's picture.
+        static bool s_screen_turn = true;
+        bool led = atomic_load(&s_stream_hz) != 0 && s_led_part < LED_PARTS;
+        if (s_screen_turn || !led) {
+            if (!send_screen_locked() && led) send_led_part_locked();
+        } else {
+            send_led_part_locked();
+        }
+        s_screen_turn = !s_screen_turn;
+    }
     xSemaphoreGive(s_tx_lock);
 }
 
@@ -496,6 +517,10 @@ void host_link_poll(void) {
         send_piece();
         return;
     }
+    // The screen: a report a pass from here; host_link_report_sent() keeps it going back to back.
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    send_screen_locked();
+    xSemaphoreGive(s_tx_lock);
 
     uint8_t hz = atomic_load(&s_stream_hz);
     if (hz == 0) return;
@@ -549,6 +574,7 @@ bool host_link_streaming(void) {
 
 void host_link_stop(void) {
     atomic_store(&s_stream_hz, 0);
+    ext_link_stop();
     xQueueReset(s_replies);
     xSemaphoreTake(s_tx_lock, portMAX_DELAY);
     free(s_out);

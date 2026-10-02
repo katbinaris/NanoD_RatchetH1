@@ -7,8 +7,11 @@
 #include "media.h"
 #include "agent_board.h"
 #include "net.h"
+#include "clock.h"
+#include "screen_stream.h"
 #include "tasks_common.h"
 #include "user_prefs.h"
+#include "ui_state.h"
 #include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -44,6 +47,34 @@ static char s_net_ssid[NET_SSID_MAX + 1], s_net_pass[64];
 static bool s_net_have_ssid, s_net_have_pass, s_net_on;
 static _Atomic bool s_net_apply_pending = false;
 
+// The companion's hands (EXT_CMD_INPUT): keys held until a deadline it keeps moving while they're
+// down (a lost link can't leave one stuck), and detents to play out at the control loop's pace.
+#define VKEYS_HOLD_TICKS pdMS_TO_TICKS(600)
+#define VTURN_BACKLOG 60 // a fling, not a queue of minutes
+static _Atomic uint8_t s_vkeys = 0;
+static _Atomic uint32_t s_vkeys_until = 0;
+static _Atomic int32_t s_vturns = 0;
+
+uint8_t CONTROL_HOT ext_virtual_keys(void) {
+    uint8_t k = atomic_load_explicit(&s_vkeys, memory_order_relaxed);
+    if (k && (int32_t)(xTaskGetTickCount() - atomic_load_explicit(&s_vkeys_until, memory_order_relaxed)) >= 0) return 0;
+    return k;
+}
+
+int8_t CONTROL_HOT ext_take_virtual_turn(void) {
+    int32_t v = atomic_load_explicit(&s_vturns, memory_order_relaxed);
+    if (v == 0) return 0;
+    int8_t d = v > 0 ? 1 : -1;
+    atomic_fetch_sub_explicit(&s_vturns, d, memory_order_relaxed);
+    return d;
+}
+
+void ext_link_stop(void) {
+    screen_stream_stop();
+    atomic_store(&s_vkeys, 0);
+    atomic_store(&s_vturns, 0);
+}
+
 bool ext_take_serial_boot(void) {
     bool requested = s_serial_boot == SERIAL_BOOT_MAGIC && esp_reset_reason() == ESP_RST_SW;
     s_serial_boot = 0;
@@ -78,6 +109,20 @@ static void ack(uint8_t *r, uint8_t cmd, uint8_t status) {
 }
 
 static uint16_t rd_u16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+static void build_clock(uint8_t *r, int slot) {
+    char label[CLOCK_LABEL_MAX + 1], tz[CLOCK_TZ_MAX + 1];
+    clock_slot(slot, label, tz);
+    struct tm tm;
+    int off = 0;
+    r[0] = EXT_TAG_CLOCK;
+    r[1] = clock_flags();
+    r[2] = clock_now(slot, &tm, NULL, &off);
+    r[3] = (uint8_t)slot;
+    put_u16(r + 4, (uint16_t)(int16_t)off);
+    memcpy(r + 6, label, strlen(label));
+    memcpy(r + 18, tz, strlen(tz));
+}
 
 static void build_net(uint8_t *r) {
     net_status_t st;
@@ -199,6 +244,44 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             }
             return false;
         }
+        case EXT_CMD_TIME: {
+            int64_t ms = 0;
+            memcpy(&ms, in + 1, 6); // 48-bit, little-endian
+            char label[CLOCK_LABEL_MAX + 1] = {0}, tz[CLOCK_TZ_MAX + 1] = {0};
+            memcpy(label, in + 7, CLOCK_LABEL_MAX);
+            memcpy(tz, in + 19, CLOCK_TZ_MAX);
+            clock_set_utc_ms(ms);
+            if (label[0]) clock_set_slot(0, label, tz);
+            return false;
+        }
+        case EXT_CMD_CLOCK:
+            if (in[1] == EXT_CLOCK_FORMAT) {
+                clock_set_flags(in[2]);
+                build_clock(r, 0);
+            } else if (in[1] == EXT_CLOCK_ZONE && in[2] >= 1 && in[2] < CLOCK_SLOTS) {
+                char label[CLOCK_LABEL_MAX + 1] = {0}, tz[CLOCK_TZ_MAX + 2] = {0};
+                memcpy(label, in + 3, CLOCK_LABEL_MAX);
+                memcpy(tz, in + 15, CLOCK_TZ_MAX + 1); // a full field has no NUL: too long, refused
+                if (clock_set_slot(in[2], label, tz)) build_clock(r, in[2]);
+                else ack(r, in[0], EXT_ST_BAD_PARAM);
+            } else if (in[1] == EXT_CLOCK_GET && in[2] < CLOCK_SLOTS) {
+                build_clock(r, in[2]);
+            } else {
+                ack(r, in[0], EXT_ST_BAD_PARAM);
+            }
+            return true;
+        case EXT_CMD_SCREEN:
+            screen_stream_set(in[1]);
+            return false;
+        case EXT_CMD_INPUT:
+            if (in[1] == EXT_INPUT_KEYS) {
+                atomic_store(&s_vkeys_until, xTaskGetTickCount() + VKEYS_HOLD_TICKS);
+                atomic_store(&s_vkeys, in[2] & (UI_BTN_F1 | UI_BTN_F2 | UI_BTN_F3 | UI_BTN_F4));
+            } else if (in[1] == EXT_INPUT_TURN) {
+                int32_t now = atomic_load(&s_vturns), d = (int8_t)in[2];
+                if ((d > 0 && now < VTURN_BACKLOG) || (d < 0 && now > -VTURN_BACKLOG)) atomic_fetch_add(&s_vturns, d);
+            }
+            return false;
         case EXT_CMD_NET:
             if (atomic_load(&s_net_apply_pending) && in[1] != EXT_NET_STATUS) {
                 ack(r, in[0], EXT_ST_BAD_PARAM);
@@ -269,6 +352,7 @@ void ext_link_poll(void) {
         host_link_queue(r);
         atomic_store(&s_net_apply_pending, false);
     }
+    clock_poll(); // stores a changed format / zone
     uint16_t id;
     uint8_t decision;
     while (notify_take_event(&id, &decision)) {

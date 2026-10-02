@@ -28,6 +28,7 @@ import queue
 import ssl
 import struct
 import subprocess
+import sys
 import threading
 import time
 import unicodedata
@@ -36,6 +37,11 @@ import urllib.request
 import zlib
 
 import hid
+
+# quadra.py (the CLI) sits next to this file once installed (tools/ in the repo): the device
+# protocol's helpers -- time zones for the CLOCK app.
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")]
+import quadra  # noqa: E402
 
 
 def share_hid():
@@ -208,6 +214,7 @@ class Daemon:
         self.acks: dict[int, asyncio.Future] = {}
         self.dev = Device(loop, self.on_decision, self.on_ack, self.on_link)
         self.music = Music(self)
+        self.time_sent = 0.0  # the CLOCK app's time, last sent
 
     # --- the knob's queue: approvals first (oldest first), then attention items (newest first)
     def sync(self):
@@ -277,6 +284,7 @@ class Daemon:
             self.sync()
             self.push_board(force=True)
             self.music.resend()
+            self.send_time()
         else:
             self.shown = []
             for item in list(self.items.values()):  # nobody can answer on the knob now
@@ -285,6 +293,12 @@ class Daemon:
             for f in self.acks.values():
                 if not f.done():
                     f.set_result(None)
+
+    def send_time(self):
+        """The CLOCK app's time and LOCAL zone (this Mac's): on connecting, then every 5 minutes."""
+        self.time_sent = time.monotonic()
+        if self.dev.connected:
+            self.dev.send(quadra.time_report(*quadra.local_zone()))
 
     def on_decision(self, iid: int, decision: int):
         if iid in self.shown:
@@ -428,6 +442,8 @@ class Daemon:
         while True:
             await asyncio.sleep(10)
             now = time.monotonic()
+            if now - self.time_sent >= 300:
+                self.send_time()
             for item in list(self.items.values()):
                 if item.expires and now > item.expires:
                     self.remove(item.id)

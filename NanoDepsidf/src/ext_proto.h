@@ -5,7 +5,7 @@
 // range (0x20-0x2F, replies and events 0xC0-0xCF) so upstream can grow 0x10-0x1F freely.
 // Host side: tools/quadra.py, tools/agents/.
 
-#define EXT_PROTO_VERSION 4 // 4: EXT_CMD_NET
+#define EXT_PROTO_VERSION 6 // 4: EXT_CMD_NET; 5: EXT_CMD_TIME / _CLOCK; 6: _SCREEN / _INPUT
 
 // --- Host -> device ---
 enum {
@@ -34,7 +34,24 @@ enum {
                            //   APPLY: [2]=1 on / 0 off -- stores what was sent (the stored SSID /
                            //     password stay when none was) and (re)connects -> EXT_TAG_NET
                            //   STATUS -> EXT_TAG_NET. The password is never sent back.
+    EXT_CMD_TIME = 0x2A,   // the Mac service, on connecting and every few minutes: [1..6] UTC time
+                           //   in ms (48-bit) [7..18] LOCAL's label [19..63] its POSIX TZ rule
+                           //   (clock.h), NUL-padded. No reply.
+    EXT_CMD_CLOCK = 0x2B,  // the CLOCK app. [1]=EXT_CLOCK_*:
+                           //   FORMAT: [2]=CLOCK_* flags -> EXT_TAG_CLOCK (slot 0)
+                           //   ZONE: [2]=slot 1-4 [3..14]=label ("" = none) [15..60]=POSIX TZ rule
+                           //     -> EXT_TAG_CLOCK (that slot); EXT_TAG_ACK BAD_PARAM: not a rule
+                           //     the knob can follow
+                           //   GET: [2]=slot 0-4 -> EXT_TAG_CLOCK
+    EXT_CMD_SCREEN = 0x2C, // [1]=frames a second (0 = stop, <= 30): the screen, live, as
+                           //   EXT_TAG_SCREEN reports (screen_stream.h); a start sends it whole first
+    EXT_CMD_INPUT = 0x2D,  // the companion's hands on the knob. [1]=EXT_INPUT_*:
+                           //   KEYS: [2]=keys held (UI_BTN_*, F1 = 0x01 .. F4 = 0x08), for 600 ms
+                           //     unless sent again (the companion repeats it while a key is down)
+                           //   TURN: [2]=detents (int8, + = clockwise), as if the knob had turned
 };
+enum { EXT_INPUT_KEYS = 1, EXT_INPUT_TURN = 2 };
+enum { EXT_CLOCK_FORMAT = 1, EXT_CLOCK_ZONE = 2, EXT_CLOCK_GET = 3 };
 enum { EXT_NET_SSID = 1, EXT_NET_PASS_A = 2, EXT_NET_PASS_B = 3, EXT_NET_APPLY = 4, EXT_NET_STATUS = 5 };
 enum { EXT_COVER_BEGIN = 1, EXT_COVER_DATA = 2, EXT_COVER_END = 3 };
 #define EXT_COVER_CHUNK 58
@@ -63,6 +80,10 @@ enum {
     EXT_TAG_NOTIFY = 0xC3, // unsolicited: [1]=notify_decision_t [2..3]=id
     EXT_TAG_NET = 0xC4,    // [1]=net_state_t [2]=RSSI dBm (int8) [3..6]=IPv4 [7]=1: the clock is set
                            // (SNTP) [8]=1: on [9..40]=SSID [41..63]=host name (<host>.local)
+    EXT_TAG_CLOCK = 0xC5,  // [1]=CLOCK_* flags [2]=1: the time is set [3]=slot [4..5]=its UTC offset
+                           // now, minutes (int16) [6..17]=label [18..63]=POSIX TZ rule
+    EXT_TAG_SCREEN = 0xC6, // [1]=frame number [2]=1: a frame's first report, 2: its last
+                           // [3]=bytes [4..63]=the stream (screen_stream.h)
 };
 
 enum {

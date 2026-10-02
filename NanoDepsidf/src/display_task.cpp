@@ -29,6 +29,9 @@ extern "C" {
 #include "notify.h"
 #include "led_task.h"
 #include "media.h"
+#include "clock.h"
+#include "screen_stream.h"
+#include <time.h>
 #include "agent_board.h"
 #include "esp_heap_caps.h"
 #include "user_prefs.h"
@@ -203,6 +206,26 @@ static int64_t s_np_key_us = -(1LL << 40);
 static int s_np_glyph = ui::NP_GLYPH_NONE;
 static int s_np_volume = -1;
 static float s_np_volume_k = 0;
+
+// CLOCK: the zone on show (an index into clock_zone_slot()).
+static int s_clock_zone = 0;
+
+static void draw_clock_view(void) {
+    int n = clock_zone_count();
+    if (s_clock_zone >= n) s_clock_zone = 0;
+    int slot = clock_zone_slot(s_clock_zone);
+    char label[CLOCK_LABEL_MAX + 1], tz[CLOCK_TZ_MAX + 1];
+    clock_slot(slot, label, tz);
+    struct tm tm = {};
+    int ms = 0, off = 0;
+    bool valid = clock_now(slot, &tm, &ms, &off);
+    uint8_t f = clock_flags();
+    const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+    uint32_t acc[3];
+    app_accents(p->icon48, p->plasma_heat, acc);
+    ui::draw_clock({valid, tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_wday, tm.tm_mday, tm.tm_mon, (f & CLOCK_24H) != 0,
+                    (f & CLOCK_SECONDS) != 0, (f & CLOCK_DATE) != 0, label, off, s_clock_zone, n, acc[1]});
+}
 
 // The notification on show, kept for the iris that closes on it after it's been answered.
 static notify_item_t s_notice;
@@ -668,6 +691,10 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
         case V_MAIN: {
             bool app = menu_get_hid_type() == MENU_HID_APP;
+            if (profile_is("clock")) {
+                draw_clock_view();
+                break;
+            }
             // MUSIC with something playing: the cover takes the whole screen.
             media_track_t trk;
             if (profile_is("music") && media_get_track(&trk)) {
@@ -893,6 +920,35 @@ static Pace update_ui(void) {
                        : (pressed & UI_BTN_F2) ? ui::NP_GLYPH_PREV : ui::NP_GLYPH_NEXT;
         }
     }
+    // CLOCK: the knob steps through the zones, F1-F3 switch the format; a frame each second.
+    bool clock_on = profile_is("clock");
+    bool clock_changed = false;
+    static int32_t s_clock_turns = 0; // followed always: turns made elsewhere don't count here
+    int32_t turns = ui_state_get_turns();
+    int d = (int)(turns - s_clock_turns); // clockwise: the next zone
+    s_clock_turns = turns;
+    if (clock_on && !snap.open) {
+        int n = clock_zone_count();
+        if (d && n > 0) {
+            s_clock_zone = ((s_clock_zone + d) % n + n) % n;
+            clock_changed = true;
+        }
+        uint8_t pressed = buttons & ~s_last_buttons, f = clock_flags();
+        if (pressed & UI_BTN_F1) f ^= CLOCK_24H;
+        if (pressed & UI_BTN_F2) f ^= CLOCK_SECONDS;
+        if (pressed & UI_BTN_F3) f ^= CLOCK_DATE;
+        clock_set_flags(f); // stored by the usb task, a moment later
+    }
+    if (clock_on) {
+        static time_t s_clock_second = 0;
+        static uint32_t s_clock_version = 0;
+        time_t t = time(NULL);
+        if (t != s_clock_second || clock_version() != s_clock_version) {
+            s_clock_second = t;
+            s_clock_version = clock_version();
+            clock_changed = true;
+        }
+    }
     bool np_ring = music_on && s_np_volume_k > 0;
     bool np_overlay = np_ring || (music_on && now - s_np_key_us < NP_GLYPH_MS * 1000LL);
     static bool s_np_overlay_was = false;
@@ -911,7 +967,7 @@ static Pace update_ui(void) {
     // track. While music plays, its cover stays up instead of the idle animation.
     bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed || notice_changed
                  || (music_on && media_changed);
-    if (activity || notice || music_playing) s_last_activity_us = now;
+    if (activity || notice || music_playing || clock_on) s_last_activity_us = now; // a clock isn't screensaved
 
     if (snap.save_count != s_last_save_count) {
         s_last_save_count = snap.save_count;
@@ -996,7 +1052,7 @@ static Pace update_ui(void) {
     s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
                || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed
-               || media_changed || board_changed || np_overlay_ended;
+               || media_changed || board_changed || np_overlay_ended || clock_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -1042,10 +1098,12 @@ static Pace update_ui(void) {
             draw_view(s_view, snap, now);
         }
         s_frame.pushSprite(0, 0);
+        screen_stream_frame((const uint16_t *)s_frame.getBuffer(), true); // the companion's copy
         s_drawn_blink = blink_on;
         s_drawn_toast = toast_on;
     }
 
+    screen_stream_frame((const uint16_t *)s_frame.getBuffer(), false); // one that couldn't go yet
     s_last_snap = snap;
     s_last_buttons = buttons;
     s_last_detent = detent;

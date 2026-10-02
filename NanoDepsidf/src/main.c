@@ -17,6 +17,7 @@
 #include "sysmon.h"
 #include "ext_link.h"
 #include "net.h"
+#include "clock.h"
 #include "hal/usb_serial_jtag_ll.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
@@ -102,6 +103,7 @@ void app_main(void) {
     ipc_init();
     audio_trigger_init();
     ui_state_init();
+    clock_init();
     app_profiles_init(); // stored profiles: before menu_init() looks up the saved one by id
     menu_init();
     icon_store_init(); // before usb_task (producer) and display_task (consumer) start

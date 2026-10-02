@@ -301,6 +301,64 @@ void draw_now_playing(const NowPlayingInputs &in) {
     }
 }
 
+// --- CLOCK ---
+
+void draw_clock(const ClockInputs &in) {
+    static const char *const WDAY[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+    static const char *const MON[12] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+
+    // The seconds: a dot each round the glass, lit up to now; the five-second marks bigger.
+    if (in.seconds && in.valid) {
+        for (int s = 0; s < 60; s++) {
+            float a = s * 2 * (float)M_PI / 60 - (float)M_PI / 2;
+            int sz = s % 5 == 0 ? 4 : 2;
+            uint32_t c = s == in.second ? WHITE : s < in.second ? in.accent : DARK;
+            rect(CX + cosf(a) * 112 - sz / 2.0f, CY + sinf(a) * 112 - sz / 2.0f, sz, sz, c);
+        }
+    }
+
+    // The zone, and its offset from UTC.
+    char head[40];
+    int a = in.offset_min < 0 ? -in.offset_min : in.offset_min;
+    if (a % 60) snprintf(head, sizeof head, "%s  UTC%c%d:%02d", in.label, in.offset_min < 0 ? '-' : '+', a / 60, a % 60);
+    else snprintf(head, sizeof head, "%s  UTC%c%d", in.label, in.offset_min < 0 ? '-' : '+', a / 60);
+    text(in.valid ? head : in.label, CX, 52, GREY, 1, CENTER);
+
+    // The time: HH:MM big, the seconds smaller on its baseline (12 hours: AM / PM above them).
+    char hm[8] = "--:--", ss[4] = "";
+    if (in.valid) {
+        int h = in.h24 ? in.hour : (in.hour % 12 ? in.hour % 12 : 12);
+        snprintf(hm, sizeof hm, in.h24 ? "%02d:%02d" : "%d:%02d", h, in.minute);
+        if (in.seconds) snprintf(ss, sizeof ss, "%02d", in.second);
+    }
+    bool side = ss[0] || (in.valid && !in.h24);
+    int big = fit_scale("88:88", side ? 150 : 190, 8), small = big > 3 ? big / 2 : 1;
+    int wb = text_width(hm, big), ws = side ? (ss[0] ? text_width(ss, small) : text_width("PM", 1)) + 6 : 0;
+    int x0 = CX - (wb + ws) / 2, y = CY - cap_height(big) / 2 - 6;
+    text(hm, x0, y, in.valid ? WHITE : GREY, big, LEFT);
+    if (ss[0]) text(ss, x0 + wb + 6, y + cap_height(big) - cap_height(small), in.accent, small, LEFT);
+    if (in.valid && !in.h24) text(in.hour < 12 ? "AM" : "PM", x0 + wb + 6, y, GREY, 1, LEFT);
+
+    // The date, or where the time is coming from.
+    int below = y + cap_height(big) + 16;
+    if (!in.valid) {
+        text("WAITING FOR THE TIME", CX, below, GREY, 1, CENTER);
+        text("WIFI, OR THE MAC SERVICE", CX, below + 14, DARK, 1, CENTER);
+    } else if (in.date) {
+        char d[16];
+        snprintf(d, sizeof d, "%s %02d %s", WDAY[in.wday % 7], in.mday, MON[in.mon % 12]);
+        text(d, CX, below, WHITE, 2, CENTER);
+    }
+
+    // A dot per zone, the one on show lit.
+    if (in.zones > 1) {
+        for (int i = 0; i < in.zones; i++) {
+            float x = CX + (i - (in.zones - 1) / 2.0f) * 12;
+            disc(x, 190, i == in.zone ? 3.0f : 2.0f, i == in.zone ? in.accent : DARK);
+        }
+    }
+}
+
 // --- AGENTS: the dashboard ---
 
 void draw_agent_board(const AgentRowView *rows, int n, uint32_t t_ms) {

@@ -54,6 +54,20 @@ struct NowPlayingInputs {
 };
 void draw_now_playing(const NowPlayingInputs &in);
 
+// CLOCK (clock.h): one zone's time, big; the zone's name and UTC offset above it, the date
+// below, a dot per zone, and a seconds ring round the glass (from 12 o'clock, like a dial).
+struct ClockInputs {
+    bool valid;                  // the time has been set (WiFi or the Mac service)
+    int hour, minute, second;    // the zone's wall clock
+    int wday, mday, mon;         // tm_wday (0 = Sunday), day of the month, tm_mon (0 = January)
+    bool h24, seconds, date;     // the format (CLOCK_*)
+    const char *label;           // the zone
+    int offset_min;              // its UTC offset
+    int zone, zones;             // which one, of how many
+    uint32_t accent;
+};
+void draw_clock(const ClockInputs &in);
+
 // AGENTS: who's running and what each is doing, in the Main Screen's middle.
 struct AgentRowView {
     uint32_t color;

@@ -383,6 +383,23 @@ static float CONTROL_HOT raw_to_rad(int32_t raw) {
     return ((float)raw / 16384.0f) * 2.0f * (float)M_PI;
 }
 
+// One detent's worth of turning, wherever it goes: the menu (list navigation, or a value while
+// editing -- never a wheel event then), APP mode, or the mouse wheel. The knob's own crossings
+// and the companion's turns (EXT_CMD_INPUT) both come through here.
+static void CONTROL_HOT dispatch_turn(int8_t dir, bool app_on) {
+    ui_state_note_turn(dir);
+    if (menu_is_open()) {
+        menu_input_rotate(dir);
+    } else if (app_on) {
+        app_mode_detent(dir, esp_timer_get_time());
+    } else {
+        // Phase 3: knob -> mouse scroll wheel. Non-blocking -- a full queue just drops this
+        // event (counted for SYS INFO).
+        hid_report_msg_t hid_msg = {.type = HID_EVENT_MOUSE_WHEEL, .wheel_delta = (int8_t)(dir * HID_WHEEL_SIGN)};
+        if (xQueueSend(g_hid_report_queue, &hid_msg, 0) != pdTRUE) sysmon_note_hid_drop();
+    }
+}
+
 static void CONTROL_HOT control_task_fn(void *arg) {
     ESP_LOGI(TAG, "control task started on core %d, prio %d", xPortGetCoreID(), uxTaskPriorityGet(NULL));
 
@@ -821,10 +838,12 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // Phase 8: F1-F4 (BTN_A-BTN_D) drive the real config menu (`menu.c`) --
                 // fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the Architecture
                 // decisions log. F2 (Save) joined with the Pixel UI.
-                bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0);
-                bool btn_b_pressed = (gpio_get_level(PIN_BTN_B) == 0);
-                bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0);
-                bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0);
+                // The companion's keys (EXT_CMD_INPUT) press the same as the real ones.
+                const uint8_t vkeys = ext_virtual_keys();
+                bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0) || (vkeys & UI_BTN_F1);
+                bool btn_b_pressed = (gpio_get_level(PIN_BTN_B) == 0) || (vkeys & UI_BTN_F2);
+                bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0) || (vkeys & UI_BTN_F3);
+                bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0) || (vkeys & UI_BTN_F4);
 
                 // Pixel UI: held state for the Main Screen keycaps (cheap atomic store, every
                 // tick, same convention as ui_state_set_detent() below).
@@ -1162,28 +1181,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         // raw integer value jumps once per full revolution at the +-pi
                         // wrap boundary; velocity has no such discontinuity.
                         int8_t dir = (s_haptic_filtered_velocity >= 0.0f ? 1 : -1) * KNOB_DIRECTION;
-
-                        if (menu_is_open()) {
-                            // Phase 8: this crossing drives the real menu (list navigation,
-                            // or value adjustment while editing a field) instead of
-                            // scrolling -- deliberately does NOT enqueue a HID wheel event
-                            // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
-                            menu_input_rotate(dir);
-                        } else if (app_on) {
-                            app_mode_detent(dir, esp_timer_get_time());
-                        } else {
-                            // Phase 3: knob -> mouse scroll wheel mapping.
-                            int8_t wheel_delta = (int8_t)(dir * HID_WHEEL_SIGN);
-                            hid_report_msg_t hid_msg = {
-                                .type = HID_EVENT_MOUSE_WHEEL,
-                                .wheel_delta = wheel_delta,
-                            };
-                            // Non-blocking -- a full queue just drops this tick's scroll
-                            // event (counted for SYS INFO).
-                            if (xQueueSend(g_hid_report_queue, &hid_msg, 0) != pdTRUE) {
-                                sysmon_note_hid_drop();
-                            }
-                        }
+                        dispatch_turn(dir, app_on);
                     }
                     s_haptic_prev_detent_index = detent_index;
                     s_haptic_prev_detent_index_valid = true;
@@ -1193,6 +1191,20 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                     // unbounded counter from wherever the device booted, not a meaningful
                     // position on its own. Updated every tick (cheap atomic store), not
                     // just on the edge above, so it's never stale.
+                    // The companion's turns (EXT_CMD_INPUT): a detent at a time at a hand's pace,
+                    // through the same door as the knob's own -- no click, the knob didn't move.
+                    static uint32_t s_vturn_wait = 0;
+                    if (s_vturn_wait) {
+                        s_vturn_wait--;
+                    } else {
+                        int8_t vdir = ext_take_virtual_turn();
+                        if (vdir) {
+                            s_vturn_wait = MS_TO_ITERS(15);
+                            if (menu_is_open() ? menu_at_end(vdir) : (app_on && app_mode_at_end(vdir))) ui_state_note_wall();
+                            else dispatch_turn(vdir, app_on);
+                        }
+                    }
+
                     int32_t wrapped_detent = ((detent_index % (int32_t)num_detents)
                                               + (int32_t)num_detents) % (int32_t)num_detents;
                     ui_state_set_detent(wrapped_detent);
