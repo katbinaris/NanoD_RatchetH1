@@ -31,7 +31,7 @@
 #define MAX_WAIT_MS 10000
 
 // --- names for the enums (index = value) ---
-static const char *const KIND[] = {"none", "drag", "wheel", "keys", "tap", "commands"};
+static const char *const KIND[] = {"none", "drag", "wheel", "keys", "tap", "commands", "media"};
 static const char *const FEEL[] = {"saw", "sine", "viscose"};
 static const char *const VISUAL[] = {"label", "shape"};
 static const char *const SHAPE[] = {"cube", "pyramid", "octa"};
@@ -41,7 +41,7 @@ static const char *const SLOT[] = {"knob", "f1", "f2", "f3", "f4"};
 static const char *const CMD_KIND[] = {"keys", "actions", "macro"};
 static const char *const PVISUAL[] = {"none", "fillet", "extrude", "offset", "hollow", "move", "rotate", "scale", "chamfer", "slide"};
 #define N(a) ((int)(sizeof(a) / sizeof((a)[0])))
-_Static_assert(N(KIND) == APP_ACT_COMMANDS + 1, "KIND names");
+_Static_assert(N(KIND) == APP_ACT_MEDIA + 1, "KIND names");
 _Static_assert(N(FEEL) == HAPTIC_TYPE_COUNT, "FEEL names");
 _Static_assert(N(SLOT) == APP_SLOT_COUNT, "SLOT names");
 _Static_assert(N(PVISUAL) == APP_PV_SLIDE + 1, "PVISUAL names");
