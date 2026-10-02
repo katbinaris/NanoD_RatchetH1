@@ -474,7 +474,8 @@ draw would pass 250 mA.
 ## Firmware architecture
 
 The firmware is ESP-IDF 6.1, built with PlatformIO. It is written in C for the real-time
-and model code, and C++ for the display.
+and model code, and C++ for the display. This section is a summary; the full technical
+description is in [`NanoDepsidf/docs/FIRMWARE.md`](NanoDepsidf/docs/FIRMWARE.md).
 
 **Core split.** Core 0 runs only the control loop: FOC, sensor reads, haptics, key reads and
 input mapping. Core 1 runs everything that can tolerate latency:
@@ -489,6 +490,15 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | `led` | 1 | 10 | LED ring and key LEDs at 30 fps; above the display so its animations can't stall it, asleep between frames |
 | `pd` | 1 | 10 | One-shot at boot: reads the STUSB4500's contract over I2C (read-only), then exits |
 | `sysmon` | 1 | 10 | SYS INFO: samples load, loop timing, temperature and the power estimate twice a second; logs a line every 5 s |
+| `menu_save` | 1 | 10 | Runs F2's save to flash, so it never happens inside a control-loop tick |
+
+**Timing.** A hardware timer interrupt wakes the control task every 100 µs. One iteration takes
+about 26 µs on average and 42 µs at worst, with 5 µs of jitter and no missed ticks (measured
+on hardware through DEVICE → SYS INFO). To get there, everything the loop runs sits in
+internal RAM (IRAM) instead of flash: the loop's own functions, the FreeRTOS, SPI, PWM and GPIO
+code it calls, and the C library's `sinf` / `cosf`. From flash, that code shared a cache with
+Core 1 and stalled whenever Core 1 was busy. A write to flash (saving settings or a profile)
+still pauses both cores briefly while the chip writes.
 
 **Knob direction.** Which way counts as forward is one constant, `KNOB_DIRECTION` in
 `control_task.c` (currently inverted, -1). It flips what a turn means everywhere (menu, APP
@@ -547,8 +557,8 @@ the CDC port's 1200-baud reset. If an upload can't find the device:
 - Or set **BOOT MODE → USB MODE → SERIAL** in the menu and restart.
 
 The board definition is `NanoDepsidf/boards/nanofoc_d.json`, and the partition table
-`boards/nano_partitions.csv` has two OTA slots of 1.25 MB each, NVS and a spare 1.4 MB data
-partition. Motor calibration runs on first boot and is cached in NVS; see
+`boards/nano_partitions.csv` has two OTA slots of 1.25 MB each, NVS and a 1.4 MB data
+partition that holds stored profiles. Motor calibration runs on first boot and is cached in NVS; see
 [First calibration](#first-calibration) before the first use of a new or erased board.
 
 ---
@@ -565,6 +575,7 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 | Tool | What it does |
 |---|---|
 | `tools/ui_preview/run.sh [out.png]` | Compiles the firmware's UI code for the host against a small graphics stub and renders every screen into one PNG contact sheet: menus, wheels, every command card, parameter dials, the idle screen. No hardware needed. |
+| `tools/profile_json_test/run.sh` | Builds the profile JSON code for the host and checks it: every built-in profile survives a round trip unchanged, and bad input is refused with a reason. |
 | `tools/send_icon.py` | Uploads a 48×48 image to the device over the vendor HID interface (`icon.png`, `--test-pattern`, `--clear`, `--list`, `--dry-run --preview out.png`). |
 | `tools/gen_icon_c.py` | Converts a PNG into an RGB565 C array for a profile icon (24×24 status bar, 48×48 profile screen and idle screen). |
 | `tools/gen_silkscreen_font.py` | Regenerates the pixel fonts in `src/fonts/` from Silkscreen. |
@@ -662,7 +673,8 @@ Building, WebHID and notarizing are covered in [`companion/README.md`](companion
 ```
 NanoDepsidf/                   the firmware (PlatformIO project)
 ├── platformio.ini
-├── sdkconfig.defaults         ESP-IDF settings (CPU 240 MHz, watchdog, TinyUSB, ...)
+├── sdkconfig.defaults         ESP-IDF settings (CPU 240 MHz, watchdog, TinyUSB, IRAM placement, ...)
+├── control_hot.lf             linker fragment: the control loop's C-library maths in IRAM
 ├── boards/                    board definition + partition table
 ├── src/
 │   ├── main.c                 boot: USB mode select, task start-up
@@ -676,6 +688,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
 │   ├── menu.c, config_store.c               settings menu + NVS persistence
+│   ├── profile_store.c        stored profiles (LittleFS)
 │   ├── display_task.cpp       view state, transitions, frame pacing
 │   ├── ui_gfx.cpp             pixel primitives, font, sprites
 │   ├── ui_screens.cpp         every screen's layout
@@ -683,7 +696,9 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── ui_shape.cpp           the CAD profiles' isometric micro-interaction
 │   └── ui_fx.cpp              boot animation, idle screen (arcade attract mode)
 ├── tools/                     host tools (see above)
-└── docs/images/               README screens (rendered by tools/ui_preview)
+└── docs/
+    ├── FIRMWARE.md            technical documentation: how the firmware works
+    └── images/                README screens (rendered by tools/ui_preview)
 
 companion/                     the desktop app (Tauri + TypeScript; see companion/README.md)
 ```
@@ -703,8 +718,8 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 - The LED ring and key LEDs.
 - Knob direction, menu order, click amplitude (AMP), and the Jump / Boom idle routines.
 - The USB power reading (5 V 3 A over USB-C PD from a Mac) and DEVICE → SYS INFO.
-- A faster control loop: the sensor read at 10 MHz brought one iteration from 95 µs to
-  about 32 µs of its 100 µs budget.
+- A fast, steady control loop: 10.00 kHz, about 26 µs per iteration on average and 42 µs at
+  worst of a 100 µs budget, 5 µs of jitter, no missed ticks and no spikes.
 
 **Milestone 1 (in progress):**
 - DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
@@ -715,9 +730,9 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 - Desktop companion for macOS: live mirror, settings, SYS INFO (built, not yet confirmed
   against the knob). Next: profile editing and upload, automatic profile switching, the Figma
   bridge, Windows.
-- Integration tests: first pass done with SYS INFO. Left, not noticeable in use: occasional
-  300–600 µs loop spikes (likely instruction-cache evictions; fix: the loop's code in IRAM)
-  and rare audio gaps.
+- Integration tests: first pass done with SYS INFO, and the loop spikes it found are fixed
+  (the loop's code now runs from IRAM). Left: the loop's worst case during a save to flash is
+  not measured yet, and rare audio gaps.
 - Final clean-up.
 
 **Milestone 2:**
