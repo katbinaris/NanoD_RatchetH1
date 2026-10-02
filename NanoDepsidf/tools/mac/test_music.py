@@ -49,6 +49,7 @@ async def main():
     d = Daemon()
     m = quadrad.Music(d)
     m.np = types.SimpleNamespace(usable=True, latest=None, start=lambda: None)
+    m.audio = types.SimpleNamespace(volume=lambda: 50, watch=lambda on_change: None, follow=lambda: None)
     task = asyncio.create_task(m.run())
     seq = 0
 

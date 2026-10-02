@@ -457,13 +457,41 @@ NP_NO_API = 3  # the helper's exit status when this macOS has no MediaRemote Now
 
 
 class CoreAudio:
-    """The system output volume, straight from CoreAudio (cheap)."""
+    """The system output volume, straight from CoreAudio (cheap), and word when it changes."""
 
     class Addr(ctypes.Structure):
         _fields_ = [("sel", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("elem", ctypes.c_uint32)]
 
+    LISTENER = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p)
+
     def __init__(self):
         self.ca = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+        for fn in (self.ca.AudioObjectAddPropertyListener, self.ca.AudioObjectRemovePropertyListener):
+            fn.argtypes = [ctypes.c_uint32, ctypes.POINTER(self.Addr), self.LISTENER, ctypes.c_void_p]
+        self.on_change = lambda: None
+        self._listener = self.LISTENER(lambda *_: self.on_change() or 0)  # kept: CoreAudio holds a raw pointer
+        self._dev = 0
+
+    def _listen(self, obj, sel, scope, on):
+        a = self.Addr(self._fcc(sel), self._fcc(scope), 0)
+        fn = self.ca.AudioObjectAddPropertyListener if on else self.ca.AudioObjectRemovePropertyListener
+        fn(obj, ctypes.byref(a), self._listener, None)
+
+    def watch(self, on_change):
+        """on_change() -- from a CoreAudio thread -- whenever the output device or its volume changes."""
+        self.on_change = on_change
+        self._listen(1, "dOut", "glob", True)
+        self.follow()
+
+    def follow(self):
+        """Listen to the current output device's volume (again after the device changed)."""
+        dev = self._get(1, "dOut", "glob", ctypes.c_uint32) or 0
+        if dev != self._dev:
+            if self._dev:
+                self._listen(self._dev, "vmvc", "outp", False)
+            self._dev = dev
+            if dev:
+                self._listen(dev, "vmvc", "outp", True)
 
     @staticmethod
     def _fcc(s):
@@ -612,6 +640,7 @@ class Music:
         self.cover = None       # the knob's cover: JPEG bytes
         self.palette = [0, 0, 0]
         self.sent = None        # the last EXT_CMD_TRACK report
+        self.playing = False
         self.need_cover = False
         self.last_seen = 0.0
 
@@ -757,11 +786,29 @@ class Music:
         return (bytes([EXT_CMD_TRACK, flags, vol if 0 <= vol <= 100 else 0xFF]) + pal
                 + cstr(t["title"], 24) + cstr(t["artist"], 24))
 
+    def send_track(self):
+        report = self.track_report(self.audio.volume(), self.playing)
+        if report != self.sent:
+            self.sent = report
+            self.d.dev.send(report)
+
+    async def follow_volume(self, wake):
+        """The knob's volume ring follows the Mac the moment its volume changes, not on the next poll."""
+        while True:
+            await wake.wait()
+            wake.clear()
+            self.audio.follow()
+            if self.d.cfg.get("music", True) and self.d.dev.connected:
+                self.send_track()
+
     async def run(self):
         self.np.start()
         log("now playing: " + ("MediaRemote (system Now Playing)" if self.np.usable else
                                f"AppleScript (Music, Spotify) -- no {NP_LIB}: run tools/mac/install.py"))
         loop = asyncio.get_running_loop()
+        wake = asyncio.Event()
+        self.audio.watch(lambda: loop.call_soon_threadsafe(wake.set))
+        loop.create_task(self.follow_volume(wake))
         while True:
             await asyncio.sleep(self.POLL_S)
             if not self.d.cfg.get("music", True) or not self.d.dev.connected:
@@ -801,10 +848,8 @@ class Music:
                 log(f"  cover {'sent' if ok else 'FAILED'}: {len(self.cover or b'')} B in {time.monotonic() - t0:.2f} s")
                 if not ok:
                     self.need_cover = True
-            report = self.track_report(self.audio.volume(), bool(t and t["playing"]))
-            if report != self.sent:
-                self.sent = report
-                self.d.dev.send(report)
+            self.playing = bool(t and t["playing"])
+            self.send_track()
 
 
 async def main():

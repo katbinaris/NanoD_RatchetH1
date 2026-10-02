@@ -290,13 +290,13 @@ void draw_now_playing(const NowPlayingInputs &in) {
             rect(CX + cosf(a) * r - 2.5f, CY + sinf(a) * r - 2.5f, 5, 5, scale_rgb(in.accent, in.volume_k));
         }
         if (fill > 0) disc(CX + cosf(a) * r, CY + sinf(a) * r, 3.5f, scale_rgb(WHITE, in.volume_k));
-        disc(CX, CY - 8, 30, BLACK);
+        shade_disc(CX, CY - 8, 30, 0.85f * in.volume_k); // fades with the ring: no dark spot left behind
         char v[8];
         snprintf(v, sizeof(v), "%d", in.volume);
         text("VOL", CX, CY - 27, scale_rgb(GREY, in.volume_k), 1, CENTER);
         text(v, CX, CY - 15, scale_rgb(WHITE, in.volume_k), 3, CENTER);
     } else if (in.glyph != NP_GLYPH_NONE && in.glyph_k > 0) { // a media key, just pressed
-        disc(CX, CY - 8, 30, BLACK);
+        shade_disc(CX, CY - 8, 30, 0.85f * in.glyph_k);
         glyph(in.glyph, CX, CY - 8, scale_rgb(WHITE, in.glyph_k));
     }
 }

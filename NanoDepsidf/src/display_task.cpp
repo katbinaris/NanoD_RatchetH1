@@ -893,6 +893,9 @@ static Pace update_ui(void) {
         }
     }
     bool np_overlay = music_on && (now - s_np_turned_us < NP_VOLUME_MS * 1000LL || now - s_np_key_us < NP_GLYPH_MS * 1000LL);
+    static bool s_np_overlay_was = false;
+    bool np_overlay_ended = s_np_overlay_was && !np_overlay; // one more frame, or its last faint one stays up
+    s_np_overlay_was = np_overlay;
     bool board_live = false; // a row is animating (WORKING dots, ASKING blink)
     if (profile_is("agents")) {
         agent_row_t rows[AGENT_BOARD_MAX];
@@ -991,7 +994,7 @@ static Pace update_ui(void) {
     s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
                || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed
-               || media_changed || board_changed;
+               || media_changed || board_changed || np_overlay_ended;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
