@@ -8,6 +8,9 @@
     quadra.py notify --ask --nudge    test a notification on the knob
     quadra.py reboot [--serial]       restart; --serial = one boot as USB-Serial-JTAG (flashing)
     quadra.py flash [firmware.bin]    serial reboot -> flash the app -> back to HID, no buttons
+    quadra.py loop [SECONDS]          the control loop's health over a window (missed ticks, jitter)
+    quadra.py wifi-check [--rekey]    the companion's WiFi link against this knob: crypto, USB-only
+                                      commands, a stalling peer (needs: pip install cryptography)
 
 Talks to the vendor HID interface (no macOS Input Monitoring permission needed).
 Setup: python3 -m pip install hidapi esptool
@@ -155,8 +158,8 @@ def show_prefs(r: bytes):
     print(f"idle text: {cstr(r[16:32]) or '(QUADRA)'}")
 
 
-EXT_NET, EXT_TAG_NET = 0x29, 0xC4
-NET_SSID, NET_PASS_A, NET_PASS_B, NET_APPLY, NET_STATUS = 1, 2, 3, 4, 5
+EXT_NET, EXT_TAG_NET, EXT_TAG_KEY = 0x29, 0xC4, 0xC7
+NET_SSID, NET_PASS_A, NET_PASS_B, NET_APPLY, NET_STATUS, NET_KEY = 1, 2, 3, 4, 5, 6
 NET_STATE = ["off", "connecting", "connected", "network not found", "wrong password"]
 
 
@@ -509,6 +512,195 @@ def cmd_flash(args):
     cmd_hello(args)
 
 
+# --- checks ---
+
+TAG_SYS_B, CMD_STREAM, CMD_RESET_PEAKS = 0xB7, 0x15, 0x18
+
+
+def cmd_loop(args):
+    """SYS INFO's loop numbers over a window: peaks reset, then read (host_proto.h SYS_B)."""
+    q = Quadra()
+
+    def sys_b(timeout_s):
+        end = time.monotonic() + timeout_s
+        while time.monotonic() < end:
+            d = q.dev.read(REPORT_SIZE, 100)
+            if d and d[0] == TAG_SYS_B:
+                return bytes(d)
+        return None
+
+    first = sys_b(1.5)
+    ours = first is None  # nobody streams (the companion does while it's open): ask, and stop after
+    if ours:
+        q.send(bytes([CMD_STREAM, 2]))
+        first = sys_b(3)
+    if first is None:
+        raise SystemExit("no SYS report from the knob")
+    q.send(bytes([CMD_RESET_PEAKS]))
+    time.sleep(args.seconds)
+    last = sys_b(3)
+    if ours:
+        q.send(bytes([CMD_STREAM, 0]))
+    q.close()
+    if last is None:
+        raise SystemExit("no SYS report from the knob")
+    _khz, _avg, wmax, jitter = struct.unpack_from("<ffff", last, 8)
+    missed, spikes = struct.unpack_from("<If", last, 24)
+    free, low = struct.unpack_from("<II", last, 32)
+    print(f"{args.seconds:g} s: work max {wmax:.1f} us, jitter max {jitter:.1f} us, "
+          f"missed ticks +{missed - struct.unpack_from('<I', first, 24)[0]} (total {missed}), "
+          f"spikes {spikes:.2f}/s, heap {free} B free (low {low})")
+
+
+def cmd_wifi_check(args):
+    """The WiFi link (src/net_link.h) end to end. The key comes over USB and is never shown."""
+    import hashlib
+    import hmac
+    import socket
+    import threading
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise SystemExit("needs the cryptography package: python3 -m pip install cryptography")
+
+    q = Quadra()
+    hello = q.request(bytes([CMD_HELLO]), (TAG_HELLO,))
+    ext = q.request(bytes([EXT_HELLO]), (EXT_TAG_HELLO,))
+    if not hello or not ext or ext[1] < 7:
+        raise SystemExit("this firmware has no WiFi link (extensions v7)")
+    net = q.request(bytes([EXT_NET, NET_STATUS]), (EXT_TAG_NET,))
+    if not net or net[1] != 2:
+        raise SystemExit("the knob isn't on WiFi (quadra wifi)")
+    ip = ".".join(map(str, net[3:7]))
+    k = q.request(bytes([EXT_NET, NET_KEY, 0]), (EXT_TAG_KEY,))
+    if not k:
+        raise SystemExit("no key from the knob")
+    key, port = k[1:33], struct.unpack_from("<H", k, 33)[0]
+    print(f"{cstr(net[41:64])}.local {ip}:{port}")
+    failed = []
+
+    def check(name, ok, detail=""):
+        print(f"  {'ok  ' if ok else 'FAIL'} {name}{': ' + detail if detail else ''}")
+        if not ok:
+            failed.append(name)
+
+    def nonce(d, seq):
+        return bytes([d]) + struct.pack("<Q", seq) + b"\0\0\0"
+
+    class Link:
+        def __init__(self, key, bad_proof=False):
+            self.s = socket.create_connection((ip, port), timeout=3)
+            cn = os.urandom(16)
+            self.s.sendall(b"QDR1" + cn)
+            r = self.recv(36)
+            kk = hmac.new(key, b"quadra session" + cn + r[4:20], hashlib.sha256).digest()
+            if r[:4] != b"QDR1" or not hmac.compare_digest(hmac.new(kk, b"knob", hashlib.sha256).digest()[:16], r[20:]):
+                raise ConnectionError("the knob's proof doesn't match this key")
+            proof = hmac.new(kk, b"client", hashlib.sha256).digest()[:16]
+            self.s.sendall(bytes([proof[0] ^ 1]) + proof[1:] if bad_proof else proof)
+            self.g, self.tx, self.rx = AESGCM(kk), 0, 0
+
+        def recv(self, n):
+            b = b""
+            while len(b) < n:
+                c = self.s.recv(n - len(b))
+                if not c:
+                    raise ConnectionError("closed by the knob")
+                b += c
+            return b
+
+        def send(self, report, tamper=False):
+            f = self.g.encrypt(nonce(ord("C"), self.tx), bytes(report).ljust(REPORT_SIZE, b"\0"), None)
+            self.tx += 1
+            self.s.sendall(bytes([f[0] ^ 1]) + f[1:] if tamper else f)
+
+        def read(self, timeout=3):
+            self.s.settimeout(timeout)
+            p = self.g.decrypt(nonce(ord("K"), self.rx), self.recv(REPORT_SIZE + 16), None)
+            self.rx += 1
+            return p
+
+        def ask(self, report, tags, timeout=3):
+            tags = tags if isinstance(tags, tuple) else (tags,)
+            t0 = time.monotonic()
+            self.send(report)
+            while True:
+                p = self.read(timeout)
+                if p[0] in tags and (p[0] != EXT_TAG_ACK or p[1] == report[0]):
+                    return p, time.monotonic() - t0
+
+        def closed_by_knob(self, timeout=4):
+            try:
+                while True:
+                    self.read(timeout)
+            except ConnectionError:
+                return True
+            except (socket.timeout, OSError):
+                return False
+
+    live = Link(key)
+    p, _ = live.ask([EXT_HELLO], EXT_TAG_HELLO)
+    check("handshake, encrypted round trip", p[1] >= 7)
+    count = hello[2]
+    rtt = [live.ask([0x16, i % count], 0xB2)[1] * 1000 for i in range(20)]
+    check("round trips", max(rtt) < 250, f"{min(rtt):.0f}/{sum(rtt) / len(rtt):.0f}/{max(rtt):.0f} ms min/avg/max")
+    for name, report in (("WiFi setup", [EXT_NET, 1]), ("the key", [EXT_NET, NET_KEY, 1]),
+                         ("serial boot", [EXT_REBOOT, EXT_REBOOT_SERIAL])):
+        p, _ = live.ask(report, EXT_TAG_ACK)
+        check(f"{name}: USB only", p[2] == 4)
+    # SET BOOT, to HID: harmless even if a broken build took it (refused is the point)
+    p, _ = live.ask([0x12, 10, 0, 0, 1, 0, 0, 0], (0xBF, 0xB1))
+    check("boot mode: USB only", p[0] == 0xBF and p[1] == 0x12)
+
+    for name, kw in (("a wrong key", {"key": os.urandom(32)}), ("a bad proof", {"key": key, "bad_proof": True})):
+        try:
+            Link(**kw).ask([EXT_HELLO], EXT_TAG_HELLO, timeout=2)
+            check(f"{name} refused", False)
+        except (ConnectionError, OSError):
+            check(f"{name} refused", True)
+
+    drip = []
+
+    def dripper():  # a peer that never finishes its hello, a byte at a time
+        s = socket.create_connection((ip, port), timeout=5)
+        t0 = time.monotonic()
+        try:
+            for b in b"QDR1" + bytes(16):
+                s.sendall(bytes([b]))
+                time.sleep(0.4)
+            drip.append(None if s.recv(1) else time.monotonic() - t0)
+        except OSError:
+            drip.append(time.monotonic() - t0)
+
+    t = threading.Thread(target=dripper)
+    t.start()
+    time.sleep(0.2)
+    during = [live.ask([0x16, i % count], 0xB2)[1] * 1000 for i in range(30)]
+    t.join()
+    check("a stalling peer is cut off", drip[0] is not None and drip[0] < 3, f"after {drip[0] or 0:.1f} s")
+    check("...and the live session doesn't wait for it", max(during) < 250, f"max {max(during):.0f} ms")
+
+    live.send([EXT_HELLO], tamper=True)
+    check("a tampered frame ends the session", live.closed_by_knob())
+
+    if args.rekey:
+        live = Link(key)
+        k2 = q.request(bytes([EXT_NET, NET_KEY, 1]), (EXT_TAG_KEY,))
+        check("a new key ends the old session", live.closed_by_knob())
+        try:
+            Link(key)
+            check("the old key is refused", False)
+        except (ConnectionError, OSError):
+            check("the old key is refused", True)
+        p, _ = Link(k2[1:33]).ask([EXT_HELLO], EXT_TAG_HELLO)
+        check("the new key works", p[0] == EXT_TAG_HELLO)
+        print("  (every paired companion has to pair again: DEVICE > WIFI > PAIR AGAIN)")
+    q.close()
+    if failed:
+        raise SystemExit(f"{len(failed)} failed")
+    print("all good")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -569,6 +761,13 @@ def main():
     p.add_argument("--partitions", metavar="PARTITIONS_BIN",
                    help="also write this partition table (a new layout: the profile store is cleared)")
     p.set_defaults(fn=cmd_flash)
+    p = sub.add_parser("loop", help="the control loop's health over a window (missed ticks, jitter)")
+    p.add_argument("seconds", nargs="?", type=float, default=10)
+    p.set_defaults(fn=cmd_loop)
+    p = sub.add_parser("wifi-check", help="check the companion's WiFi link against this knob")
+    p.add_argument("--rekey", action="store_true",
+                   help="also check that a new key ends the old session (every companion pairs again)")
+    p.set_defaults(fn=cmd_wifi_check)
     args = ap.parse_args()
     args.fn(args)
 
