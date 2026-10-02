@@ -15,6 +15,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 hidapi = { version = "2.6", default-features = false, features = ["macos-shared-device"] }
+# WiFi link (NanoDepsidf/src/net_link.h): HMAC-SHA256 handshake, AES-256-GCM frames.
+aes-gcm = "0.10"
+hmac = "0.12"
+sha2 = "0.10"
+getrandom = "0.3"
+libc = "0.2"
+
 
 [profile.release]
 codegen-units = 1

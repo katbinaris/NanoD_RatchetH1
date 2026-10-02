@@ -61,6 +61,9 @@ simulated knob answers the protocol, so the UI can be worked on without the hard
 `&tab=SYS_INFO` (or `PROFILES`, `DEVICE`) opens on that tab, and `&tab=PROFILES&edit=1` opens
 the editor on profile 1.
 
+The WiFi link with the cable in (the cable is what powers the knob): pair the app over USB,
+then start it with USB hidden, `QUADRA_NO_USB=1 Quadra.app/Contents/MacOS/quadra-companion`.
+
 ## Building
 
 ```sh

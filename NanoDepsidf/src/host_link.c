@@ -2,6 +2,7 @@
 #include "host_proto.h"
 #include "ext_link.h"
 #include "screen_stream.h"
+#include "net_link.h"
 #include "icon_store.h"
 #include "menu.h"
 #include "sysmon.h"
@@ -26,42 +27,68 @@
 
 static const char *TAG = "host";
 
-// Replies are built in the TinyUSB task (where OUT reports arrive) but sent from the usb task,
-// together with the stream, so the two never race for the one IN endpoint.
-#define REPLY_QUEUE_DEPTH 8
-static QueueHandle_t s_replies;
+// Two links: USB (the vendor HID interface; reports arrive in the TinyUSB task) and the
+// network (net_link.c; its task). Commands are handled one at a time (s_rx_lock) and each reply
+// goes back on the link its command came on, so the Mac service on USB and a companion on WiFi
+// (or two companions) work side by side. Each link has its own live stream; the screen, one
+// encoder, goes to the link that asked for it last, and back to the other when that one stops.
+#define REPLY_QUEUE_DEPTH 16 // the companion's once-a-second poll asks up to 8 things at once
+#define NET_BATCH 32 // reports handed to the network per usb-task pass (USB: one, then completions)
+static QueueHandle_t s_replies[HOST_LINK_COUNT];
+static SemaphoreHandle_t s_rx_lock;
 static uint8_t s_instance;
 
-static _Atomic uint8_t s_stream_hz = 0;
+static _Atomic int s_screen_link = HOST_LINK_USB; // the screen's (host_link_screen; s_tx_lock)
+// Each link's host, by generation: host_link_stop_link moves it on (with s_tx_lock held), so work
+// that finishes after its host went away -- a download, a stored upload, an ack -- isn't handed to
+// the next one on that link.
+static _Atomic uint32_t s_gen[HOST_LINK_COUNT];
 
 // --- Profile transfers ---
-// Download: HOST_CMD_PROFILE_READ asks (TinyUSB task), the usb task serializes the profile and
-// the pieces go out back to back -- each finished IN report sends the next one straight from
-// TinyUSB's completion callback, so a 40KB profile takes well under a second instead of one
-// piece per usb-task pass. s_tx_lock keeps the two senders from building the same piece.
+// Download, one per link: HOST_CMD_PROFILE_READ asks, the usb task serializes the profile and
+// the pieces go out back to back -- on USB each finished IN report sends the next one straight
+// from TinyUSB's completion callback, so a 40KB profile takes well under a second instead of
+// one piece per usb-task pass. s_tx_lock keeps the senders from building the same piece.
 static SemaphoreHandle_t s_tx_lock;
-static _Atomic int s_read_req = -1;
-static char *s_out = NULL;      // the JSON being sent (s_tx_lock)
-static uint32_t s_out_len, s_out_off;
-static bool s_out_began;
-static uint8_t s_out_index;
+typedef struct {
+    _Atomic int req;          // the index asked for, -1: none
+    char *out;                // the JSON being sent, NULL: none (the rest: s_tx_lock)
+    uint32_t len, off;
+    bool began;
+    uint8_t index;
+} download_t;
+static download_t s_dl[HOST_LINK_COUNT];
 // Upload: BEGIN / DATA land in the TinyUSB task (copy only); END hands the text to the usb
 // task, which parses, applies and stores it.
 static char *s_in = NULL;
 static uint32_t s_in_len, s_in_crc, s_in_got;
 static uint8_t s_in_flags;
 static bool s_in_bad;
+static host_link_t s_in_link;
+static uint32_t s_in_gen;
 static _Atomic bool s_in_done = false;
-// HOST_CMD_PROFILE_OP, done in the usb task (file I/O): bit 31 pending, 8-15 index, 0-7 op.
+// HOST_CMD_PROFILE_OP, done in the usb task (file I/O): bit 31 pending, 16-23 link, 8-15 index,
+// 0-7 op.
 static _Atomic uint32_t s_op = 0;
+static uint32_t s_op_gen; // set before s_op
 
-// LEDs: a snapshot every LED_FRAME_US while streaming, sent as LED_PARTS reports back to back
-// (from the completion callback, like a profile download). s_tx_lock.
+// A link's live stream (HOST_CMD_STREAM): STATE at its rate, SYS twice a second, and the LEDs --
+// a snapshot every LED_FRAME_US, sent as LED_PARTS reports back to back (on USB from the
+// completion callback, like a profile download). The rest is s_tx_lock's.
 #define LED_FRAME_US 66000
 #define LED_PER_REPORT 20
 #define LED_PARTS ((LED_VIEW_COUNT + LED_PER_REPORT - 1) / LED_PER_REPORT)
-static uint8_t s_leds[LED_VIEW_COUNT][3];
-static int s_led_part = LED_PARTS; // LED_PARTS = nothing to send
+typedef struct {
+    _Atomic uint8_t hz;          // 0: off
+    _Atomic uint8_t screen_fps;  // what it asked of the screen (EXT_CMD_SCREEN)
+    int64_t next_state, next_sys, next_leds;
+    uint16_t seq;
+    bool sys_b_pending;
+    uint8_t sys_b[HOST_REPORT_SIZE];
+    uint8_t leds[LED_VIEW_COUNT][3];
+    int led_part; // LED_PARTS = nothing to send
+} stream_t;
+static stream_t s_st[HOST_LINK_COUNT];
 
 // CRC-32 (IEEE, reflected, zlib.crc32), as icon_store.c.
 static uint32_t crc32_ieee(const uint8_t *data, size_t len) {
@@ -83,13 +110,25 @@ static void put_str(uint8_t *b, const char *s, size_t n) {
     memcpy(b, s, len);
 }
 
-static void queue_reply(const uint8_t *r) {
-    if (xQueueSend(s_replies, r, 0) != pdTRUE) ESP_LOGW(TAG, "reply dropped (queue full)");
+static void queue_reply(host_link_t link, const uint8_t *r) {
+    if (xQueueSend(s_replies[link], r, 0) != pdTRUE && link == HOST_LINK_NET)
+        ESP_LOGW(TAG, "reply dropped (queue full)"); // USB with no host: nobody to tell
+}
+
+uint32_t host_link_gen(host_link_t link) {
+    return atomic_load(&s_gen[link]);
+}
+
+void host_link_queue_to(host_link_t link, uint32_t gen, const uint8_t *report) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY); // not between stop_link's new generation and its reset
+    if (atomic_load(&s_gen[link]) == gen) queue_reply(link, report);
+    xSemaphoreGive(s_tx_lock);
 }
 
 void host_link_queue(const uint8_t *report) {
-    queue_reply(report);
+    queue_reply(HOST_LINK_USB, report);
 }
+
 
 static void build_settings(uint8_t *r) {
     menu_remote_settings_t s;
@@ -139,8 +178,8 @@ static void error_reply(uint8_t *r, uint8_t cmd, uint8_t err) {
     r[2] = err;
 }
 
-// One command -> at most one reply in `r`. Returns false when there's nothing to send.
-static bool handle(const uint8_t *in, uint8_t *r) {
+// One command from `link` -> at most one reply in `r`. Returns false when there's nothing to send.
+static bool handle(host_link_t link, const uint8_t *in, uint8_t *r) {
     uint8_t cmd = in[0];
     switch (cmd) {
         case HOST_CMD_HELLO: {
@@ -161,7 +200,8 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             float fv;
             memcpy(&iv, in + 4, 4);
             memcpy(&fv, in + 4, 4);
-            if (!menu_remote_set(in[1], iv, fv)) {
+            // SERIAL boot mode has no HID and no WiFi: a choice for someone with the knob on a cable.
+            if ((link != HOST_LINK_USB && in[1] == HOST_SET_BOOT) || !menu_remote_set(in[1], iv, fv)) {
                 error_reply(r, cmd, HOST_ERR_BAD_PARAM);
                 return true;
             }
@@ -184,7 +224,7 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             sysmon_reset_peaks();
             return false;
         case HOST_CMD_STREAM:
-            atomic_store(&s_stream_hz, in[1] > 50 ? 50 : in[1]);
+            atomic_store(&s_st[link].hz, in[1] > 50 ? 50 : in[1]);
             return false;
         case HOST_CMD_PROFILE: {
             if (in[1] >= app_profiles_count()) {
@@ -222,13 +262,14 @@ static bool handle(const uint8_t *in, uint8_t *r) {
                 error_reply(r, cmd, HOST_ERR_BAD_PARAM);
                 return true;
             }
-            atomic_store(&s_read_req, in[1]);
+            atomic_store(&s_dl[link].req, in[1]); // replaces one of this link's still going
             return false;
         case HOST_CMD_UPLOAD_BEGIN: {
             uint32_t len, crc;
             memcpy(&len, in + 4, 4);
             memcpy(&crc, in + 8, 4);
-            if (atomic_load(&s_in_done)) {
+            // One upload at a time: the other link's, under way, is left alone.
+            if (atomic_load(&s_in_done) || (s_in != NULL && s_in_link != link)) {
                 result_reply(r, cmd, HOST_RES_BUSY, 0, false, NULL);
                 return true;
             }
@@ -244,11 +285,14 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             s_in_got = 0;
             s_in_flags = in[1];
             s_in_bad = false;
+            s_in_link = link;
+            s_in_gen = atomic_load(&s_gen[link]);
             return false;
         }
         case HOST_CMD_UPLOAD_DATA: {
             uint32_t off = in[1] | in[2] << 8 | (uint32_t)in[3] << 16;
-            if (s_in == NULL || atomic_load(&s_in_done) || off != s_in_got) {
+            if (s_in == NULL || s_in_link != link) return false; // not its upload
+            if (atomic_load(&s_in_done) || off != s_in_got) {
                 s_in_bad = true; // reported at END
                 return false;
             }
@@ -258,7 +302,7 @@ static bool handle(const uint8_t *in, uint8_t *r) {
             return false;
         }
         case HOST_CMD_UPLOAD_END:
-            if (s_in == NULL) {
+            if (s_in == NULL || s_in_link != link) {
                 result_reply(r, cmd, HOST_RES_TRANSFER, 0, false, "no upload");
                 return true;
             }
@@ -269,7 +313,8 @@ static bool handle(const uint8_t *in, uint8_t *r) {
                 result_reply(r, cmd, HOST_RES_BUSY, 0, false, NULL);
                 return true;
             }
-            atomic_store(&s_op, 0x80000000u | (uint32_t)in[1] << 8 | in[2]);
+            s_op_gen = atomic_load(&s_gen[link]);
+            atomic_store(&s_op, 0x80000000u | (uint32_t)link << 16 | (uint32_t)in[1] << 8 | in[2]);
             return false;
         default:
             error_reply(r, cmd, HOST_ERR_UNKNOWN_CMD);
@@ -279,21 +324,36 @@ static bool handle(const uint8_t *in, uint8_t *r) {
 
 void host_link_init(uint8_t vendor_instance) {
     s_instance = vendor_instance;
-    s_replies = xQueueCreate(REPLY_QUEUE_DEPTH, HOST_REPORT_SIZE);
+    for (int l = 0; l < HOST_LINK_COUNT; l++) {
+        s_replies[l] = xQueueCreate(REPLY_QUEUE_DEPTH, HOST_REPORT_SIZE);
+        s_st[l].led_part = LED_PARTS;
+        s_dl[l].req = -1;
+    }
     s_tx_lock = xSemaphoreCreateMutex();
+    s_rx_lock = xSemaphoreCreateMutex();
 }
 
-void host_link_handle_report(const uint8_t *report, uint16_t len) {
+static void send_now(host_link_t link);
+
+void host_link_receive(host_link_t link, const uint8_t *report, uint16_t len) {
+    if (s_rx_lock == NULL) return; // not up yet
     uint8_t in[HOST_REPORT_SIZE] = {0};
     uint8_t r[HOST_REPORT_SIZE] = {0};
     memcpy(in, report, len < sizeof(in) ? len : sizeof(in));
-    if (in[0] >= 0x10 && in[0] <= 0x1F) {
-        if (handle(in, r)) queue_reply(r);
-    } else if (in[0] >= 0x20 && in[0] <= 0x2F) {
-        if (ext_link_handle(in, r)) queue_reply(r);
-    } else if (icon_store_handle_report(in, sizeof(in), r)) {
-        queue_reply(r);
+    xSemaphoreTake(s_rx_lock, portMAX_DELAY);
+    bool reply = false;
+    if (in[0] >= 0x10 && in[0] <= 0x1F) reply = handle(link, in, r);
+    else if (in[0] >= 0x20 && in[0] <= 0x2F) reply = ext_link_handle(link, in, r);
+    else if (link == HOST_LINK_USB) reply = icon_store_handle_report(in, sizeof(in), r); // tools/send_icon.py
+    if (reply) {
+        queue_reply(link, r);
+        send_now(link);
     }
+    xSemaphoreGive(s_rx_lock);
+}
+
+void host_link_handle_report(const uint8_t *report, uint16_t len) {
+    host_link_receive(HOST_LINK_USB, report, len);
 }
 
 static void build_state(uint8_t *r, uint16_t seq) {
@@ -348,106 +408,186 @@ static void build_sys(uint8_t *a, uint8_t *b) {
     put_u32(b + 52, s.sensor_crc_errors);
 }
 
-// The next piece of a profile download, if the endpoint is free. usb task and TinyUSB task.
-static void send_piece(void) {
-    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    if (s_out != NULL && tud_hid_n_ready(s_instance)) {
-        uint8_t r[HOST_REPORT_SIZE] = {0};
-        uint32_t n = 0;
-        if (!s_out_began) {
-            r[0] = HOST_TAG_PROFILE_BEGIN;
-            r[1] = s_out_index;
-            put_u32(r + 4, s_out_len);
-            put_u32(r + 8, crc32_ieee((const uint8_t *)s_out, s_out_len));
-        } else {
-            n = s_out_len - s_out_off < HOST_TEXT_CHUNK ? s_out_len - s_out_off : HOST_TEXT_CHUNK;
-            r[0] = HOST_TAG_PROFILE_DATA;
-            r[1] = s_out_off & 0xFF;
-            r[2] = (s_out_off >> 8) & 0xFF;
-            r[3] = (s_out_off >> 16) & 0xFF;
-            memcpy(r + 4, s_out + s_out_off, n);
-        }
-        if (tud_hid_n_report(s_instance, 0, r, sizeof(r))) {
-            if (!s_out_began) s_out_began = true;
-            else s_out_off += n;
-            if (s_out_began && s_out_off >= s_out_len) {
-                free(s_out);
-                s_out = NULL;
-            }
-        }
-    }
-    xSemaphoreGive(s_tx_lock);
+// --- Sending: on USB (the vendor IN endpoint) or the network (net_link.c) ---
+
+static bool link_ready(host_link_t l) {
+    return l == HOST_LINK_USB ? tud_hid_n_ready(s_instance) : net_link_ready();
 }
 
-// The next LED report of the current frame, if the endpoint is free. Caller holds s_tx_lock.
-static void send_led_part_locked(void) {
-    if (s_led_part >= LED_PARTS || !tud_hid_n_ready(s_instance)) return;
-    int first = s_led_part * LED_PER_REPORT;
+static bool link_send(host_link_t l, const uint8_t *r) {
+    return l == HOST_LINK_USB ? tud_hid_n_report(s_instance, 0, r, HOST_REPORT_SIZE) : net_link_send(r);
+}
+
+// The next piece of link `l`'s profile download, if it has room. Caller holds s_tx_lock.
+static bool send_piece_locked(host_link_t l) {
+    download_t *d = &s_dl[l];
+    if (d->out == NULL || !link_ready(l)) return false;
+    uint8_t r[HOST_REPORT_SIZE] = {0};
+    uint32_t n = 0;
+    if (!d->began) {
+        r[0] = HOST_TAG_PROFILE_BEGIN;
+        r[1] = d->index;
+        put_u32(r + 4, d->len);
+        put_u32(r + 8, crc32_ieee((const uint8_t *)d->out, d->len));
+    } else {
+        n = d->len - d->off < HOST_TEXT_CHUNK ? d->len - d->off : HOST_TEXT_CHUNK;
+        r[0] = HOST_TAG_PROFILE_DATA;
+        r[1] = d->off & 0xFF;
+        r[2] = (d->off >> 8) & 0xFF;
+        r[3] = (d->off >> 16) & 0xFF;
+        memcpy(r + 4, d->out + d->off, n);
+    }
+    if (!link_send(l, r)) return false;
+    if (!d->began) d->began = true;
+    else d->off += n;
+    if (d->began && d->off >= d->len) {
+        free(d->out);
+        d->out = NULL;
+    }
+    return true;
+}
+
+// The next LED report of link `l`'s current frame. Caller holds s_tx_lock.
+static bool send_led_part_locked(host_link_t l) {
+    stream_t *st = &s_st[l];
+    if (st->led_part >= LED_PARTS || !link_ready(l)) return false;
+    int first = st->led_part * LED_PER_REPORT;
     int n = LED_VIEW_COUNT - first < LED_PER_REPORT ? LED_VIEW_COUNT - first : LED_PER_REPORT;
     uint8_t r[HOST_REPORT_SIZE] = {0};
     r[0] = HOST_TAG_LEDS;
     r[1] = (uint8_t)first;
     r[2] = (uint8_t)n;
-    memcpy(r + 4, s_leds[first], (size_t)n * 3);
-    if (tud_hid_n_report(s_instance, 0, r, sizeof(r))) s_led_part++;
+    memcpy(r + 4, st->leds[first], (size_t)n * 3);
+    if (!link_send(l, r)) return false;
+    st->led_part++;
+    return true;
 }
 
-// The next report of the screen frame on its way (EXT_CMD_SCREEN), if the endpoint is free.
-// Caller holds s_tx_lock.
-static bool send_screen_locked(void) {
+// The next report of the screen frame on its way (EXT_CMD_SCREEN). Caller holds s_tx_lock.
+static bool send_screen_locked(host_link_t l) {
     uint8_t r[HOST_REPORT_SIZE];
-    if (!tud_hid_n_ready(s_instance) || !screen_stream_next(r)) return false;
-    if (!tud_hid_n_report(s_instance, 0, r, sizeof(r))) return false;
+    if (!link_ready(l) || !screen_stream_next(r) || !link_send(l, r)) return false;
     screen_stream_sent();
     return true;
 }
 
-void host_link_report_sent(void) {
-    send_piece();
-    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    if (s_out == NULL) {
-        // The screen and the LED frames take turns, so a big screen frame (a new cover) doesn't
-        // stop the LEDs on the companion's picture.
-        static bool s_screen_turn = true;
-        bool led = atomic_load(&s_stream_hz) != 0 && s_led_part < LED_PARTS;
-        if (s_screen_turn || !led) {
-            if (!send_screen_locked() && led) send_led_part_locked();
-        } else {
-            send_led_part_locked();
-        }
-        s_screen_turn = !s_screen_turn;
+// The screen and the LED frames take turns, so a big screen frame (a new cover) doesn't stop
+// the LEDs on the companion's picture. Caller holds s_tx_lock.
+static bool send_screen_or_leds_locked(host_link_t l) {
+    static bool s_screen_turn = true;
+    bool screen = atomic_load(&s_screen_link) == (int)l;
+    bool led = atomic_load(&s_st[l].hz) != 0 && s_st[l].led_part < LED_PARTS;
+    bool sent = false;
+    if (screen && (s_screen_turn || !led)) sent = send_screen_locked(l);
+    if (!sent && led) sent = send_led_part_locked(l);
+    s_screen_turn = !s_screen_turn;
+    return sent;
+}
+
+// The oldest queued reply for `l`, if its link has room. Caller holds s_tx_lock, which keeps
+// USB's two senders (the usb task, the completion callback) from reordering them.
+static bool send_reply_locked(host_link_t l) {
+    uint8_t r[HOST_REPORT_SIZE];
+    if (xQueuePeek(s_replies[l], r, 0) != pdTRUE) return false;
+    bool sent = l == HOST_LINK_USB ? link_ready(l) && link_send(l, r) : net_link_reply(r);
+    if (sent) xQueueReceive(s_replies[l], r, 0);
+    return sent;
+}
+
+// One report of the live stream (or the screen) for link `l`, if one is due. Caller holds
+// s_tx_lock.
+static bool stream_one_locked(host_link_t l) {
+    stream_t *st = &s_st[l];
+    uint8_t hz = atomic_load(&st->hz);
+    int64_t now = esp_timer_get_time();
+    if (hz && st->sys_b_pending) { // SYS_B right after SYS_A
+        if (!link_ready(l) || !link_send(l, st->sys_b)) return false;
+        st->sys_b_pending = false;
+        return true;
     }
+    if (hz && now >= st->next_sys && link_ready(l)) {
+        uint8_t a[HOST_REPORT_SIZE] = {0};
+        memset(st->sys_b, 0, sizeof(st->sys_b));
+        build_sys(a, st->sys_b);
+        if (!link_send(l, a)) return false;
+        st->sys_b_pending = true;
+        st->next_sys = now + 500000;
+        return true;
+    }
+    if (hz && now >= st->next_state && link_ready(l)) {
+        uint8_t r[HOST_REPORT_SIZE] = {0};
+        build_state(r, st->seq);
+        if (!link_send(l, r)) return false;
+        st->seq++;
+        st->next_state = now + 1000000 / hz;
+        return true;
+    }
+    // LEDs: a new frame once the last one is out; its reports and the screen's take turns.
+    if (hz && st->led_part >= LED_PARTS && now >= st->next_leds) {
+        led_task_snapshot(st->leds);
+        st->led_part = 0;
+        st->next_leds = now + LED_FRAME_US;
+    }
+    return send_screen_or_leds_locked(l);
+}
+
+// The next report for link `l`: a queued reply, else a piece of a profile download it asked
+// for (which has the link to itself meanwhile), else its streams. false: nothing went.
+static bool send_next(host_link_t l) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    bool sent = send_reply_locked(l) || (s_dl[l].out != NULL ? send_piece_locked(l) : stream_one_locked(l));
+    xSemaphoreGive(s_tx_lock);
+    return sent;
+}
+
+// A reply just queued, out now if its link has room: a request/reply exchange (the companion
+// loads a profile's icon ~80 of them in a row) then costs a host poll, not a usb-task tick or
+// a whole screen frame.
+static void send_now(host_link_t link) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    send_reply_locked(link);
     xSemaphoreGive(s_tx_lock);
 }
 
-static bool sending_profile(void) {
+// TinyUSB task: a vendor IN report went out -- USB's next one, back to back. The live stream's
+// timed reports wait for the usb task; the rest (replies, a download, LEDs, the screen) chain.
+void host_link_report_sent(void) {
     xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    bool busy = s_out != NULL;
+    if (!send_reply_locked(HOST_LINK_USB)) {
+        if (s_dl[HOST_LINK_USB].out != NULL) send_piece_locked(HOST_LINK_USB);
+        else send_screen_or_leds_locked(HOST_LINK_USB);
+    }
     xSemaphoreGive(s_tx_lock);
-    return busy;
 }
 
 // usb task: the slow half of the profile commands (JSON, files).
 static void profile_work(void) {
     uint8_t r[HOST_REPORT_SIZE];
-    int want = atomic_exchange(&s_read_req, -1);
-    if (want >= 0) {
+    for (int l = 0; l < HOST_LINK_COUNT; l++) {
+        download_t *d = &s_dl[l];
+        uint32_t gen = atomic_load(&s_gen[l]); // before taking the request: see stop_link
+        int want = atomic_exchange(&d->req, -1);
+        if (want < 0) continue;
         size_t len = 0;
         char *text = profile_json_write(app_profiles_get(want), &len);
-        if (text == NULL) {
-            memset(r, 0, sizeof(r));
-            error_reply(r, HOST_CMD_PROFILE_READ, HOST_ERR_BAD_PARAM);
-            queue_reply(r);
-        } else {
-            xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-            free(s_out); // a new request replaces one still going
-            s_out = text;
-            s_out_len = len;
-            s_out_off = 0;
-            s_out_began = false;
-            s_out_index = (uint8_t)want;
-            xSemaphoreGive(s_tx_lock);
+        xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+        if (atomic_load(&s_gen[l]) == gen) { // its host is still the one that asked
+            if (text == NULL) {
+                memset(r, 0, sizeof(r));
+                error_reply(r, HOST_CMD_PROFILE_READ, HOST_ERR_BAD_PARAM);
+                queue_reply((host_link_t)l, r);
+            } else {
+                free(d->out); // a new request replaces one still going
+                d->out = text;
+                d->len = len;
+                d->off = 0;
+                d->began = false;
+                d->index = (uint8_t)want;
+                text = NULL;
+            }
         }
+        xSemaphoreGive(s_tx_lock);
+        free(text);
     }
 
     if (atomic_load(&s_in_done)) {
@@ -476,7 +616,7 @@ static void profile_work(void) {
         s_in = NULL;
         atomic_store(&s_in_done, false);
         result_reply(r, HOST_CMD_UPLOAD_END, res, index, removed, err);
-        queue_reply(r);
+        host_link_queue_to(s_in_link, s_in_gen, r);
     }
 
     uint32_t op = atomic_load(&s_op);
@@ -493,7 +633,7 @@ static void profile_work(void) {
         result_reply(r, HOST_CMD_PROFILE_OP,
                      e == APP_PROFILES_OK ? HOST_RES_OK : e == APP_PROFILES_ERR_STORAGE ? HOST_RES_STORAGE : HOST_RES_BAD_INDEX,
                      index, removed, NULL);
-        queue_reply(r);
+        host_link_queue_to((host_link_t)((op >> 16) & 0xFF), s_op_gen, r);
         atomic_store(&s_op, 0);
     }
     app_profiles_reap();
@@ -502,85 +642,68 @@ static void profile_work(void) {
 void host_link_poll(void) {
     profile_work();
     ext_link_poll();
-
-    // Queued replies first, in order; one that can't go out yet waits for the next pass.
-    uint8_t r[HOST_REPORT_SIZE];
-    while (xQueuePeek(s_replies, r, 0) == pdTRUE) {
-        xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-        bool sent = tud_hid_n_ready(s_instance) && tud_hid_n_report(s_instance, 0, r, sizeof(r));
-        xSemaphoreGive(s_tx_lock);
-        if (!sent) return;
-        xQueueReceive(s_replies, r, 0);
-    }
-    // A profile download has the endpoint to itself (the live stream pauses meanwhile).
-    if (sending_profile()) {
-        send_piece();
-        return;
-    }
-    // The screen: a report a pass from here; host_link_report_sent() keeps it going back to back.
-    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    send_screen_locked();
-    xSemaphoreGive(s_tx_lock);
-
-    uint8_t hz = atomic_load(&s_stream_hz);
-    if (hz == 0) return;
-    static int64_t s_next_state = 0, s_next_sys = 0;
-    static uint16_t s_seq = 0;
-    static uint8_t s_sys_b[HOST_REPORT_SIZE];
-    static bool s_sys_b_pending = false;
-    int64_t now = esp_timer_get_time();
-
-    // SYS_B follows SYS_A on the next free slot (one report per ready endpoint).
-    if (s_sys_b_pending && tud_hid_n_ready(s_instance)) {
-        if (tud_hid_n_report(s_instance, 0, s_sys_b, sizeof(s_sys_b))) s_sys_b_pending = false;
-        return;
-    }
-    if (now >= s_next_sys && tud_hid_n_ready(s_instance)) {
-        uint8_t a[HOST_REPORT_SIZE] = {0};
-        memset(s_sys_b, 0, sizeof(s_sys_b));
-        build_sys(a, s_sys_b);
-        if (tud_hid_n_report(s_instance, 0, a, sizeof(a))) {
-            s_sys_b_pending = true;
-            s_next_sys = now + 500000;
-        }
-        return;
-    }
-    // LEDs: a new frame once the last one is out; its first report now, the rest follow as
-    // each one completes.
-    static int64_t s_next_leds = 0;
-    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    if (s_led_part >= LED_PARTS && now >= s_next_leds) {
-        led_task_snapshot(s_leds);
-        s_led_part = 0;
-        s_next_leds = now + LED_FRAME_US;
-    }
-    bool led_busy = s_led_part < LED_PARTS;
-    if (led_busy) send_led_part_locked();
-    xSemaphoreGive(s_tx_lock);
-    if (led_busy) return;
-    if (now >= s_next_state && tud_hid_n_ready(s_instance)) {
-        uint8_t st[HOST_REPORT_SIZE] = {0};
-        build_state(st, s_seq);
-        if (tud_hid_n_report(s_instance, 0, st, sizeof(st))) {
-            s_seq++;
-            s_next_state = now + 1000000 / hz;
-        }
-    }
+    // USB: one report a pass; its completion callback sends the rest back to back. The network
+    // has no such callback: a batch a pass, into net_link's queue.
+    send_next(HOST_LINK_USB);
+    for (int i = 0; i < NET_BATCH && send_next(HOST_LINK_NET); i++) {}
 }
 
-bool host_link_streaming(void) {
-    return atomic_load(&s_stream_hz) != 0;
+// The screen to link `to` at `fps` (0: off). A new owner starts from a whole frame: what the
+// last one has means nothing to it. Caller holds s_tx_lock (not between a screen report and its
+// _sent()).
+static void screen_to_locked(host_link_t to, uint8_t fps) {
+    if (atomic_load(&s_screen_link) != (int)to) {
+        screen_stream_stop();
+        atomic_store(&s_screen_link, to);
+    }
+    screen_stream_set(fps);
+}
+
+// The screen's next owner once `link` lets go: the other link, if it still wants it.
+static void screen_release_locked(host_link_t link) {
+    if (atomic_load(&s_screen_link) != (int)link) return;
+    host_link_t other = link == HOST_LINK_USB ? HOST_LINK_NET : HOST_LINK_USB;
+    uint8_t fps = atomic_load(&s_st[other].screen_fps);
+    if (fps) screen_to_locked(other, fps);
+    else screen_stream_stop();
+}
+
+void host_link_screen(host_link_t link, uint8_t fps) {
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    atomic_store(&s_st[link].screen_fps, fps);
+    if (fps) screen_to_locked(link, fps);
+    else screen_release_locked(link);
+    xSemaphoreGive(s_tx_lock);
+}
+
+// The locks are let go of before the next is taken; where they nest, the order is always rx, then
+// tx (host_link_receive).
+void host_link_stop_link(host_link_t link) {
+    if (s_tx_lock == NULL) return; // not up yet
+    atomic_store(&s_st[link].hz, 0);
+    ext_link_stop(link);
+    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
+    atomic_fetch_add(&s_gen[link], 1); // what it asked for and is still being done is dropped
+    xQueueReset(s_replies[link]);
+    if (atomic_load(&s_st[link].screen_fps)) {
+        atomic_store(&s_st[link].screen_fps, 0);
+        screen_release_locked(link);
+    }
+    atomic_store(&s_dl[link].req, -1);
+    free(s_dl[link].out);
+    s_dl[link].out = NULL;
+    s_st[link].led_part = LED_PARTS;
+    s_st[link].sys_b_pending = false;
+    xSemaphoreGive(s_tx_lock);
+    // Its upload, cut off mid-way, frees the way for the other link's (one being stored finishes).
+    xSemaphoreTake(s_rx_lock, portMAX_DELAY);
+    if (s_in != NULL && s_in_link == link && !atomic_load(&s_in_done)) {
+        free(s_in);
+        s_in = NULL;
+    }
+    xSemaphoreGive(s_rx_lock);
 }
 
 void host_link_stop(void) {
-    atomic_store(&s_stream_hz, 0);
-    ext_link_stop();
-    xQueueReset(s_replies);
-    xSemaphoreTake(s_tx_lock, portMAX_DELAY);
-    free(s_out);
-    s_out = NULL;
-    s_led_part = LED_PARTS;
-    xSemaphoreGive(s_tx_lock);
-    atomic_store(&s_read_req, -1);
-    // An upload cut off mid-way: the next BEGIN starts over (and frees the old buffer).
+    host_link_stop_link(HOST_LINK_USB);
 }

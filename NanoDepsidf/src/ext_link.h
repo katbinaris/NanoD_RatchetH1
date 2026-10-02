@@ -1,12 +1,14 @@
 #pragma once
 
+#include "host_link.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 // This fork's companion-protocol extensions (ext_proto.h), served next to host_link.c.
 
-// TinyUSB task: one command in 0x20-0x2F -> at most one reply in `r` (64 bytes, zeroed).
-bool ext_link_handle(const uint8_t *in, uint8_t *r);
+// One command in 0x20-0x2F from `link` (host_link_receive) -> at most one reply in `r` (64
+// bytes, zeroed).
+bool ext_link_handle(host_link_t link, const uint8_t *in, uint8_t *r);
 
 // usb task, every pass: deferred work (NVS writes, decision events to the host, the restart
 // fallback).
@@ -21,8 +23,8 @@ bool ext_restart_due(void);
 uint8_t ext_virtual_keys(void);
 int8_t ext_take_virtual_turn(void);
 
-// The host went away: no more screen stream, and its keys let go.
-void ext_link_stop(void);
+// `link`'s host went away: the keys it held let go, the turns it asked for are dropped.
+void ext_link_stop(host_link_t link);
 
 // main.c, once, before the USB personality is chosen: true when the restart that led to this
 // boot asked for a serial-only boot (EXT_REBOOT_SERIAL). Clears the request.

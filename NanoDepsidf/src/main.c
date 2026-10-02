@@ -17,6 +17,7 @@
 #include "sysmon.h"
 #include "ext_link.h"
 #include "net.h"
+#include "net_link.h"
 #include "clock.h"
 #include "hal/usb_serial_jtag_ll.h"
 #include "driver/gpio.h"
@@ -152,6 +153,7 @@ void app_main(void) {
     if (!usb_serial_mode) {
         net_start(); // before the usb task: a NET setup arriving over USB finds it running
         usb_task_start();
+        net_link_start(); // the companion over WiFi, through the usb task's host_link
     } else {
         ESP_LOGI(TAG, "usb task not started (USB serial mode active this boot)");
     }

@@ -368,7 +368,8 @@ static void usb_task_fn(void *arg) {
         if (!tud_mounted()) {
             sent_buttons = 0; // a fresh enumeration starts with nothing held
             sent_modifier = 0;
-            if (host_link_streaming()) host_link_stop();
+            host_link_stop(); // USB's share (cheap); the companion over WiFi carries on
+            host_link_poll();
             continue;
         }
         host_link_poll();

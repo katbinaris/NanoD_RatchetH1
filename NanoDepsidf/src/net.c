@@ -1,4 +1,5 @@
 #include "net.h"
+#include "net_link.h"
 #include "tasks_common.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -149,6 +150,7 @@ static void services(void) {
     if (mdns_init() == ESP_OK) {
         mdns_hostname_set(s_st.host);
         mdns_instance_name_set("Quadra");
+        mdns_service_add(NULL, "_quadra", "_tcp", NET_LINK_PORT, NULL, 0); // the companion finds it
     } else {
         ESP_LOGW(TAG, "mDNS didn't start");
     }

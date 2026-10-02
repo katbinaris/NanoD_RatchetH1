@@ -33,8 +33,14 @@ There are two ways to run the companion, with the same screens:
 | | Quadra app | Web page |
 |---|---|---|
 | Runs in | Its own window (macOS) | Chrome or Edge |
-| Connecting | Finds the knob itself, and again after a replug | Click **CONNECT** once and pick the knob; automatic after that |
+| Connecting | Finds the knob itself, and again after a replug; over WiFi once paired | Click **CONNECT** once and pick the knob; automatic after that |
 | Safari, Firefox | – | Not supported (no WebHID): the page says **NO USB ACCESS** |
+
+**Over WiFi (the app):** once the knob is on your network (DEVICE → WIFI), press **PAIR THIS
+APP** there while it's on USB. From then on, with no cable in, the app reaches it over WiFi
+(found by name, `quadra-xxxx.local`); plug a cable in and it moves back to USB within a few
+seconds. Pairing hands the app the knob's key: nothing else on the network can read, forge or
+replay what goes between them. The network, the password and the key itself change over USB only.
 
 Neither needs a driver, and macOS doesn't ask for Input Monitoring permission.
 
@@ -282,7 +288,8 @@ the knob as you change them.
 | **BINDINGS** | The computer on the other end. On **PC**, shortcuts written with Cmd are sent with Ctrl |
 | **DISPLAY** | Screen rotation: 0, 90, 180 or 270 degrees |
 | **BOOT MODE** | **HID** for normal use, **SERIAL** for flashing. Applies after a restart |
-| **FIRMWARE** | Version, build date, protocol version, number of profiles, and the link in use |
+| **WIFI** | The network the knob joins (over USB; the password stays on the knob), its address, and **THIS APP**: **PAIR THIS APP** (see [Connecting](#1-connecting)), **NEW KEY** (press twice: every other paired app has to pair again) and **FORGET** |
+| **FIRMWARE** | Version, build date, protocol version, number of profiles, and the link in use (**USB**, **WIFI** or **WEBHID**) |
 
 **Take care with BOOT MODE:** once the knob restarts in SERIAL mode, the companion can't
 reach it. Switch back in the knob's own menu: **BOOT MODE → USB MODE → HID**, then restart.

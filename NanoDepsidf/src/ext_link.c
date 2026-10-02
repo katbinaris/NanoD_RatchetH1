@@ -7,6 +7,7 @@
 #include "media.h"
 #include "agent_board.h"
 #include "net.h"
+#include "net_link.h"
 #include "clock.h"
 #include "screen_stream.h"
 #include "tasks_common.h"
@@ -34,14 +35,18 @@ static RTC_NOINIT_ATTR uint32_t s_serial_boot;
 static _Atomic bool s_reboot_pending = false;
 static TickType_t s_reboot_at;
 
-// Requests that write NVS run in the usb task (ext_link_poll), not the TinyUSB task they
-// arrive in, the way host_link.c hands a profile save over.
+// Requests that write NVS run in the usb task (ext_link_poll), not the task they arrive in,
+// the way host_link.c hands a profile save over; the reply goes back on the request's link.
 static char s_text_req[USER_TEXT_MAX + 1];
 static _Atomic bool s_text_pending = false;
 static lights_t s_lights_req;
 static bool s_lights_save;
 static _Atomic bool s_lights_pending = false;
 static _Atomic bool s_cover_end_pending = false;
+static host_link_t s_text_link, s_lights_link;
+static uint32_t s_text_gen, s_lights_gen; // host_link_gen() of the link that asked
+static bool s_key_fresh;
+static _Atomic bool s_key_pending = false; // EXT_NET_KEY (USB)
 // WiFi setup, staged until APPLY (EXT_CMD_NET). The password is wiped once it's stored.
 static char s_net_ssid[NET_SSID_MAX + 1], s_net_pass[64];
 static bool s_net_have_ssid, s_net_have_pass, s_net_on;
@@ -54,6 +59,7 @@ static _Atomic bool s_net_apply_pending = false;
 static _Atomic uint8_t s_vkeys = 0;
 static _Atomic uint32_t s_vkeys_until = 0;
 static _Atomic int32_t s_vturns = 0;
+static _Atomic int s_input_link = HOST_LINK_USB; // whose hands they are
 
 uint8_t CONTROL_HOT ext_virtual_keys(void) {
     uint8_t k = atomic_load_explicit(&s_vkeys, memory_order_relaxed);
@@ -69,8 +75,8 @@ int8_t CONTROL_HOT ext_take_virtual_turn(void) {
     return d;
 }
 
-void ext_link_stop(void) {
-    screen_stream_stop();
+void ext_link_stop(host_link_t link) {
+    if (atomic_load(&s_input_link) != (int)link) return;
     atomic_store(&s_vkeys, 0);
     atomic_store(&s_vturns, 0);
 }
@@ -137,7 +143,7 @@ static void build_net(uint8_t *r) {
     memcpy(r + 41, st.host, strnlen(st.host, NET_HOST_MAX));
 }
 
-bool ext_link_handle(const uint8_t *in, uint8_t *r) {
+bool ext_link_handle(host_link_t link, const uint8_t *in, uint8_t *r) {
     switch (in[0]) {
         case EXT_CMD_HELLO:
             r[0] = EXT_TAG_HELLO;
@@ -146,6 +152,10 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
         case EXT_CMD_REBOOT:
             if (in[1] > EXT_REBOOT_SERIAL) {
                 ack(r, in[0], EXT_ST_BAD_PARAM);
+                return true;
+            }
+            if (in[1] == EXT_REBOOT_SERIAL && link != HOST_LINK_USB) { // a boot with no HID: for a USB host
+                ack(r, in[0], EXT_ST_USB_ONLY);
                 return true;
             }
             s_serial_boot = in[1] == EXT_REBOOT_SERIAL ? SERIAL_BOOT_MAGIC : 0;
@@ -160,6 +170,8 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             }
             memcpy(s_text_req, in + 2, USER_TEXT_MAX);
             s_text_req[USER_TEXT_MAX] = '\0';
+            s_text_link = link;
+            s_text_gen = host_link_gen(link);
             atomic_store(&s_text_pending, true); // acked from ext_link_poll once stored
             return false;
         case EXT_CMD_LIGHTS: {
@@ -177,6 +189,8 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             if (rd_u16(in + 8) != 0xFFFF) l.level = rd_u16(in + 8);
             s_lights_req = l;
             s_lights_save = in[1] & EXT_LIGHTS_SAVE;
+            s_lights_link = link;
+            s_lights_gen = host_link_gen(link);
             atomic_store(&s_lights_pending, true);
             return false;
         }
@@ -184,6 +198,10 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             build_prefs(r);
             return true;
         case EXT_CMD_COVER:
+            if (link != HOST_LINK_USB) { // the Mac service's, one transfer at a time
+                ack(r, in[0], EXT_ST_USB_ONLY);
+                return true;
+            }
             if (in[1] == EXT_COVER_BEGIN) {
                 uint32_t len, crc;
                 memcpy(&len, in + 4, 4);
@@ -271,9 +289,13 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             }
             return true;
         case EXT_CMD_SCREEN:
-            screen_stream_set(in[1]);
+            host_link_screen(link, in[1]);
             return false;
         case EXT_CMD_INPUT:
+            if (atomic_exchange(&s_input_link, link) != (int)link) { // another link's hands let go
+                atomic_store(&s_vkeys, 0);
+                atomic_store(&s_vturns, 0);
+            }
             if (in[1] == EXT_INPUT_KEYS) {
                 atomic_store(&s_vkeys_until, xTaskGetTickCount() + VKEYS_HOLD_TICKS);
                 atomic_store(&s_vkeys, in[2] & (UI_BTN_F1 | UI_BTN_F2 | UI_BTN_F3 | UI_BTN_F4));
@@ -283,7 +305,13 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
             }
             return false;
         case EXT_CMD_NET:
-            if (atomic_load(&s_net_apply_pending) && in[1] != EXT_NET_STATUS) {
+            // The network's name and password, the radio, the pairing key: someone with the knob
+            // on a cable. Over WiFi they could only cut the link they came over, or hand it on.
+            if (in[1] != EXT_NET_STATUS && link != HOST_LINK_USB) {
+                ack(r, in[0], EXT_ST_USB_ONLY);
+                return true;
+            }
+            if ((atomic_load(&s_net_apply_pending) || atomic_load(&s_key_pending)) && in[1] != EXT_NET_STATUS) {
                 ack(r, in[0], EXT_ST_BAD_PARAM);
                 return true;
             }
@@ -308,6 +336,10 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
                 case EXT_NET_STATUS:
                     build_net(r);
                     return true;
+                case EXT_NET_KEY:
+                    s_key_fresh = in[2] == 1;
+                    atomic_store(&s_key_pending, true); // NVS: ext_link_poll
+                    return false;
                 default:
                     ack(r, in[0], EXT_ST_BAD_PARAM);
                     return true;
@@ -324,7 +356,7 @@ void ext_link_poll(void) {
         bool ok = user_text_set(s_text_req);
         memset(r, 0, sizeof(r));
         ack(r, EXT_CMD_TEXT, ok ? EXT_ST_OK : EXT_ST_STORAGE);
-        host_link_queue(r);
+        host_link_queue_to(s_text_link, s_text_gen, r);
         atomic_store(&s_text_pending, false);
     }
     if (atomic_load(&s_lights_pending)) {
@@ -332,14 +364,14 @@ void ext_link_poll(void) {
         if (s_lights_save) menu_remote_save_lights();
         memset(r, 0, sizeof(r));
         build_prefs(r);
-        host_link_queue(r);
+        host_link_queue_to(s_lights_link, s_lights_gen, r);
         atomic_store(&s_lights_pending, false);
     }
     if (atomic_load(&s_cover_end_pending)) {
         bool ok = media_cover_end();
         memset(r, 0, sizeof(r));
         ack(r, EXT_CMD_COVER, ok ? EXT_ST_OK : EXT_ST_BAD_PARAM);
-        host_link_queue(r);
+        host_link_queue(r); // USB only
         atomic_store(&s_cover_end_pending, false);
     }
     if (atomic_load(&s_net_apply_pending)) {
@@ -351,6 +383,21 @@ void ext_link_poll(void) {
         else ack(r, EXT_CMD_NET, EXT_ST_STORAGE);
         host_link_queue(r);
         atomic_store(&s_net_apply_pending, false);
+    }
+    if (atomic_load(&s_key_pending)) {
+        uint8_t key[NET_KEY_BYTES];
+        memset(r, 0, sizeof(r));
+        if (net_link_key(key, s_key_fresh)) {
+            r[0] = EXT_TAG_KEY;
+            memcpy(r + 1, key, sizeof(key));
+            put_u16(r + 33, NET_LINK_PORT);
+            memset(key, 0, sizeof(key));
+        } else {
+            ack(r, EXT_CMD_NET, EXT_ST_STORAGE);
+        }
+        host_link_queue(r);
+        memset(r, 0, sizeof(r));
+        atomic_store(&s_key_pending, false);
     }
     clock_poll(); // stores a changed format / zone
     uint16_t id;

@@ -1,16 +1,18 @@
 #pragma once
 
 // Extensions to the companion protocol (host_proto.h) for this fork. Same framing: 64-byte
-// reports on the vendor HID interface, no report ID, little-endian. Kept in their own command
+// reports on the vendor HID interface (or over WiFi, net_link.h), no report ID, little-endian. Kept in their own command
 // range (0x20-0x2F, replies and events 0xC0-0xCF) so upstream can grow 0x10-0x1F freely.
 // Host side: tools/quadra.py, tools/agents/.
 
-#define EXT_PROTO_VERSION 6 // 4: EXT_CMD_NET; 5: EXT_CMD_TIME / _CLOCK; 6: _SCREEN / _INPUT
+#define EXT_PROTO_VERSION 7 // 4: EXT_CMD_NET; 5: EXT_CMD_TIME / _CLOCK; 6: _SCREEN / _INPUT;
+                            // 7: the companion over WiFi (net_link.h), EXT_NET_KEY
 
 // --- Host -> device ---
 enum {
     EXT_CMD_HELLO = 0x20,  // -> EXT_TAG_HELLO
-    EXT_CMD_REBOOT = 0x21, // [1]=EXT_REBOOT_* -> EXT_TAG_ACK, then the device restarts
+    EXT_CMD_REBOOT = 0x21, // [1]=EXT_REBOOT_* (SERIAL: USB only) -> EXT_TAG_ACK, then the device
+                           //   restarts
     EXT_CMD_TEXT = 0x22,   // [1]=0 (the idle text) [2..17]=text, NUL-padded, <= USER_TEXT_MAX
                            //   (user_prefs.h); "" = the stock wordmark. Stored. -> EXT_TAG_ACK
     EXT_CMD_LIGHTS = 0x23, // [1]=EXT_LIGHTS_* flags [2]=src [3]=fx [4..5]=hue [6]=sat [7]=speed
@@ -20,7 +22,7 @@ enum {
     EXT_CMD_NOTIFY = 0x25, // [1]=EXT_NOTIFY_* [2..3]=id; POST: [4]=source [5]=kind (notify.h),
                            //   | EXT_NOTIFY_NUDGE [6..21]=title [22..60]=body, NUL-padded
                            //   [61..63]=colour RGB (0,0,0 = the source's own). No reply.
-    EXT_CMD_COVER = 0x26,  // now-playing cover, a JPEG (media.h), in order:
+    EXT_CMD_COVER = 0x26,  // now-playing cover, a JPEG (media.h), USB only, in order:
                            //   [1]=EXT_COVER_BEGIN [4..7]=length [8..11]=CRC-32 -> EXT_TAG_ACK
                            //   [1]=EXT_COVER_DATA [2..4]=offset (24-bit) [5]=n (<= 58) [6..]=bytes
                            //   [1]=EXT_COVER_END -> EXT_TAG_ACK (EXT_ST_BAD_PARAM: rejected)
@@ -28,12 +30,14 @@ enum {
                            //   colours RGB [12..35]=title [36..59]=artist, NUL-padded. No reply.
     EXT_CMD_AGENTS = 0x28, // the AGENTS dashboard (agent_board.h): [1]=rows (<= 4), then 14 bytes
                            //   each from [2]: source, agent_state_t, name (12). No reply.
-    EXT_CMD_NET = 0x29,    // WiFi (net.h), USB only. [1]=EXT_NET_*:
+    EXT_CMD_NET = 0x29,    // WiFi (net.h). [1]=EXT_NET_*; all but STATUS over USB only:
                            //   SSID: [2..33] the network's name, NUL-padded
                            //   PASS_A / PASS_B: [2..33] the password's first / second 32 bytes
                            //   APPLY: [2]=1 on / 0 off -- stores what was sent (the stored SSID /
                            //     password stay when none was) and (re)connects -> EXT_TAG_NET
                            //   STATUS -> EXT_TAG_NET. The password is never sent back.
+                           //   KEY: [2]=1 a new one (every paired companion pairs again), 0 the
+                           //     current one (made on first use) -> EXT_TAG_KEY
     EXT_CMD_TIME = 0x2A,   // the Mac service, on connecting and every few minutes: [1..6] UTC time
                            //   in ms (48-bit) [7..18] LOCAL's label [19..63] its POSIX TZ rule
                            //   (clock.h), NUL-padded. No reply.
@@ -52,7 +56,7 @@ enum {
 };
 enum { EXT_INPUT_KEYS = 1, EXT_INPUT_TURN = 2 };
 enum { EXT_CLOCK_FORMAT = 1, EXT_CLOCK_ZONE = 2, EXT_CLOCK_GET = 3 };
-enum { EXT_NET_SSID = 1, EXT_NET_PASS_A = 2, EXT_NET_PASS_B = 3, EXT_NET_APPLY = 4, EXT_NET_STATUS = 5 };
+enum { EXT_NET_SSID = 1, EXT_NET_PASS_A = 2, EXT_NET_PASS_B = 3, EXT_NET_APPLY = 4, EXT_NET_STATUS = 5, EXT_NET_KEY = 6 };
 enum { EXT_COVER_BEGIN = 1, EXT_COVER_DATA = 2, EXT_COVER_END = 3 };
 #define EXT_COVER_CHUNK 58
 #define EXT_TRACK_PLAYING 0x01
@@ -84,6 +88,7 @@ enum {
                            // now, minutes (int16) [6..17]=label [18..63]=POSIX TZ rule
     EXT_TAG_SCREEN = 0xC6, // [1]=frame number [2]=1: a frame's first report, 2: its last
                            // [3]=bytes [4..63]=the stream (screen_stream.h)
+    EXT_TAG_KEY = 0xC7,    // [1..32]=the WiFi pairing key (net_link.h) [33..34]=its TCP port
 };
 
 enum {
@@ -91,4 +96,5 @@ enum {
     EXT_ST_BAD_PARAM = 1,
     EXT_ST_UNKNOWN = 2,
     EXT_ST_STORAGE = 3, // the NVS write failed
+    EXT_ST_USB_ONLY = 4, // not over WiFi
 };

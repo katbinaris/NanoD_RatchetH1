@@ -1,7 +1,7 @@
 // DEVICE: bindings (MAC / PC), screen rotation, boot mode, and what firmware is on the knob.
 
 import type { Device } from "../device";
-import { Boot, EXT_NET_VERSION, Host, NET_STATE, NetState, Set } from "../proto";
+import { Boot, EXT_NET_VERSION, EXT_WIFI_LINK_VERSION, Host, NET_STATE, NetState, Set } from "../proto";
 import { text } from "./fields";
 import { cards, el, section } from "./kit";
 
@@ -81,12 +81,32 @@ export function deviceView(device: Device) {
     },
   }, "CONNECT");
   const offBtn = el("button", { class: "btn", onclick: () => void device.setWifi(false) }, "TURN OFF");
-  wifiSec.body.append(
-    wifiState,
+  const setup = [
     el("div", { class: "field" }, el("span", { class: "flabel" }, "NETWORK"), el("span", { class: "fctl" }, ssidIn)),
     el("div", { class: "field" }, el("span", { class: "flabel" }, "PASSWORD"), el("span", { class: "fctl" }, passIn)),
     el("div", { class: "actions" }, connectBtn, offBtn),
-  );
+  ];
+  // This app over WiFi (extensions v7): paired here over USB, then no cable needed.
+  const pairState = el("div", { class: "kv" });
+  const pairBtn = el("button", { class: "btn primary", onclick: () => void device.pairWifi(false) }, "PAIR THIS APP");
+  let rekeyArmed = 0; // a new key unpairs every other companion: a second click within 3 s
+  const rekeyBtn = el("button", {
+    class: "btn",
+    onclick: () => {
+      if (Date.now() - rekeyArmed < 3000) {
+        rekeyArmed = 0;
+        void device.pairWifi(true);
+      } else {
+        rekeyArmed = Date.now();
+        window.setTimeout(update, 3100);
+      }
+      update();
+    },
+  }, "NEW KEY");
+  const forgetBtn = el("button", { class: "btn", onclick: () => device.forgetWifi() }, "FORGET");
+  const pairHint = el("p", { class: "hint" });
+  const pairRow = el("div", {}, pairState, el("div", { class: "actions" }, pairBtn, rekeyBtn, forgetBtn), pairHint);
+  wifiSec.body.append(wifiState, ...setup, pairRow);
 
   const fwSec = section("FIRMWARE");
   const fw = el("div", { class: "tile" });
@@ -112,6 +132,20 @@ export function deviceView(device: Device) {
       passIn.placeholder = n.ssid ? "UNCHANGED" : "NONE = OPEN NETWORK";
       offBtn.disabled = !n.on;
     }
+    const usb = device.kind === "tauri", overWifi = device.kind === "wifi";
+    for (const x of setup) x.style.display = overWifi ? "none" : "";
+    bootSec.root.style.display = overWifi ? "none" : ""; // the knob takes it over USB only
+    pairRow.style.display = (device.ext ?? 0) >= EXT_WIFI_LINK_VERSION && device.kind !== "webhid" ? "" : "none";
+    const p = device.paired;
+    pairState.replaceChildren(el("span", {}, "THIS APP"), el("span", {}, p ? `PAIRED: ${(p.host || p.ip).toUpperCase()}${p.host ? ".LOCAL" : ""}` : "NOT PAIRED"));
+    pairBtn.textContent = p ? "PAIR AGAIN" : "PAIR THIS APP";
+    pairBtn.disabled = !usb || n?.state !== NetState.CONNECTED || !n.host;
+    rekeyBtn.disabled = !usb;
+    rekeyBtn.textContent = Date.now() - rekeyArmed < 3000 ? "SURE? UNPAIRS OTHERS" : "NEW KEY";
+    forgetBtn.disabled = !p;
+    pairHint.textContent = overWifi
+      ? "CONNECTED OVER WIFI. THE NETWORK AND THE KEY CHANGE OVER USB."
+      : "PAIRED, THIS APP REACHES THE KNOB OVER WIFI WHEN NO CABLE IS IN.";
     const h = device.hello;
     fw.replaceChildren(
       ...[
@@ -120,7 +154,7 @@ export function deviceView(device: Device) {
         ["PROTOCOL", h ? String(h.proto) : "-"],
         ["PROFILES", h ? String(h.profileCount) : "-"],
         ["EXTENSIONS", device.ext ? `V${device.ext} (LOOK)` : device.ext === 0 ? "NONE" : "-"],
-        ["LINK", device.kind === "tauri" ? "USB (APP)" : "WEBHID"],
+        ["LINK", device.kind === "tauri" ? "USB (APP)" : device.kind === "wifi" ? "WIFI (APP)" : "WEBHID"],
       ].map(([k, v]) => el("div", { class: "kv" }, el("span", {}, k), el("span", {}, v.toUpperCase()))),
     );
   }

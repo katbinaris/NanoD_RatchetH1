@@ -1,9 +1,9 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { CLOCK_SLOTS, Cmd, EXT_CLOCK_VERSION, EXT_NET_VERSION, EXT_SCREEN_VERSION, SCREEN_SIZE, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type ClockSlot, type Lights, type ScreenChunk, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { CLOCK_SLOTS, Cmd, EXT_CLOCK_VERSION, EXT_WIFI_LINK_VERSION, EXT_NET_VERSION, EXT_SCREEN_VERSION, SCREEN_SIZE, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type ClockSlot, type Lights, type ScreenChunk, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
-import type { Transport } from "./transport";
+import { loadPairing, savePairing, type Pairing, type Transport } from "./transport";
 
 export type Status = "searching" | "needs-permission" | "connected" | "unsupported";
 
@@ -25,6 +25,7 @@ const TRANSFER_MS = 8000;
 const PREFS_MS = 1000; // LIGHTS and the idle word can change on the knob too (its menu)
 const LIGHTS_RETRY_MS = 60; // the knob takes one LIGHTS at a time
 const SCREEN_FPS = 15;
+const LIST_RETRY_MS = 2000; // a step of the profile list unanswered this long is asked again
 
 export class DeviceError extends Error {}
 
@@ -46,6 +47,8 @@ export class Device {
   ext: number | null = null;
   prefs: Prefs | null = null;
   net: Net | null = null; // WiFi, from extensions v4
+  paired: Pairing | null = loadPairing(); // this app over WiFi, from extensions v7
+  private keyAsked = false; // every HID client sees the knob's key reply: only take one asked for
   clockSlots: (ClockSlot | null)[] = []; // the CLOCK app, from extensions v5: slot 0 has the format too
   // The screen as the knob shows it (extensions v6), RGBA; `screenLive` once a whole one came, and
   // `screenVersion` bumps with each frame.
@@ -67,6 +70,12 @@ export class Device {
   private download: { index: number; buf: Uint8Array | null; crc: number; got: number; done: (t: string) => void; fail: (e: Error) => void } | null = null;
   private waitResult: { cmd: number; done: (r: Result) => void } | null = null;
   private prefsTimer: number | undefined;
+  // The profile list comes a request at a time (each reply asks for the next); `want` is the one
+  // outstanding. A reply that isn't it (a repeat) is ignored, and one that never comes is asked
+  // again, so a lost report can't stall the list.
+  private want: { r: Uint8Array; key: string; at: number } | null = null;
+  private listTimer: number | undefined;
+  private listReload: number | undefined;
   private lightsSent: { l: Lights; save: boolean; retried: boolean } | null = null;
 
   constructor(private transport: Transport | null) {
@@ -124,8 +133,14 @@ export class Device {
     this.profiles = [];
     this.staleIcons = null;
     this.iconBuf.clear();
+    this.want = null;
+    window.clearInterval(this.listTimer);
+    this.listTimer = window.setInterval(() => {
+      const w = this.want;
+      if (w && Date.now() - w.at > LIST_RETRY_MS) this.ask(w.r, w.key);
+    }, LIST_RETRY_MS / 2);
     this.changed();
-    await this.send(encode.hello());
+    this.ask(encode.hello(), "hello");
     await this.send(encode.getSettings());
     await this.send(encode.stream(STREAM_HZ));
     await this.send(encode.extHello());
@@ -139,6 +154,9 @@ export class Device {
     this.screenLive = false;
     this.screenLen = -1;
     window.clearInterval(this.prefsTimer);
+    window.clearInterval(this.listTimer);
+    window.clearTimeout(this.listReload);
+    this.want = null;
     this.changed();
     this.search();
   }
@@ -181,6 +199,17 @@ export class Device {
     const r = encode.net(NetOp.APPLY);
     r[2] = on ? 1 : 0;
     await this.send(r);
+  }
+  // Over USB: the knob's WiFi key (made on first use), kept here so this app reaches the knob over
+  // WiFi when no cable is in. `fresh`: a new key -- every other paired companion pairs again.
+  pairWifi(fresh = false) {
+    if ((this.ext ?? 0) < EXT_WIFI_LINK_VERSION || this.kind !== "tauri") return Promise.resolve();
+    this.keyAsked = true;
+    return this.send(encode.netKey(fresh));
+  }
+  forgetWifi() {
+    savePairing((this.paired = null));
+    this.changed();
   }
   // The CLOCK app: its format (ClockFlag), and zone `slot` (1-4; label "" = none). Both stored at once.
   setClockFlags(flags: number) {
@@ -275,7 +304,7 @@ export class Device {
   reloadProfiles(changed?: number) {
     this.iconBuf.clear();
     this.staleIcons = changed === undefined ? null : new globalThis.Set([changed]);
-    return this.send(encode.hello());
+    this.ask(encode.hello(), "hello");
   }
 
   // --- replies ---
@@ -288,7 +317,8 @@ export class Device {
           this.hello = m.hello;
           this.profiles.length = Math.min(this.profiles.length, m.hello.profileCount);
           // Profiles one by one; each reply asks for the next (and its icon).
-          if (m.hello.profileCount > 0) this.send(encode.profile(0));
+          if (m.hello.profileCount > 0) this.ask(encode.profile(0), "p0");
+          else this.want = null;
         }
         break;
       case Tag.SETTINGS:
@@ -374,7 +404,19 @@ export class Device {
         if ("prefs" in m) this.prefs = m.prefs;
         break;
       case ExtTag.NET:
-        if ("net" in m) this.net = m.net;
+        if ("net" in m) {
+          this.net = m.net;
+          // The paired knob got a new address (DHCP): the fallback follows it.
+          const p = this.paired;
+          if (p && m.net.host === p.host && m.net.ip && m.net.ip !== p.ip) savePairing((this.paired = { ...p, ip: m.net.ip }));
+        }
+        break;
+      case ExtTag.KEY:
+        if ("key" in m && this.keyAsked) {
+          this.keyAsked = false;
+          const hex = Array.from(m.key, (x) => x.toString(16).padStart(2, "0")).join("");
+          savePairing((this.paired = { host: this.net?.host ?? "", ip: this.net?.ip ?? "", port: m.port, key: hex }));
+        }
         break;
       case ExtTag.CLOCK:
         if ("clock" in m && m.clock.slot < CLOCK_SLOTS) this.clockSlots[m.clock.slot] = m.clock;
@@ -390,7 +432,11 @@ export class Device {
             window.setTimeout(() => void this.send(encode.lights(sent.l, sent.save)), LIGHTS_RETRY_MS);
             return;
           }
-          if (m.status !== ExtStatus.OK) this.error = m.status === ExtStatus.STORAGE ? "THE KNOB COULDN'T STORE THAT" : `the knob refused 0x${m.cmd.toString(16)} (${m.status})`;
+          if (m.status !== ExtStatus.OK)
+            this.error =
+              m.status === ExtStatus.STORAGE ? "THE KNOB COULDN'T STORE THAT"
+              : m.status === ExtStatus.USB_ONLY ? "ONLY OVER USB"
+              : `the knob refused 0x${m.cmd.toString(16)} (${m.status})`;
           else if (m.cmd === ExtCmd.TEXT) void this.send(encode.extPrefs());
         }
         break;
@@ -398,6 +444,14 @@ export class Device {
         if ("cmd" in m) {
           if (m.cmd >= ExtCmd.HELLO && m.cmd <= 0x2f) {
             this.ext = 0; // stock firmware: no extensions
+            break;
+          }
+          if (m.cmd === Cmd.PROFILE || m.cmd === Cmd.PROFILE_ICON) {
+            // The list changed under it (another client): start it over, after a pause so an
+            // error that stays doesn't spin.
+            this.want = null;
+            window.clearTimeout(this.listReload);
+            this.listReload = window.setTimeout(() => this.status === "connected" && this.reloadProfiles(), LIST_RETRY_MS);
             break;
           }
           if (m.cmd === Cmd.PROFILE_READ && this.download) {
@@ -494,7 +548,13 @@ export class Device {
     if (a.length > HISTORY_SECONDS * 2) a.shift();
   }
 
+  private ask(r: Uint8Array, key: string) {
+    this.want = { r, key, at: Date.now() };
+    void this.send(r);
+  }
+
   private onProfile(p: Profile) {
+    if (this.want?.key !== `p${p.index}`) return;
     const old = this.profiles[p.index];
     const same = !!old && old.id === p.id;
     // Keep the old icon on screen until the new one is in (no flicker on a reload).
@@ -502,7 +562,7 @@ export class Device {
     const fresh = same && (old.icon !== null) === p.hasIcon && this.staleIcons !== null && !this.staleIcons.has(p.index);
     if (p.hasIcon && !fresh) {
       this.iconBuf.set(p.index, new Uint8Array(ICON_BYTES));
-      this.send(encode.profileIcon(p.index, 0));
+      this.ask(encode.profileIcon(p.index, 0), `i${p.index}:0`);
     } else {
       this.nextProfile(p.index);
     }
@@ -511,11 +571,11 @@ export class Device {
 
   private onIconChunk(index: number, offset: number, bytes: Uint8Array) {
     const buf = this.iconBuf.get(index);
-    if (!buf) return;
-    buf.set(bytes, offset);
+    if (!buf || this.want?.key !== `i${index}:${offset}`) return;
+    buf.set(bytes.subarray(0, ICON_BYTES - offset), offset);
     const next = offset + bytes.length;
     if (next < ICON_BYTES && bytes.length > 0) {
-      this.send(encode.profileIcon(index, next));
+      this.ask(encode.profileIcon(index, next), `i${index}:${next}`);
       return;
     }
     if (this.profiles[index]) this.profiles[index].icon = rgb565ToImage(buf, 48);
@@ -525,7 +585,8 @@ export class Device {
   }
 
   private nextProfile(index: number) {
-    if (this.hello && index + 1 < this.hello.profileCount) this.send(encode.profile(index + 1));
+    if (this.hello && index + 1 < this.hello.profileCount) this.ask(encode.profile(index + 1), `p${index + 1}`);
+    else this.want = null;
   }
 }
 

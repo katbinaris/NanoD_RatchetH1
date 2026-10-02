@@ -53,7 +53,7 @@ export const Tag = {
 // Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
 // Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
 export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29, CLOCK: 0x2b, SCREEN: 0x2c, INPUT: 0x2d } as const;
-export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4, CLOCK: 0xc5, SCREEN: 0xc6 } as const;
+export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4, CLOCK: 0xc5, SCREEN: 0xc6, KEY: 0xc7 } as const;
 export const EXT_SCREEN_VERSION = 6; // the live screen (EXT_CMD_SCREEN) and the knob from here (EXT_CMD_INPUT)
 export const InputOp = { KEYS: 1, TURN: 2 } as const;
 export const SCREEN_SIZE = 240;
@@ -62,10 +62,12 @@ export const ClockOp = { FORMAT: 1, ZONE: 2, GET: 3 } as const;
 export const ClockFlag = { H24: 0x01, SECONDS: 0x02, DATE: 0x04, LED: 0x08 } as const; // clock.h CLOCK_*
 export const CLOCK_SLOTS = 5; // 0 = LOCAL (the Mac service sends it), 1-4 the user's
 export const EXT_NET_VERSION = 4; // WiFi (EXT_CMD_NET) from this extensions version on
-export const NetOp = { SSID: 1, PASS_A: 2, PASS_B: 3, APPLY: 4, STATUS: 5 } as const;
+export const NetOp = { SSID: 1, PASS_A: 2, PASS_B: 3, APPLY: 4, STATUS: 5, KEY: 6 } as const;
+// The companion over WiFi (net_link.h): paired over USB with the knob's key (NetOp.KEY).
+export const EXT_WIFI_LINK_VERSION = 7;
 export const NET_STATE = ["OFF", "CONNECTING", "CONNECTED", "NETWORK NOT FOUND", "WRONG PASSWORD"] as const; // net_state_t
 export const NetState = { OFF: 0, CONNECTING: 1, CONNECTED: 2 } as const;
-export const ExtStatus = { OK: 0, BAD_PARAM: 1, UNKNOWN: 2, STORAGE: 3 } as const;
+export const ExtStatus = { OK: 0, BAD_PARAM: 1, UNKNOWN: 2, STORAGE: 3, USB_ONLY: 4 } as const;
 export const EXT_LIGHTS_SAVE = 0x01;
 export const IDLE_TEXT_MAX = 12; // USER_TEXT_MAX: printable ASCII; "" = QUADRA
 export const LightSrc = { APP: 0, CUSTOM: 1 } as const;
@@ -284,6 +286,7 @@ export type Message =
   | { tag: typeof ExtTag.NET; net: Net }
   | { tag: typeof ExtTag.CLOCK; clock: ClockSlot }
   | { tag: typeof ExtTag.SCREEN; screen: ScreenChunk }
+  | { tag: typeof ExtTag.KEY; key: Uint8Array; port: number }
   | { tag: number };
 
 // --- encoding ---
@@ -395,6 +398,13 @@ export const encode = {
     const r = report(ExtCmd.NET);
     r[1] = op;
     if (bytes) r.set(bytes.subarray(0, 32), 2);
+    return r;
+  },
+  // The WiFi pairing key (USB only); `fresh`: a new one, which unpairs every other companion.
+  netKey: (fresh: boolean) => {
+    const r = report(ExtCmd.NET);
+    r[1] = NetOp.KEY;
+    r[2] = fresh ? 1 : 0;
     return r;
   },
   extPrefs: () => report(ExtCmd.PREFS),
@@ -567,6 +577,8 @@ export function decode(b: Uint8Array): Message {
       return { tag: ExtTag.HELLO, ext: b[1] };
     case ExtTag.ACK:
       return { tag: ExtTag.ACK, cmd: b[1], status: b[2] };
+    case ExtTag.KEY:
+      return { tag: ExtTag.KEY, key: b.slice(1, 33), port: u16(33) };
     case ExtTag.SCREEN:
       return { tag: ExtTag.SCREEN, screen: { seq: b[1], first: (b[2] & 1) !== 0, last: (b[2] & 2) !== 0, bytes: b.slice(4, 4 + Math.min(60, b[3])) } };
     case ExtTag.CLOCK:
