@@ -28,6 +28,7 @@ struct WheelView {
     uint8_t modifier;           // KEYS: KEYBOARD_MODIFIER_* of the shortcut
     const char *key;            // KEYS: its key ("G"); nullptr for ACTIONS / cancel
     bool search;                // ACTIONS: modifier + key are the app's search key, + "SEARCH"
+    const char *hint;           // MACRO: what it types ("/clear"), shown instead of a chord
     const app_scene_t *scene;   // this entry's card (nullptr = cancel)
     const app_scene_t *prev;    // the card sliding out, or nullptr
     bool prev_valid;            // a slide is in flight (prev may be the cancel card)

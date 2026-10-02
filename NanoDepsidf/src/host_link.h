@@ -15,6 +15,10 @@ void host_link_handle_report(const uint8_t *report, uint16_t len);
 // or the live stream while the app asks for it.
 void host_link_poll(void);
 
+// Queues one 64-byte report for the host, in order with the replies (ext_link.c's deferred
+// acks and events). Core 1.
+void host_link_queue(const uint8_t *report);
+
 // TinyUSB task: a vendor IN report went out -- sends the next piece of a profile download.
 void host_link_report_sent(void);
 

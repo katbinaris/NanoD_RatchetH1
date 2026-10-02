@@ -25,6 +25,9 @@ extern "C" {
 #include "app_profiles/app_profiles.h"
 #include "class/hid/hid.h"
 #include "sysmon.h"
+#include "notify.h"
+#include "user_prefs.h"
+#include "app_colors.h"
 }
 
 static const char *TAG = "display";
@@ -113,7 +116,8 @@ static bool frame_init(void) {
 // --- view state ---
 
 enum View : uint8_t {
-    V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_SYSINFO, V_RECAL, V_BINDINGS, V_ATTRACT
+    V_BOOT, V_MAIN, V_ROOT, V_HAPTIC, V_HID, V_BOOTMODE, V_APP_PROFILE, V_DISPLAY, V_DEVICE, V_SYSINFO, V_RECAL, V_BINDINGS, V_ATTRACT,
+    V_LIGHTS, V_NOTIFY
 };
 
 static View view_for(const menu_render_snapshot_t &s) {
@@ -128,12 +132,32 @@ static View view_for(const menu_render_snapshot_t &s) {
         case MENU_SCREEN_SYSINFO: return V_SYSINFO;
         case MENU_SCREEN_RECALIBRATE: return V_RECAL;
         case MENU_SCREEN_BINDINGS: return V_BINDINGS;
+        case MENU_SCREEN_LIGHTS: return V_LIGHTS;
         default: return V_MAIN;
     }
 }
 
 static inline bool is_settings_view(View v) {
-    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_BINDINGS;
+    return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_BINDINGS
+        || v == V_LIGHTS;
+}
+
+// The notification on show, kept for the iris that closes on it after it's been answered.
+static notify_item_t s_notice;
+static int s_notice_waiting = 0;
+static float s_notice_hold = 0;
+
+// The colour the LIGHTS swatch shows: the custom hue, or the active app's (amber without one).
+static uint32_t lights_swatch(void) {
+    lights_t l;
+    lights_get(&l);
+    if (l.src == LIGHT_SRC_CUSTOM) return lights_hsv((float)l.hue, l.sat / 100.0f, 1.0f);
+    uint32_t acc[3] = {ui::AMBER, ui::AMBER, ui::AMBER};
+    if (menu_get_hid_type() == MENU_HID_APP) {
+        const app_profile_t *p = app_profiles_get(menu_get_app_profile());
+        app_accents(p->icon48, p->plasma_heat, acc);
+    }
+    return acc[1];
 }
 
 // Screens drawn as the scrolling text list.
@@ -438,7 +462,18 @@ static void key_label(uint8_t k, char *out, size_t n) {
     else if (k == HID_KEY_SLASH) snprintf(out, n, "/");
     else if (k == HID_KEY_PERIOD) snprintf(out, n, ".");
     else if (k == HID_KEY_SPACE) snprintf(out, n, "SPACE");
+    else if (k == HID_KEY_ENTER) snprintf(out, n, "ENTER");
+    else if (k == HID_KEY_BACKSPACE) snprintf(out, n, "BKSP");
+    else if (k == HID_KEY_ESCAPE) snprintf(out, n, "ESC");
     else snprintf(out, n, "?");
+}
+
+// A macro command's line under its card: the text it types (that's what reaches the app), or
+// "MACRO" when it starts with keys.
+static const char *macro_hint(const app_profile_t *p, const app_cmd_t *c) {
+    if (c->macro == 0 || c->macro > p->macro_count) return "MACRO";
+    const app_macro_t *m = &p->macros[c->macro - 1];
+    return m->count > 0 && m->steps[0].kind == APP_MSTEP_TEXT && m->steps[0].text ? m->steps[0].text : "MACRO";
 }
 
 static ui::WheelView wheel_view(int64_t now) {
@@ -462,6 +497,7 @@ static ui::WheelView wheel_view(int64_t now) {
         v.modifier = k.modifier;
         key_label(k.keycode, key, sizeof(key));
         v.key = key;
+        if (c->kind == APP_CMD_MACRO) v.hint = macro_hint(p, c);
     }
     v.prev = s_wheel_prev;
     v.prev_valid = s_wheel_prev_valid;
@@ -610,6 +646,16 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         case V_BINDINGS:
             ui::draw_bindings(snap, menu_get_host(), blink_on);
             break;
+        case V_LIGHTS:
+            ui::draw_lights(snap, {lights_swatch(), blink_on});
+            break;
+        case V_NOTIFY: {
+            const notify_item_t &n = s_notice;
+            ui::draw_notify({notify_source_name(n.source), notify_source_color(n.source), n.title, n.body,
+                             n.kind == NOTIFY_ASK, s_notice_waiting, s_notice_hold, ui_state_get_buttons(),
+                             (uint32_t)(now / 1000)});
+            break;
+        }
         case V_ATTRACT: {
             // APP mode: the active profile's icon (and colours) instead of the QUADRA wordmark.
             const uint8_t *icon = nullptr;
@@ -670,11 +716,34 @@ static Pace update_ui(void) {
         s_icon_set = icon_store_copy(s_icon, sizeof(s_icon));
     }
 
+    // The user's idle word (user_prefs.h), set from the host at any time.
+    static uint32_t s_text_version = 0;
+    bool text_changed = user_text_version() != s_text_version;
+    if (text_changed) {
+        s_text_version = user_text_version();
+        char word[USER_TEXT_MAX + 1];
+        user_text_get(word, sizeof(word));
+        ui::fx_set_word(word);
+    }
+    // An agent notification (notify.h) takes the Main Screen's place and keeps the screen awake.
+    static uint32_t s_notice_version = 0;
+    notify_item_t ni;
+    int nwait;
+    float nhold;
+    bool notice = notify_peek(&ni, &nwait, &nhold);
+    bool notice_changed = notify_version() != s_notice_version || (notice ? nhold : 0) != s_notice_hold;
+    s_notice_version = notify_version();
+    if (notice) {
+        s_notice = ni;
+        s_notice_waiting = nwait;
+    }
+    s_notice_hold = notice ? nhold : 0;
+
     bool snapshot_changed = memcmp(&snap, &s_last_snap, sizeof(snap)) != 0;
     bool buttons_changed = buttons != s_last_buttons;
     // A new icon counts as activity so an upload wakes the screen and shows it.
-    bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed;
-    if (activity) s_last_activity_us = now;
+    bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed || notice_changed;
+    if (activity || notice) s_last_activity_us = now;
 
     if (snap.save_count != s_last_save_count) {
         s_last_save_count = snap.save_count;
@@ -718,6 +787,7 @@ static Pace update_ui(void) {
         target = V_BOOT;
     } else {
         target = view_for(snap);
+        if (notice && target == V_MAIN) target = V_NOTIFY;
         if (target != V_MAIN) {
             s_attract_on = false;
         } else if (s_attract_on) {
@@ -757,7 +827,7 @@ static Pace update_ui(void) {
     s_last_power = power;
     s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
-               || rotation_changed || (sys_changed && s_view == V_SYSINFO);
+               || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -781,7 +851,7 @@ static Pace update_ui(void) {
              || (s_view == V_APP_PROFILE && now - s_profile_slide_start_us < HID_SLIDE_MS * 1000LL)
              || (s_view == V_MAIN && shape_live)
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
-    bool looping = s_booting || s_view == V_ATTRACT
+    bool looping = s_booting || s_view == V_ATTRACT || s_view == V_NOTIFY // the notification breathes
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC
                     && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE
@@ -829,6 +899,9 @@ static void display_task_fn(void *arg) {
     }
     ui::bind(&s_frame);
     ui::fx_init();
+    char word[USER_TEXT_MAX + 1];
+    user_text_get(word, sizeof(word));
+    ui::fx_set_word(word); // the loading screen already assembles the user's word
 
     s_boot_start_us = esp_timer_get_time();
     update_ui(); // first (black) frame of the loading screen before the backlight comes up

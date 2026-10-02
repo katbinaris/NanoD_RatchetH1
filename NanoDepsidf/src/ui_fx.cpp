@@ -19,10 +19,11 @@ static inline bool in_circle(float x, float y, float r) {
 
 // --- loading screen: Big bang ---
 
-// "QUADRA" at scale 3 is ~130 blocks; room to spare.
-#define LOGO_MAX_BLOCKS 256
+// "QUADRA" at scale 3 is ~130 blocks; a 12-character word (fx_set_word) at scale 2 fits too.
+#define LOGO_MAX_BLOCKS 512
 static int16_t s_logo[LOGO_MAX_BLOCKS][2];
 static int s_logo_n = 0;
+static int s_logo_scale = 3; // the block size: the largest scale at which the word fits
 // Per-block scatter point and return delay, fixed at init (same hash as the mockup).
 static int16_t s_logo_scatter[LOGO_MAX_BLOCKS][2];
 static uint16_t s_logo_delay_ms[LOGO_MAX_BLOCKS];
@@ -69,7 +70,7 @@ void fx_boot(uint32_t e) {
         bool home = e >= 1000 && k2 >= 1.0f;
         uint32_t col = home ? (e < 1900 ? AMBER : WHITE)
                      : s_logo_tint[i] == 0 ? AMBER : s_logo_tint[i] == 1 ? GREY : WHITE;
-        rect(x, y, 3, 3, col);
+        rect(x, y, s_logo_scale, s_logo_scale, col);
     }
     boot_tail(e, 1950);
 }
@@ -128,10 +129,14 @@ static void dotted_ring(float cx, float cy, float r, uint32_t c, int step) {
 }
 
 // The sprite: the icon (RGB565 BE, black = transparent) or the wordmark's 1-bit mask.
-#define WORD_MAX_W 64
+#define WORD_MAX_W 80 // 12 characters of the 10px font, drawn 1x (JUMP keeps it inside the glass)
 #define WORD_MAX_H 12
+// Widest wordmark (1x px) still drawn at 2x: JUMP's +-34 px hops with a 1.38x squash need the
+// sprite under ~119 px to stay inside the glass.
+#define WORD_2X_MAX_W 56
 static uint8_t s_word[WORD_MAX_W * WORD_MAX_H];
-static int s_word_w = 0, s_word_h = 0;
+static int s_word_w = 0, s_word_h = 0, s_word_scale = 2;
+static bool s_word_custom = false; // fx_set_word() got the user's own text
 struct Spr {
     const uint8_t *icon; // nullptr = the wordmark
     int w, h, scale;
@@ -513,7 +518,10 @@ void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat, uint
     }
     float t = (float)(t_ms - s_seq.start);
 
-    Spr sp = icon48 ? Spr{icon48, ATTRACT_ICON, ATTRACT_ICON, 1} : Spr{nullptr, s_word_w, s_word_h, 2};
+    // The user's own word takes turns with the app's icon, one routine each (the word first);
+    // the stock QUADRA wordmark only shows without an icon, as before.
+    bool word = icon48 == nullptr || (s_word_custom && (s_seq.n & 1) == 0);
+    Spr sp = word ? Spr{nullptr, s_word_w, s_word_h, s_word_scale} : Spr{icon48, ATTRACT_ICON, ATTRACT_ICON, 1};
     if (icon48 != s_acc_icon || heat != s_acc_heat || s_acc_icon == nullptr) {
         app_accents(icon48, heat, s_accents); // AMBER x3 without an icon (QUADRA)
         s_acc_icon = icon48;
@@ -529,8 +537,13 @@ void fx_attract(uint32_t t_ms, const uint8_t *icon48, const uint32_t *heat, uint
     s_ox = s_oy = 0;
 }
 
-void fx_init() {
-    s_logo_n = text_blocks("QUADRA", 120, 96, 3, s_logo, LOGO_MAX_BLOCKS);
+void fx_set_word(const char *text) {
+    s_word_custom = text != nullptr && text[0] != '\0';
+    const char *w = s_word_custom ? text : "QUADRA";
+
+    // Loading screen: the word's own pixels, at the largest scale that fits the glass.
+    s_logo_scale = fit_scale(w, 200, 3);
+    s_logo_n = text_blocks(w, 120, 96, s_logo_scale, s_logo, LOGO_MAX_BLOCKS);
     for (int i = 0; i < s_logo_n; i++) {
         float a = rnd(i, 1) * 2.0f * (float)M_PI, d = 30 + rnd(i, 2) * 80;
         s_logo_scatter[i][0] = (int16_t)lroundf(SPARK_X + cosf(a) * d);
@@ -540,9 +553,9 @@ void fx_init() {
         s_logo_tint[i] = r4 < 0.3f ? 0 : r4 < 0.55f ? 1 : 2;
     }
 
-    // The idle wordmark: QUADRA's pixels at 1x, as a mask (drawn at 2x, squashable).
-    static int16_t word[LOGO_MAX_BLOCKS][2]; // one-time scratch, kept off the task stack
-    int nw = text_blocks("QUADRA", 0, 0, 1, word, LOGO_MAX_BLOCKS);
+    // The idle wordmark: the word's pixels at 1x, as a mask (drawn at 2x when it fits, squashable).
+    static int16_t word[LOGO_MAX_BLOCKS][2]; // scratch, kept off the task stack
+    int nw = text_blocks(w, 0, 0, 1, word, LOGO_MAX_BLOCKS);
     int x0 = 1 << 15, y0 = 1 << 15, x1 = -(1 << 15), y1 = -(1 << 15);
     for (int k = 0; k < nw; k++) {
         if (word[k][0] < x0) x0 = word[k][0];
@@ -559,6 +572,11 @@ void fx_init() {
         int x = word[k][0] - x0, y = word[k][1] - y0;
         if (x < WORD_MAX_W && y < WORD_MAX_H) s_word[y * WORD_MAX_W + x] = 1;
     }
+    s_word_scale = s_word_w <= WORD_2X_MAX_W ? 2 : 1;
+}
+
+void fx_init() {
+    fx_set_word(nullptr);
 
     // Jump choreography: each move's start time and x offset.
     uint32_t t = 0;

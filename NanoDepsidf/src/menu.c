@@ -5,6 +5,7 @@
 #include "sysmon.h"
 #include "host_proto.h"
 #include "tasks_common.h"
+#include "user_prefs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
@@ -378,6 +379,41 @@ static void action_save_boot(void) {
     config_store_save_boot(&cfg);
 }
 
+// LIGHTS (user_prefs.h). Direct screen: turning changes the LEDs live, F2 keeps the look,
+// leaving without F2 puts it back. HUE / SAT only mean something with COLOR = CUSTOM, SPEED
+// only for the moving effects -- muted otherwise.
+static void fmt_light_src(char *buf, size_t n) {
+    snprintf(buf, n, "%s", lights_custom() ? "CUSTOM" : "APP");
+}
+static void fmt_light_hue(char *buf, size_t n) {
+    lights_t l;
+    lights_get(&l);
+    snprintf(buf, n, "%ld", (long)l.hue);
+}
+static void fmt_light_sat(char *buf, size_t n) {
+    lights_t l;
+    lights_get(&l);
+    snprintf(buf, n, "%ld%%", (long)l.sat);
+}
+static void fmt_light_fx(char *buf, size_t n) {
+    lights_t l;
+    lights_get(&l);
+    snprintf(buf, n, "%s", lights_fx_name(l.fx));
+}
+static void fmt_light_speed(char *buf, size_t n) {
+    lights_t l;
+    lights_get(&l);
+    snprintf(buf, n, "%ld", (long)l.speed);
+}
+static void fmt_light_level(char *buf, size_t n) {
+    lights_t l;
+    lights_get(&l);
+    snprintf(buf, n, "%ld%%", (long)l.level);
+}
+static bool CONTROL_HOT light_color_muted(void) { return !lights_custom(); }
+static bool CONTROL_HOT light_speed_muted(void) { return !lights_fx_animated(); }
+static void action_save_lights(void) { lights_save(); }
+
 // --- Screens ---
 // Labels are the Pixel UI's display names (DEVELOPMENT_PLAN.md "Pixel UI"); captions keep the
 // engineering names visible in small type. Detents are "STEPS" for now -- they're due for a
@@ -429,6 +465,18 @@ static const menu_screen_t s_display_screen = {
     MENU_SCREEN_DISPLAY, "Display", s_display_items, 1, true, action_save_display
 };
 
+static const menu_item_t s_lights_items[MENU_LIGHTS_ROW_COUNT] = {
+    [MENU_LIGHTS_ROW_COLOR]  = { .label = "COLOR",  .kind = MENU_ITEM_VALUE, .format_value = fmt_light_src,   .on_rotate = lights_rotate_src },
+    [MENU_LIGHTS_ROW_HUE]    = { .label = "HUE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_light_hue,   .on_rotate = lights_rotate_hue,   .is_muted = light_color_muted },
+    [MENU_LIGHTS_ROW_SAT]    = { .label = "SAT",    .kind = MENU_ITEM_VALUE, .format_value = fmt_light_sat,   .on_rotate = lights_rotate_sat,   .is_muted = light_color_muted },
+    [MENU_LIGHTS_ROW_EFFECT] = { .label = "EFFECT", .kind = MENU_ITEM_VALUE, .format_value = fmt_light_fx,    .on_rotate = lights_rotate_fx },
+    [MENU_LIGHTS_ROW_SPEED]  = { .label = "SPEED",  .kind = MENU_ITEM_VALUE, .format_value = fmt_light_speed, .on_rotate = lights_rotate_speed, .is_muted = light_speed_muted },
+    [MENU_LIGHTS_ROW_LEVEL]  = { .label = "LEVEL",  .kind = MENU_ITEM_VALUE, .format_value = fmt_light_level, .on_rotate = lights_rotate_level },
+};
+static const menu_screen_t s_lights_screen = {
+    MENU_SCREEN_LIGHTS, "Lights", s_lights_items, MENU_LIGHTS_ROW_COUNT, true, action_save_lights
+};
+
 // SYS INFO: read-only pages drawn from sysmon.h (and pd_status.h for the USB contract);
 // turning moves between them, F1 starts the peaks and counters over.
 static const menu_item_t s_sysinfo_items[MENU_SYSINFO_PAGE_COUNT] = {
@@ -476,6 +524,7 @@ static const menu_item_t s_root_items[] = {
     { .label = "PROFILES",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_hid_screen },
     { .label = "HAPTICS",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_haptic_screen },
     { .label = "DISPLAY",   .kind = MENU_ITEM_SUBMENU, .submenu = &s_display_screen },
+    { .label = "LIGHTS",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_lights_screen },
     { .label = "BOOT MODE", .kind = MENU_ITEM_SUBMENU, .submenu = &s_boot_screen },
     { .label = "DEVICE",    .kind = MENU_ITEM_SUBMENU, .submenu = &s_device_screen },
 };
@@ -569,6 +618,7 @@ typedef struct {
     boot_usb_mode_t boot_mode;
     int32_t rotation;
     menu_host_t host;
+    lights_t lights;
 } settings_t;
 
 static settings_t s_saved;
@@ -590,6 +640,7 @@ static void settings_capture(settings_t *s) {
     s->boot_mode = atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
     s->rotation = atomic_load_explicit(&s_ph_rotation, memory_order_relaxed);
     s->host = atomic_load_explicit(&s_ph_host, memory_order_relaxed);
+    lights_get(&s->lights);
 }
 
 static void settings_restore(const settings_t *s) {
@@ -606,6 +657,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_boot_mode, s->boot_mode, memory_order_relaxed);
     atomic_store_explicit(&s_ph_rotation, s->rotation, memory_order_relaxed);
     atomic_store_explicit(&s_ph_host, s->host, memory_order_relaxed);
+    lights_set(&s->lights);
 }
 
 // Copies only the fields a screen owns (what that screen's save writes to NVS).
@@ -635,6 +687,9 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
         case MENU_SCREEN_BINDINGS:
             dst->host = src->host;
             break;
+        case MENU_SCREEN_LIGHTS:
+            dst->lights = src->lights;
+            break;
         default:
             break;
     }
@@ -657,6 +712,8 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
             return a->rotation != b->rotation;
         case MENU_SCREEN_BINDINGS:
             return a->host != b->host;
+        case MENU_SCREEN_LIGHTS:
+            return memcmp(&a->lights, &b->lights, sizeof(a->lights)) != 0;
         default:
             return false;
     }
@@ -704,6 +761,8 @@ static void save_task_fn(void *arg) {
 }
 
 void menu_init(void) {
+    user_prefs_init(); // LIGHTS joins the saved baseline captured at the end of this function
+
     portENTER_CRITICAL(&s_state_mux);
     s_stack_depth = 0;
     s_editing = false;
@@ -1249,7 +1308,7 @@ static const struct {
 } s_remote_groups[] = {
     {MENU_SCREEN_HAPTIC, action_save_haptic},   {MENU_SCREEN_HID, action_save_hid},
     {MENU_SCREEN_BOOT, action_save_boot},       {MENU_SCREEN_DISPLAY, action_save_display},
-    {MENU_SCREEN_BINDINGS, action_save_bindings},
+    {MENU_SCREEN_BINDINGS, action_save_bindings}, {MENU_SCREEN_LIGHTS, action_save_lights},
 };
 
 void menu_remote_save(void) {
@@ -1277,4 +1336,24 @@ void menu_remote_revert(void) {
     s_editing = false;
     portEXIT_CRITICAL(&s_state_mux);
     settings_restore(&saved);
+}
+
+bool menu_lights_dirty(void) {
+    lights_t cur;
+    lights_get(&cur);
+    portENTER_CRITICAL(&s_state_mux);
+    bool dirty = memcmp(&cur, &s_saved.lights, sizeof(cur)) != 0;
+    portEXIT_CRITICAL(&s_state_mux);
+    return dirty;
+}
+
+void menu_remote_save_lights(void) {
+    lights_t cur;
+    lights_get(&cur);
+    if (!menu_lights_dirty()) return;
+    if (!lights_save()) return; // NVS failed: still unsaved, and the screen keeps saying so
+    portENTER_CRITICAL(&s_state_mux);
+    s_saved.lights = cur;
+    portEXIT_CRITICAL(&s_state_mux);
+    atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed);
 }

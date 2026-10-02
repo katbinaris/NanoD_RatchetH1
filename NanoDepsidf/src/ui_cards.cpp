@@ -608,6 +608,7 @@ void draw_wheel(const WheelView &v) {
 
     text(v.name, CX, 122, WHITE, fit_scale(v.name, 170, 2), CENTER);
     if (v.entry == 0) text("RELEASE TO CLOSE", CX, 148, GREY, 1, CENTER);
+    else if (v.hint) text(v.hint, CX, 148, AMBER, 1, CENTER);
     else if (v.search) draw_chord(v.modifier, v.key, CX, 145, "SEARCH");
     else draw_chord(v.modifier, v.key, CX, 145, nullptr);
 

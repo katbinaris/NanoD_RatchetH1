@@ -686,4 +686,98 @@ void draw_saved_toast(const char *msg) {
     text(msg, CX, 110, AMBER, fit_scale(msg, 96, 2), CENTER);
 }
 
+// --- LIGHTS: label left, value right, the focused value in amber between arrows ---
+
+void draw_lights(const menu_render_snapshot_t &snap, const LightsInputs &in) {
+    header("LIGHTS");
+    for (int i = 0; i < snap.row_count && i < MENU_LIGHTS_ROW_COUNT; i++) {
+        const menu_render_row_t &r = snap.rows[i];
+        const int y = 52 + i * 17;
+        text(r.label, 52, y, r.selected ? WHITE : GREY);
+        uint32_t vc = r.muted ? DARK : r.selected ? AMBER : WHITE;
+        int w = text(r.value, 186, y, vc, 1, RIGHT);
+        if (r.selected) edit_arrows(186 - w / 2.0f, y, w + 14, cap_height(1), AMBER);
+        if (i == MENU_LIGHTS_ROW_COLOR) disc(52 + text_width(r.label) + 10, y + 3, 4, in.swatch);
+    }
+    save_hint(160, snap.dirty, in.blink_on);
+}
+
+// --- Agent notification ---
+
+static uint32_t scale_rgb(uint32_t c, float k) {
+    uint32_t r = (uint32_t)(((c >> 16) & 0xFF) * k), g = (uint32_t)(((c >> 8) & 0xFF) * k), b = (uint32_t)((c & 0xFF) * k);
+    return r << 16 | g << 8 | b;
+}
+
+// A thick arc round the glass from 12 o'clock, clockwise, `frac` of the way.
+static void rim_arc(float frac, uint32_t c) {
+    const float r = 115;
+    int n = (int)(frac * 2 * (float)M_PI * r);
+    for (int s = 0; s <= n; s++) {
+        float a = s / r - (float)M_PI / 2;
+        rect(CX + cosf(a) * r - 2, CY + sinf(a) * r - 2, 4, 4, c);
+    }
+}
+
+// Greedy word wrap to `max_w`, at most `lines` lines; a word too long for a line is cut.
+static int wrap(const char *s, int max_w, char out[][48], int lines) {
+    int n = 0;
+    while (*s && n < lines) {
+        while (*s == ' ') s++;
+        int len = 0, fit = 0;
+        while (s[len] && len < 47) {
+            char buf[48];
+            memcpy(buf, s, len + 1);
+            buf[len + 1] = '\0';
+            if (text_width(buf) > max_w) break;
+            len++;
+            if (s[len] == ' ' || s[len] == '\0') fit = len;
+        }
+        if (fit == 0) fit = len > 0 ? len : 1; // no space to break at: cut the word
+        memcpy(out[n], s, fit);
+        out[n][fit] = '\0';
+        s += fit;
+        n++;
+    }
+    if (*s && n == lines) { // more than fits: mark the cut
+        size_t l = strlen(out[n - 1]);
+        if (l > 2) memcpy(out[n - 1] + l - 2, "..", 3);
+    }
+    return n;
+}
+
+void draw_notify(const NotifyInputs &in) {
+    static const uint32_t ALLOW = 0x22DD66u, DENY = 0xFF3B30u;
+    float breath = 0.35f + 0.65f * (0.5f - 0.5f * cosf(in.t_ms * 2 * (float)M_PI / 2400.0f));
+    ring(CX, CY, 117, scale_rgb(in.color, breath), 2);
+    if (in.hold > 0) rim_arc(in.hold, ALLOW);
+
+    int sw = text_width(in.source);
+    disc(CX - sw / 2.0f - 8, 33, 3, scale_rgb(in.color, breath));
+    text(in.source, CX + 4, 30, in.color, 1, CENTER);
+    text(in.title, CX, 50, WHITE, fit_scale(in.title, 176, 2), CENTER);
+
+    char lines[3][48];
+    int n = wrap(in.body, 172, lines, 3);
+    for (int i = 0; i < n; i++) text(lines[i], CX, 80 + i * 13, in.ask ? WHITE : GREY, 1, CENTER);
+    if (in.waiting > 1) {
+        char more[16];
+        snprintf(more, sizeof(more), "+%d MORE", in.waiting - 1);
+        text(more, CX, 122, GREY, 1, CENTER);
+    }
+    if (in.ask) text(in.hold > 0 ? "KEEP HOLDING" : "HOLD F1 TO ALLOW", CX, 134, in.hold > 0 ? ALLOW : GREY, 1, CENTER);
+
+    // The keys, on the same arc as the Main Screen's legend.
+    static const char *const keys[4] = {"F1", "F2", "F3", "F4"};
+    static const char *const ask_acts[4] = {"ALLOW", "LATER", "DENY", "LATER"};
+    static const int xs[4] = {60, 100, 140, 180};
+    static const int ys[4] = {146, 154, 154, 146};
+    for (int i = 0; i < 4; i++) {
+        keycap(xs[i] - KEY_W / 2, ys[i], keys[i], (in.buttons >> i) & 1, false);
+        const char *act = in.ask ? ask_acts[i] : "OK";
+        uint32_t c = in.ask && i == 0 ? ALLOW : in.ask && i == 2 ? DENY : WHITE;
+        text(act, xs[i], ys[i] + KEY_H + 5, c, 1, CENTER);
+    }
+}
+
 } // namespace ui

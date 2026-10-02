@@ -8,6 +8,11 @@ namespace ui {
 
 void fx_init(); // one-time tables (logo particles, plasma lookups)
 
+// The word the loading screen assembles and the idle screen animates: the user's own
+// (user_prefs.h, up to 12 characters) or nullptr / "" for the stock QUADRA. With an app icon
+// up, a user's word takes turns with it, one routine each. Call from the drawing task.
+void fx_set_word(const char *text);
+
 // Loading screen "Big bang": a spark swells and bursts, the logo's own pixels scatter, then
 // fly home and lock in; the maker line types in and a block bar fills.
 constexpr uint32_t BOOT_ANIM_MS = 3400;

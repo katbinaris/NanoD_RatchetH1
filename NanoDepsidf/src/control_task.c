@@ -13,6 +13,8 @@
 #include "haptic_params.h"
 #include "app_mode.h"
 #include "sysmon.h"
+#include "notify.h"
+#include "ext_link.h"
 #include "esp_cpu.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -828,7 +830,12 @@ static void CONTROL_HOT control_task_fn(void *arg) {
 
                 // While the attract animation runs, a press only wakes the screen (the display
                 // sees the held mask above) -- it must not also open the menu.
-                bool swallow = ui_state_get_screensaver();
+                // An agent notification on screen (notify.h) owns the keys while the menu is
+                // closed; swallowing them here means the press that answers it can't also play
+                // or skip a track, even if it's still held once the notification is gone.
+                bool notice = notify_active() && !menu_is_open();
+                if (notice) notify_keys(ui_state_get_buttons(), esp_timer_get_time());
+                bool swallow = ui_state_get_screensaver() || notice;
 
                 // APP mode with the menu closed: F1-F4 are app controls (app_mode.c), and
                 // long-press F4 is the way into the menu. Inside the menu they're menu keys
@@ -876,6 +883,12 @@ static void CONTROL_HOT control_task_fn(void *arg) {
 
                 // DEVICE -> RECALIBRATE: the same path as a first boot -- with no stored
                 // calibration, the next boot aligns the motor again before haptics start.
+                if (ext_restart_due()) { // the host asked (ext_proto.h EXT_CMD_REBOOT), e.g. to flash
+                    ESP_LOGW(TAG, "restart requested by the host: motor off, restarting");
+                    motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f);
+                    motor_driver_enable(false);
+                    esp_restart();
+                }
                 if (menu_take_recalibrate_request()) {
                     ESP_LOGW(TAG, "RECALIBRATE from the menu: motor off, calibration forgotten, restarting");
                     motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f);

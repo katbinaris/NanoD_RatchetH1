@@ -86,6 +86,10 @@ static void queue_reply(const uint8_t *r) {
     if (xQueueSend(s_replies, r, 0) != pdTRUE) ESP_LOGW(TAG, "reply dropped (queue full)");
 }
 
+void host_link_queue(const uint8_t *report) {
+    queue_reply(report);
+}
+
 static void build_settings(uint8_t *r) {
     menu_remote_settings_t s;
     menu_remote_get(&s);

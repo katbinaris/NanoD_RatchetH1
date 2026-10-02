@@ -13,6 +13,8 @@
 #include "app_profiles/app_profiles.h"
 #include "sysmon.h"
 #include "pd_status.h"
+#include "user_prefs.h"
+#include "notify.h"
 #include <math.h>
 #include <string.h>
 
@@ -51,6 +53,10 @@ static const char *TAG = "led";
 #define SPOT_FADE_US 500000  // ...then fades back into the gradient
 #define PULSE_US 140000      // detent click pulse
 #define FLASH_US 260000      // end-stop flash
+#define LED_NOTICE 0.55f     // an agent notification's breath, at its peak
+#define NOTIFY_BREATH_S 2.4f // ...and its period: slow, so it reads as "waiting", not an alarm
+#define NOTICE_ALLOW 0x22DD66u
+#define NOTICE_DENY 0xFF3B30u
 
 // Ring geometry, to confirm on hardware: which LED sits at 12 o'clock with the screen upright,
 // and whether indices run clockwise (+1) or anticlockwise (-1). The legacy firmware ran the
@@ -147,11 +153,12 @@ static float budget_ma(void) {
 }
 
 // Scale everything so the estimated draw stays under the budget, then send what changed.
-static void flush(int rotation) {
+// `level`: LIGHTS -> LEVEL, a multiplier on LED_MAX (the budget still caps the result).
+static void flush(int rotation, float level) {
     float sum = 0;
     for (int i = 0; i < NANO_LED_A_NUM; i++) sum += s_ring[i].r + s_ring[i].g + s_ring[i].b;
     for (int i = 0; i < NANO_LED_B_NUM; i++) sum += s_keys[i].r + s_keys[i].g + s_keys[i].b;
-    float k = LED_MAX, ma = sum * LED_MAX * 20.0f, budget = budget_ma();
+    float k = LED_MAX * level, ma = sum * k * 20.0f, budget = budget_ma();
     if (ma > budget) k *= budget / ma;
     sysmon_set_led_ma(ma > budget ? budget : ma);
     if (s_ring_h) {
@@ -205,7 +212,25 @@ static void led_task_fn(void *arg) {
             acc_for = p;
             acc_hid = app;
         }
-        const uint32_t *pal = menu ? AMBERS : acc;
+        // LIGHTS (user_prefs.h). The menu keeps its amber, except on the LIGHTS screen itself,
+        // which previews the look being edited.
+        lights_t L;
+        lights_get(&L);
+        const bool preview = menu && menu_current_screen() == MENU_SCREEN_LIGHTS;
+        uint32_t custom[3];
+        if (L.src == LIGHT_SRC_CUSTOM) {
+            float sat = L.sat / 100.0f;
+            for (int i = 0; i < 3; i++) custom[i] = lights_hsv((float)L.hue + (i - 1) * 18.0f, sat, 1.0f);
+        }
+        const uint32_t *look = L.src == LIGHT_SRC_CUSTOM ? custom : acc;
+        const uint32_t *pal = menu && !preview ? AMBERS : look;
+        const int fx = menu && !preview ? LIGHT_FX_GRADIENT : (int)L.fx;
+        const float t_s = (float)(now % 600000000LL) / 1e6f; // seconds, wrapping every 10 min
+        const float period = 16.0f * powf(0.72f, (float)(L.speed - 1)); // SPEED 1..10: 16 s .. 0.8 s
+        notify_item_t ni;
+        int n_waiting;
+        float hold;
+        const bool notice = !menu && notify_peek(&ni, &n_waiting, &hold);
         const uint8_t held = ui_state_get_buttons();
         const int32_t angle = ui_state_get_knob_angle();
         const uint32_t clicks = ui_state_get_clicks(), walls = ui_state_get_walls();
@@ -226,8 +251,33 @@ static void led_task_fn(void *arg) {
                 s_ring[i] = gap ? (rgbf_t){0, 0, 0} : c;
             }
         } else {
-            for (int i = 0; i < NANO_LED_A_NUM; i++)
-                s_ring[i] = gradient(pal, (float)i / NANO_LED_A_NUM + drift, idle ? LED_REST * 0.7f : LED_REST);
+            const float rest = idle ? LED_REST * 0.7f : LED_REST;
+            for (int i = 0; i < NANO_LED_A_NUM; i++) {
+                const float u = (float)i / NANO_LED_A_NUM;
+                switch (fx) {
+                    case LIGHT_FX_SOLID:
+                        s_ring[i] = hexf(pal[1], rest);
+                        break;
+                    case LIGHT_FX_BREATHE:
+                        s_ring[i] = hexf(pal[1], rest * (0.12f + 0.88f * (0.5f - 0.5f * cosf(2 * (float)M_PI * t_s / period))));
+                        break;
+                    case LIGHT_FX_SPIN: { // a comet running clockwise, a 20-LED tail behind its head
+                        float d = fmodf(t_s / period * NANO_LED_A_NUM - i + 2 * NANO_LED_A_NUM, NANO_LED_A_NUM);
+                        float k = d < 20 ? 1 - d / 20 : 0;
+                        s_ring[i] = hexf(pal[1], rest * (0.06f + 0.94f * k * k));
+                        break;
+                    }
+                    case LIGHT_FX_RAINBOW:
+                        s_ring[i] = hexf(lights_hsv((u - t_s / period) * 360.0f, 1.0f, 1.0f), rest);
+                        break;
+                    case LIGHT_FX_OFF:
+                        s_ring[i] = (rgbf_t){0, 0, 0};
+                        break;
+                    default:
+                        s_ring[i] = gradient(pal, u + drift, rest);
+                        break;
+                }
+            }
             // The knob spot: follows the knob, pulses on each click, fades out once it rests.
             int64_t since = now - moved_at;
             float vis = since < SPOT_HOLD_US ? 1 : since < SPOT_HOLD_US + SPOT_FADE_US ? 1 - (float)(since - SPOT_HOLD_US) / SPOT_FADE_US : 0;
@@ -249,21 +299,39 @@ static void led_task_fn(void *arg) {
             float f = 1 - (float)(now - wall_at) / FLASH_US;
             for (int i = 0; i < NANO_LED_A_NUM; i++) s_ring[i] = mixf(s_ring[i], (rgbf_t){1, 1, 1}, f * 0.8f);
         }
+        // An agent notification (notify.h) takes the whole ring: a slow breath in the agent's
+        // colour; holding F1 on an approval fills it green, clockwise from 12 o'clock.
+        if (notice) {
+            float b = 0.10f + 0.90f * (0.5f - 0.5f * cosf(2 * (float)M_PI * t_s / NOTIFY_BREATH_S));
+            rgbf_t c = hexf(notify_source_color(ni.source), LED_NOTICE * b);
+            int filled = (int)(hold * NANO_LED_A_NUM);
+            for (int i = 0; i < NANO_LED_A_NUM; i++) s_ring[i] = i < filled ? hexf(NOTICE_ALLOW, 1.0f) : c;
+        }
 
         // Keys: the same gradient F1 -> F4, full on while held, nearly off with no action.
+        // Under a notification: approvals light F1 green (allow) and F3 red (deny).
         for (int k = 0; k < 4; k++) {
-            float lv = LED_REST;
-            if (held & (1u << k)) lv = 1.0f;
-            else if (app && !menu && p && k + 1 != APP_SLOT_F4 && p->slot[k + 1].kind == APP_ACT_NONE) lv = LED_KEY_OFF;
-            else if (idle) lv = LED_REST * 0.7f;
-            rgbf_t c = gradient(pal, k / 4.0f, lv);
+            rgbf_t c;
+            if (notice) {
+                bool ask = ni.kind == NOTIFY_ASK;
+                uint32_t col = ask && k == 0 ? NOTICE_ALLOW : ask && k == 2 ? NOTICE_DENY : 0xFFFFFFu;
+                float lv = (held & (1u << k)) ? 1.0f : (ask && (k == 0 || k == 2)) ? 0.85f : 0.25f;
+                c = hexf(col, lv);
+            } else {
+                float lv = LED_REST;
+                if (held & (1u << k)) lv = 1.0f;
+                else if (fx == LIGHT_FX_OFF) lv = 0;
+                else if (app && !menu && p && k + 1 != APP_SLOT_F4 && p->slot[k + 1].kind == APP_ACT_NONE) lv = LED_KEY_OFF;
+                else if (idle) lv = LED_REST * 0.7f;
+                c = gradient(pal, k / 4.0f, lv);
+            }
             s_keys[KEY_LED[k][0]] = c;
             s_keys[KEY_LED[k][1]] = c;
         }
         // Every 2 s, send everything once anyway: a frame a glitch did corrupt doesn't stay.
         static int s_frames = 0;
         if (++s_frames >= 2 * LED_FPS) { s_frames = 0; s_sent_valid = false; }
-        flush((int)menu_get_display_rotation());
+        flush((int)menu_get_display_rotation(), L.level / 100.0f);
     }
 }
 

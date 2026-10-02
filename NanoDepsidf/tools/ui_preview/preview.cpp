@@ -17,6 +17,7 @@ extern "C" {
 extern const app_profile_t app_profile_figma;
 extern const app_profile_t app_profile_plasticity;
 extern const app_profile_t app_profile_onshape;
+extern const app_profile_t app_profile_agents;
 }
 
 static LGFX_Sprite g;
@@ -419,6 +420,71 @@ int main() {
         for (uint32_t t = 0; t < ms; t += 33) ui::fx_attract(t, nullptr, nullptr, 2, r), g.clear();
         ui::fx_attract(ms, nullptr, nullptr, 2, r);
         keep("idle QUADRA");
+    }
+
+    // --- this fork: the user's idle word, LIGHTS, agent notifications, the AGENTS wheel ---
+    for (const char *word : {"DVIROS", "MAKE IT NICE"}) {
+        ui::fx_set_word(word);
+        ui::fx_boot(2600);
+        keep(strdup(word));
+        for (uint32_t t = 0; t < 5950; t += 33) ui::fx_attract(t, nullptr, nullptr, 5, ui::ATTRACT_JUMP), g.clear();
+        ui::fx_attract(5950, nullptr, nullptr, 5, ui::ATTRACT_JUMP); // landing at +34 px, squashed: the widest reach
+        keep("idle word, side hop");
+    }
+    ui::fx_set_word(nullptr);
+    {
+        const char *LV[MENU_LIGHTS_ROW_COUNT][2] = {{"COLOR", "CUSTOM"}, {"HUE", "200"}, {"SAT", "80%"},
+                                                    {"EFFECT", "BREATHE"}, {"SPEED", "4"}, {"LEVEL", "100%"}};
+        for (int sel : {0, 3}) {
+            menu_render_snapshot_t s = {};
+            s.open = true;
+            s.screen = MENU_SCREEN_LIGHTS;
+            s.dirty = sel == 3;
+            s.selected = sel;
+            s.row_count = MENU_LIGHTS_ROW_COUNT;
+            for (int i = 0; i < MENU_LIGHTS_ROW_COUNT; i++) s.rows[i] = row(LV[i][0], "", LV[i][1], i == sel);
+            if (sel == 0) { // COLOR = APP: hue and sat are muted
+                snprintf(s.rows[0].value, sizeof(s.rows[0].value), "APP");
+                for (int i : {1, 2}) s.rows[i].muted = true, snprintf(s.rows[i].value, sizeof(s.rows[i].value), "--");
+            }
+            ui::draw_lights(s, {sel == 0 ? 0xFFB030u : 0x33AAFFu, true});
+            keep(sel == 0 ? "lights: APP colour" : "lights: editing EFFECT");
+        }
+    }
+    ui::draw_notify({"CLAUDE CODE", 0xE8825F, "BASH", "rm -rf node_modules && npm install --force", true, 3, 0, 0, 1200});
+    keep("notify: Claude asks");
+    ui::draw_notify({"CLAUDE CODE", 0xE8825F, "EDIT", "src/app_profiles/agents.c", true, 1, 0.62f, UI_BTN_F1, 2400});
+    keep("notify: F1 held 62%");
+    ui::draw_notify({"CODEX", 0x4F9DFF, "APPLY PATCH", "3 files: ext_link.c notify.c menu.c", true, 1, 0, 0, 600});
+    keep("notify: Codex asks");
+    ui::draw_notify({"CURSOR", 0xB98CFF, "RUN?", "npm run build -- --watch (approve in Cursor)", false, 1, 0, 0, 1800});
+    keep("notify: Cursor, info");
+    {
+        const app_profile_t &p = app_profile_agents;
+        for (int ring = 0; ring < p.ring_count; ring++) {
+            for (int e : {1, 9, 10}) {
+                if (e > p.rings[ring].count) continue;
+                const app_cmd_t &c = p.rings[ring].cmds[e - 1];
+                ui::WheelView v = {};
+                v.ring_name = p.rings[ring].name;
+                v.ring_count = p.ring_count;
+                for (int i = 0; i < p.ring_count; i++) v.ring_tabs[i] = p.rings[i].tab;
+                v.ring = ring;
+                v.count = p.rings[ring].count + 1;
+                v.entry = e;
+                v.name = c.name;
+                v.scene = c.scene;
+                v.modifier = c.key.modifier;
+                v.key = c.key.keycode == 0x28 ? "ENTER" : c.key.keycode == 0x2A ? "BKSP" : "K";
+                if (c.kind == APP_CMD_MACRO) v.hint = p.macros[c.macro - 1].steps[0].kind == APP_MSTEP_TEXT ? p.macros[c.macro - 1].steps[0].text : "MACRO";
+                v.slide = 1;
+                v.slide_dir = 1;
+                v.t_ms = 2000;
+                ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F1, nullptr, nullptr, &v};
+                ui::draw_main(in);
+                keep(c.name);
+            }
+        }
     }
 
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.
