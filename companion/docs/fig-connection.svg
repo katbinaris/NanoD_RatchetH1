@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 340" width="880" height="340" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" shape-rendering="crispEdges">
+  <rect width="880" height="340" fill="#000"/>
+  <defs>
+    <marker id="e1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffc94d"/></marker>
+    <marker id="e0" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto"><path d="M8,0 L0,4 L8,8 z" fill="#ffc94d"/></marker>
+  </defs>
+
+  <!-- computer -->
+  <text x="40" y="34" fill="#777" font-size="10">THE COMPUTER</text>
+  <rect x="40" y="46" width="330" height="270" fill="none" stroke="#444" stroke-width="2" stroke-dasharray="6 4"/>
+
+  <rect x="60" y="66" width="290" height="84" fill="none" stroke="#fff" stroke-width="2"/>
+  <text x="76" y="90" fill="#fff" font-weight="bold">THE SAME UI (TYPESCRIPT)</text>
+  <text x="76" y="112" fill="#aaa" font-size="11">PANELS, EDITOR, DEVICE VIEW</text>
+  <text x="76" y="132" fill="#aaa" font-size="11">+ THE PROTOCOL (PROTO.TS)</text>
+
+  <line x1="130" y1="150" x2="130" y2="196" stroke="#fff" stroke-width="2"/>
+  <line x1="280" y1="150" x2="280" y2="196" stroke="#fff" stroke-width="2"/>
+
+  <rect x="60" y="196" width="140" height="100" fill="none" stroke="#ffc94d" stroke-width="2"/>
+  <text x="74" y="220" fill="#ffc94d" font-weight="bold">QUADRA APP</text>
+  <text x="74" y="242" fill="#aaa" font-size="10">TAURI, RUST</text>
+  <text x="74" y="258" fill="#aaa" font-size="10">HIDAPI</text>
+  <text x="74" y="282" fill="#777" font-size="10">CONNECTS ITSELF</text>
+
+  <rect x="210" y="196" width="140" height="100" fill="none" stroke="#ffc94d" stroke-width="2"/>
+  <text x="224" y="220" fill="#ffc94d" font-weight="bold">WEB PAGE</text>
+  <text x="224" y="242" fill="#aaa" font-size="10">CHROME / EDGE</text>
+  <text x="224" y="258" fill="#aaa" font-size="10">WEBHID</text>
+  <text x="224" y="282" fill="#777" font-size="10">CONNECT ONCE</text>
+
+  <!-- the cable -->
+  <line x1="374" y1="246" x2="596" y2="246" stroke="#ffc94d" stroke-width="2" marker-start="url(#e0)" marker-end="url(#e1)"/>
+  <text x="412" y="222" fill="#ffc94d" font-weight="bold">USB, VENDOR HID</text>
+  <text x="412" y="238" fill="#aaa" font-size="10">64-BYTE REPORTS</text>
+  <text x="412" y="266" fill="#777" font-size="10">NO DRIVER, NO macOS</text>
+  <text x="412" y="280" fill="#777" font-size="10">PERMISSION PROMPT</text>
+
+  <!-- knob -->
+  <text x="600" y="34" fill="#777" font-size="10">THE KNOB</text>
+  <rect x="600" y="46" width="240" height="270" fill="#1c1c1c" stroke="#3a3a3a" stroke-width="2"/>
+  <g shape-rendering="geometricPrecision">
+    <circle cx="720" cy="130" r="58" fill="none" stroke="#ffc94d" stroke-width="5" stroke-dasharray="3 3.5" opacity="0.75"/>
+    <circle cx="720" cy="130" r="42" fill="#000" stroke="#3a3a3a" stroke-width="2"/>
+  </g>
+  <rect x="712" y="118" width="16" height="16" fill="#ffc94d"/>
+  <rect x="700" y="142" width="40" height="4" fill="#fff"/>
+  <rect x="620" y="210" width="200" height="90" fill="#000" stroke="#555"/>
+  <text x="632" y="232" fill="#fff" font-size="11">SETTINGS    &lt;-&gt;</text>
+  <text x="632" y="250" fill="#fff" font-size="11">PROFILES    &lt;-&gt;</text>
+  <text x="632" y="268" fill="#fff" font-size="11">LIVE STATE   -&gt;</text>
+  <text x="632" y="286" fill="#fff" font-size="11">LEDS, SYS    -&gt;</text>
+</svg>

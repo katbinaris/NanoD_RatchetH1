@@ -610,7 +610,8 @@ pnpm dev                       # the page (open http://localhost:1420; add ?demo
 pnpm tauri build               # Quadra.app
 ```
 
-Building, WebHID and notarizing are covered in [`companion/README.md`](companion/README.md).
+Every screen is covered in the [user guide](companion/docs/COMPANION.md). Building, WebHID and
+notarizing are covered in [`companion/README.md`](companion/README.md).
 
 ---
 

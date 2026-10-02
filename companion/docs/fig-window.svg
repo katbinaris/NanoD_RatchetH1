@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 500" width="880" height="500" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" shape-rendering="crispEdges">
+  <rect width="880" height="500" fill="#000"/>
+
+  <!-- the window -->
+  <rect x="150" y="50" width="580" height="400" fill="#000" stroke="#555" stroke-width="2"/>
+  <line x1="150" y1="84" x2="730" y2="84" stroke="#555" stroke-width="2"/>
+  <line x1="404" y1="84" x2="404" y2="450" stroke="#555" stroke-width="2"/>
+
+  <!-- header -->
+  <text x="164" y="72" fill="#fff" font-weight="bold">QUADRA</text>
+  <rect x="232" y="63" width="6" height="6" fill="#ffc94d"/>
+  <text x="246" y="72" fill="#aaa" font-size="10">CONNECTED</text>
+  <rect x="596" y="60" width="58" height="16" fill="none" stroke="#555"/>
+  <text x="604" y="72" fill="#777" font-size="10">REVERT</text>
+  <rect x="662" y="60" width="58" height="16" fill="#ffc94d"/>
+  <text x="670" y="72" fill="#000" font-size="10" font-weight="bold">SAVE 2</text>
+
+  <!-- the device -->
+  <rect x="192" y="112" width="170" height="232" fill="#1c1c1c" stroke="#3a3a3a" stroke-width="2"/>
+  <g shape-rendering="geometricPrecision">
+    <circle cx="277" cy="206" r="62" fill="none" stroke="#ffc94d" stroke-width="5" stroke-dasharray="3 3.5" opacity="0.75"/>
+    <circle cx="277" cy="206" r="46" fill="#000" stroke="#3a3a3a" stroke-width="2"/>
+  </g>
+  <rect x="268" y="188" width="18" height="18" fill="#ffc94d"/>
+  <rect x="254" y="214" width="46" height="4" fill="#fff"/>
+  <rect x="254" y="226" width="8" height="8" fill="#ddd"/><rect x="266" y="226" width="8" height="8" fill="#ddd"/><rect x="278" y="226" width="8" height="8" fill="#ddd"/><rect x="290" y="226" width="8" height="8" fill="#ddd"/>
+  <rect x="204" y="296" width="32" height="36" fill="#3a3028"/><rect x="242" y="296" width="32" height="36" fill="#555"/><rect x="280" y="296" width="32" height="36" fill="#ddd"/><rect x="318" y="296" width="32" height="36" fill="#e8873a"/>
+  <text x="222" y="372" fill="#777" font-size="10">DETENT 6  CLICKS 7</text>
+
+  <!-- tabs + panel -->
+  <text x="420" y="108" fill="#fff" font-size="10">HAPTICS</text>
+  <rect x="420" y="114" width="50" height="2" fill="#ffc94d"/>
+  <text x="486" y="108" fill="#777" font-size="10">PROFILES</text>
+  <text x="560" y="108" fill="#777" font-size="10">DEVICE</text>
+  <text x="620" y="108" fill="#777" font-size="10">SYS INFO</text>
+  <line x1="404" y1="120" x2="730" y2="120" stroke="#333"/>
+  <rect x="420" y="140" width="44" height="50" fill="none" stroke="#ffc94d" stroke-width="2"/>
+  <rect x="470" y="140" width="44" height="50" fill="none" stroke="#444"/>
+  <rect x="520" y="140" width="44" height="50" fill="none" stroke="#444"/>
+  <g fill="#fff">
+    <rect x="490" y="220" width="70" height="8"/><rect x="490" y="250" width="90" height="8"/><rect x="490" y="280" width="20" height="8"/><rect x="490" y="310" width="220" height="8" fill="#ffc94d"/><rect x="490" y="340" width="110" height="8"/>
+  </g>
+  <g fill="#333">
+    <rect x="560" y="220" width="150" height="8"/><rect x="580" y="250" width="130" height="8"/><rect x="510" y="280" width="200" height="8"/><rect x="600" y="340" width="110" height="8"/>
+  </g>
+  <g fill="#777" font-size="10">
+    <text x="420" y="228">STEPS</text><text x="420" y="258">SNAP</text><text x="420" y="288">DAMP</text><text x="420" y="318" fill="#ffc94d">AMP</text><text x="420" y="348">PITCH</text>
+  </g>
+
+  <!-- callouts -->
+  <g stroke="#ffc94d" stroke-width="1" fill="none">
+    <polyline points="235,66 235,28 60,28"/>
+    <polyline points="691,60 691,28 820,28"/>
+    <polyline points="192,206 120,206"/>
+    <polyline points="204,314 120,314"/>
+    <polyline points="560,450 560,476"/>
+    <polyline points="710,314 760,314"/>
+  </g>
+  <g fill="#ffc94d" font-size="11">
+    <text x="20" y="22">1 CONNECTION</text>
+    <text x="748" y="22">2 SAVE / REVERT</text>
+    <text x="20" y="196">3 LIVE</text><text x="20" y="212">  SCREEN</text><text x="20" y="228">  + LEDS</text>
+    <text x="20" y="310">4 KEYS</text><text x="20" y="326">  F1-F4</text>
+    <text x="486" y="494">5 TABS AND THE PANEL</text>
+    <text x="768" y="310">6 AMBER =</text><text x="768" y="326">  NOT SAVED</text>
+  </g>
+</svg>

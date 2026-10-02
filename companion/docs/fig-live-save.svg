@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" shape-rendering="crispEdges">
+  <rect width="880" height="300" fill="#000"/>
+  <defs>
+    <marker id="aw" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#fff"/></marker>
+    <marker id="aa" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffc94d"/></marker>
+    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker>
+  </defs>
+
+  <!-- boxes -->
+  <rect x="40" y="90" width="200" height="110" fill="none" stroke="#fff" stroke-width="2"/>
+  <text x="56" y="116" fill="#fff" font-weight="bold">YOU CHANGE</text>
+  <text x="56" y="140" fill="#aaa" font-size="11">A SLIDER, A CARD,</text>
+  <text x="56" y="158" fill="#aaa" font-size="11">A PROFILE FIELD</text>
+  <text x="56" y="184" fill="#777" font-size="10">IN THE APP</text>
+
+  <rect x="340" y="90" width="200" height="110" fill="none" stroke="#ffc94d" stroke-width="2"/>
+  <text x="356" y="116" fill="#ffc94d" font-weight="bold">LIVE ON THE KNOB</text>
+  <text x="356" y="140" fill="#aaa" font-size="11">YOU FEEL IT AT ONCE.</text>
+  <text x="356" y="158" fill="#aaa" font-size="11">SHOWN IN AMBER.</text>
+  <text x="356" y="184" fill="#777" font-size="10">LOST AT POWER-OFF</text>
+
+  <rect x="640" y="90" width="200" height="110" fill="#fff"/>
+  <text x="656" y="116" fill="#000" font-weight="bold">STORED</text>
+  <text x="656" y="140" fill="#333" font-size="11">IN THE KNOB'S FLASH.</text>
+  <text x="656" y="158" fill="#333" font-size="11">KEPT AFTER A RESTART,</text>
+  <text x="656" y="176" fill="#333" font-size="11">WITH NO APP RUNNING.</text>
+
+  <!-- arrows -->
+  <line x1="240" y1="145" x2="336" y2="145" stroke="#fff" stroke-width="2" marker-end="url(#aw)"/>
+  <text x="258" y="134" fill="#fff" font-size="10">AT ONCE</text>
+  <line x1="540" y1="145" x2="636" y2="145" stroke="#ffc94d" stroke-width="2" marker-end="url(#aa)"/>
+  <text x="566" y="134" fill="#ffc94d" font-size="10">SAVE</text>
+  <text x="552" y="166" fill="#777" font-size="10">OR F2 ON</text>
+  <text x="552" y="180" fill="#777" font-size="10">THE KNOB</text>
+
+  <!-- revert -->
+  <polyline points="740,200 740,250 440,250 440,204" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ag)"/>
+  <text x="520" y="272" fill="#aaa" font-size="10">REVERT: BACK TO WHAT'S STORED</text>
+
+  <text x="40" y="44" fill="#fff" font-size="14" font-weight="bold">CHANGES ARE LIVE FIRST, STORED WHEN YOU SAVE</text>
+  <text x="40" y="64" fill="#777" font-size="10">THE SAME RULE FOR SETTINGS (SAVE, TOP RIGHT) AND PROFILES (SAVE TO KNOB, IN THE EDITOR)</text>
+</svg>

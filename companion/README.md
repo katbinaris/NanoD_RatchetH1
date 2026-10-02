@@ -26,6 +26,8 @@ Changes are live on the knob but not saved. Values that differ from what's store
 amber, and **SAVE** writes them to the knob; F2 on the device does the same. **REVERT** goes
 back to what's stored.
 
+The [user guide](docs/COMPANION.md) covers every screen, with screenshots.
+
 ## How it talks to the knob
 
 It uses the knob's vendor HID interface: usage page `0xFF00`, 64-byte reports, the same
