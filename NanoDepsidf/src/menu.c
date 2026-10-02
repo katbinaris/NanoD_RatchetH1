@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include <math.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +33,7 @@ typedef struct {
     void (*format_value)(char *buf, size_t buf_size);  // MENU_ITEM_VALUE
     void (*on_rotate)(int8_t direction);               // MENU_ITEM_VALUE, called while editing
     bool (*is_enabled)(void);                          // NULL = always enabled
+    bool (*is_muted)(void);                            // shown as "--", skipped by the knob; NULL = never
     bool (*at_end)(int8_t direction);                  // non-wrapping value at its end that way
     void (*action)(void);                              // MENU_ITEM_ACTION (confirming F1), MENU_ITEM_INFO (F1)
 } menu_item_t;
@@ -57,21 +59,58 @@ struct menu_screen_s {
 // crucially nothing here can block Core 0's real-time loop (see the state-lock comment
 // below for why that matters).
 
-// Phase 8 step 3: these three are no longer step-1 placeholders -- control_task.c's
-// real-time haptic loop reads them directly (menu_get_haptic_*() below), so their
-// defaults/bounds now come from haptic_params.h (shared with control_task.c) instead of
-// independent literals. In particular num_detents must never reach 0 -- it divides directly
-// into 2*pi in that loop -- so its clamp uses HAPTIC_NUM_DETENTS_MIN/MAX, not the old
-// unconnected 0-120 placeholder range.
-static _Atomic int32_t s_ph_detents = HAPTIC_NUM_DETENTS_DEFAULT;
-static _Atomic float s_ph_kp = HAPTIC_KP_DEFAULT;
-static _Atomic float s_ph_kd = HAPTIC_KD_DEFAULT;
-static _Atomic int32_t s_ph_shape = HAPTIC_SHAPE_DEFAULT; // percent
+// --- Haptic profiles: live state (haptic_params.h) ---
+// One set of values per profile and feel, the feel each profile uses, the profile the
+// Haptics screen is showing (edit) and the one the control loop is running (active: the edit
+// one while the menu is open, otherwise the mode's or the app input's). All atomics, same
+// convention as the rest of this file. control_task.c's loop reads the active profile's
+// values every tick (menu_get_haptic_*() below).
+#define LD(a) atomic_load_explicit(&(a), memory_order_relaxed)
+#define ST(a, v) atomic_store_explicit(&(a), (v), memory_order_relaxed)
+
+static _Atomic int32_t s_hp_edit = HAPTIC_PROFILE_COARSE;
+static _Atomic int32_t s_hp_active = HAPTIC_PROFILE_COARSE;
+static _Atomic int32_t s_hp_feel[HAPTIC_PROFILE_COUNT];
+static _Atomic float s_hp_kp[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+static _Atomic float s_hp_kd[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+static _Atomic int32_t s_hp_shape[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+static _Atomic int32_t s_hp_amp[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+static _Atomic float s_hp_pitch[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+// Each profile's detents per turn, copied to RAM for the control loop (the table is in flash).
+static uint8_t s_hp_detents[HAPTIC_PROFILE_COUNT];
+// The haptic profile each HID type uses (APP: for inputs that don't name their own).
+static _Atomic int32_t s_mode_hp[MENU_HID_TYPE_COUNT];
+
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
+static int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+static inline int hp_edit(void) { return (int)LD(s_hp_edit); }
+static inline int hp_feel(int p) { return (int)LD(s_hp_feel[p]); }
+
+static void hp_get_tune(int p, int f, haptic_tune_t *t) {
+    t->kp = LD(s_hp_kp[p][f]);
+    t->kd = LD(s_hp_kd[p][f]);
+    t->shape = LD(s_hp_shape[p][f]);
+    t->amp = LD(s_hp_amp[p][f]);
+    t->pitch = LD(s_hp_pitch[p][f]);
+}
+// Stores a feel's values, each pulled into the profile's safe range for that feel.
+static void hp_set_tune(int p, int f, const haptic_tune_t *t) {
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
+    ST(s_hp_kp[p][f], clampf(t->kp, l->kp_min, l->kp_max));
+    ST(s_hp_kd[p][f], clampf(t->kd, l->kd_min, l->kd_max));
+    ST(s_hp_shape[p][f], clampi(t->shape, HAPTIC_SHAPE_MIN, HAPTIC_SHAPE_MAX));
+    ST(s_hp_amp[p][f], clampi(t->amp, AUDIO_CLICK_AMP_MIN, l->amp_max));
+    ST(s_hp_pitch[p][f], clampf(t->pitch, l->pitch_min, l->pitch_max));
+}
+static void hp_factory(int p) {
+    ST(s_hp_feel[p], HAPTIC_PROFILES[p].feel);
+    for (int f = 0; f < HAPTIC_TYPE_COUNT; f++) hp_set_tune(p, f, &HAPTIC_PROFILES[p].tune[f]);
+}
 
 // haptic_type_t itself now lives in haptic_params.h (Phase 8 step 4) -- control_task.c
 // branches on it directly to pick a restoring-force law, so it can no longer be a
 // menu.c-private enum the way it was in steps 1-3.
-static _Atomic haptic_type_t s_ph_haptic_type = HAPTIC_TYPE_SAW;
 static const char *ph_haptic_type_name(haptic_type_t t) {
     switch (t) {
         case HAPTIC_TYPE_SAW: return "SAW";
@@ -89,8 +128,6 @@ static const char *ph_sound_name(audio_click_timbre_t s) {
     return (s == AUDIO_TIMBRE_WOOD_TOCK) ? "WOOD" : "THUD"; // short: shares the Main Screen status strip
 }
 
-static _Atomic float s_ph_pitch = AUDIO_CLICK_PITCH_DEFAULT;
-static _Atomic int32_t s_ph_amp = AUDIO_CLICK_AMP_DEFAULT; // percent
 
 // menu_hid_type_t lives in menu.h -- display_task.cpp reads it for the mode icon.
 static _Atomic menu_hid_type_t s_ph_hid_type = MENU_HID_APP; // default until something is saved
@@ -122,61 +159,63 @@ static const char *ph_boot_mode_name(boot_usb_mode_t m) {
 // Core 1 (called from menu_get_render_snapshot()). Both sides only ever touch the atomics
 // above -- no shared mutable buffers, so there's nothing here for a lock to protect.
 
+// The Haptics screen edits the selected profile (STEPS) in its current feel. Every value is
+// kept inside that profile's limits for that feel.
 static void fmt_detents(char *buf, size_t n) {
-    snprintf(buf, n, "%ld", (long)atomic_load_explicit(&s_ph_detents, memory_order_relaxed));
+    snprintf(buf, n, "%s", HAPTIC_PROFILES[hp_edit()].name);
 }
 static void CONTROL_HOT rotate_detents(int8_t dir) {
-    int32_t v = atomic_load_explicit(&s_ph_detents, memory_order_relaxed) + dir;
-    if (v < (int32_t)HAPTIC_NUM_DETENTS_MIN) v = (int32_t)HAPTIC_NUM_DETENTS_MIN;
-    if (v > (int32_t)HAPTIC_NUM_DETENTS_MAX) v = (int32_t)HAPTIC_NUM_DETENTS_MAX;
-    atomic_store_explicit(&s_ph_detents, v, memory_order_relaxed);
+    ST(s_hp_edit, clampi(hp_edit() + dir, 0, HAPTIC_PROFILE_COUNT - 1));
 }
 
 static void fmt_kp(char *buf, size_t n) {
-    snprintf(buf, n, "%.2f", (double)atomic_load_explicit(&s_ph_kp, memory_order_relaxed));
+    int p = hp_edit();
+    snprintf(buf, n, "%.2f", (double)LD(s_hp_kp[p][hp_feel(p)]));
 }
 static void CONTROL_HOT rotate_kp(int8_t dir) {
-    float v = atomic_load_explicit(&s_ph_kp, memory_order_relaxed) + dir * 0.05f;
-    if (v < HAPTIC_KP_MIN) v = HAPTIC_KP_MIN;
-    if (v > HAPTIC_KP_MAX) v = HAPTIC_KP_MAX;
-    atomic_store_explicit(&s_ph_kp, v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
+    ST(s_hp_kp[p][f], clampf(LD(s_hp_kp[p][f]) + dir * 0.05f, l->kp_min, l->kp_max));
 }
 
 static void fmt_kd(char *buf, size_t n) {
     // ".010" rather than "0.010" -- the leading zero costs a character on the Orbit ring
+    int p = hp_edit();
     char tmp[16];
-    snprintf(tmp, sizeof(tmp), "%.3f", (double)atomic_load_explicit(&s_ph_kd, memory_order_relaxed));
+    snprintf(tmp, sizeof(tmp), "%.3f", (double)LD(s_hp_kd[p][hp_feel(p)]));
     snprintf(buf, n, "%s", (tmp[0] == '0') ? tmp + 1 : tmp);
 }
 static void CONTROL_HOT rotate_kd(int8_t dir) {
-    float v = atomic_load_explicit(&s_ph_kd, memory_order_relaxed) + dir * 0.005f;
-    if (v < HAPTIC_KD_MIN) v = HAPTIC_KD_MIN;
-    if (v > HAPTIC_KD_MAX) v = HAPTIC_KD_MAX;
-    atomic_store_explicit(&s_ph_kd, v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
+    ST(s_hp_kd[p][f], clampf(LD(s_hp_kd[p][f]) + dir * 0.005f, l->kd_min, l->kd_max));
 }
 
 static void fmt_shape(char *buf, size_t n) {
-    snprintf(buf, n, "%ld%%", (long)atomic_load_explicit(&s_ph_shape, memory_order_relaxed));
+    int p = hp_edit();
+    snprintf(buf, n, "%ld%%", (long)LD(s_hp_shape[p][hp_feel(p)]));
 }
 static void CONTROL_HOT rotate_shape(int8_t dir) {
-    int32_t v = atomic_load_explicit(&s_ph_shape, memory_order_relaxed) + dir * HAPTIC_SHAPE_STEP;
-    if (v < HAPTIC_SHAPE_MIN) v = HAPTIC_SHAPE_MIN;
-    if (v > HAPTIC_SHAPE_MAX) v = HAPTIC_SHAPE_MAX;
-    atomic_store_explicit(&s_ph_shape, v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    ST(s_hp_shape[p][f], clampi(LD(s_hp_shape[p][f]) + dir * HAPTIC_SHAPE_STEP, HAPTIC_SHAPE_MIN, HAPTIC_SHAPE_MAX));
 }
 
 static void fmt_haptic_type(char *buf, size_t n) {
-    snprintf(buf, n, "%s", ph_haptic_type_name(atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed)));
+    snprintf(buf, n, "%s", ph_haptic_type_name((haptic_type_t)hp_feel(hp_edit())));
 }
+// The next feel this profile allows, that way round. The feel's own values come with it.
 static void CONTROL_HOT rotate_haptic_type(int8_t dir) {
-    int v = ((int)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed) + dir) % HAPTIC_TYPE_COUNT;
-    if (v < 0) v += HAPTIC_TYPE_COUNT;
-    atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    for (int i = 0; i < HAPTIC_TYPE_COUNT; i++) {
+        f = (f + dir + HAPTIC_TYPE_COUNT) % HAPTIC_TYPE_COUNT;
+        if (HAPTIC_PROFILES[p].feels & (1u << f)) break;
+    }
+    ST(s_hp_feel[p], f);
 }
 
-// TONE is hidden from the Haptics screen for now (AMP took its place in the ring, which holds
-// six); the setting itself is still saved, restored and used by the I2S task. To bring it
-// back, give it a row again.
+// TONE is hidden from the Haptics screen for now (AMP took its place in the ring); the
+// setting itself is still saved, restored and used by the I2S task. To bring it back, give
+// it a row again.
 __attribute__((unused)) static void fmt_sound(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_sound_name(atomic_load_explicit(&s_ph_sound, memory_order_relaxed)));
 }
@@ -187,37 +226,48 @@ __attribute__((unused)) static void rotate_sound(int8_t dir) {
 }
 
 static void fmt_pitch(char *buf, size_t n) {
-    snprintf(buf, n, "%.2fX", (double)atomic_load_explicit(&s_ph_pitch, memory_order_relaxed));
+    int p = hp_edit();
+    snprintf(buf, n, "%.2fX", (double)LD(s_hp_pitch[p][hp_feel(p)]));
 }
 static void CONTROL_HOT rotate_pitch(int8_t dir) {
-    float v = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed) + dir * 0.05f;
-    if (v < AUDIO_CLICK_PITCH_MIN) v = AUDIO_CLICK_PITCH_MIN;
-    if (v > AUDIO_CLICK_PITCH_MAX) v = AUDIO_CLICK_PITCH_MAX;
-    atomic_store_explicit(&s_ph_pitch, v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
+    ST(s_hp_pitch[p][f], clampf(LD(s_hp_pitch[p][f]) + dir * 0.05f, l->pitch_min, l->pitch_max));
 }
 
 static void fmt_amp(char *buf, size_t n) {
-    snprintf(buf, n, "%ld%%", (long)atomic_load_explicit(&s_ph_amp, memory_order_relaxed));
+    int p = hp_edit();
+    snprintf(buf, n, "%ld%%", (long)LD(s_hp_amp[p][hp_feel(p)]));
 }
 static void CONTROL_HOT rotate_amp(int8_t dir) {
-    int32_t v = atomic_load_explicit(&s_ph_amp, memory_order_relaxed) + dir * AUDIO_CLICK_AMP_STEP;
-    if (v < AUDIO_CLICK_AMP_MIN) v = AUDIO_CLICK_AMP_MIN;
-    if (v > AUDIO_CLICK_AMP_MAX) v = AUDIO_CLICK_AMP_MAX;
-    atomic_store_explicit(&s_ph_amp, v, memory_order_relaxed);
+    int p = hp_edit(), f = hp_feel(p);
+    ST(s_hp_amp[p][f], clampi(LD(s_hp_amp[p][f]) + dir * AUDIO_CLICK_AMP_STEP, AUDIO_CLICK_AMP_MIN, HAPTIC_PROFILES[p].lim[f].amp_max));
+}
+
+// Muted rows: shown as "--" and skipped by the knob. SNAP means nothing in VISCOSE, SHAPE
+// only bends SAW, and FEEL has nothing to choose in a one-feel profile (SMOOTH).
+static bool CONTROL_HOT snap_muted(void) {
+    return hp_feel(hp_edit()) == HAPTIC_TYPE_VISCOSE;
+}
+static bool CONTROL_HOT shape_muted(void) {
+    return hp_feel(hp_edit()) != HAPTIC_TYPE_SAW;
+}
+static bool CONTROL_HOT feel_muted(void) {
+    uint8_t m = HAPTIC_PROFILES[hp_edit()].feels;
+    return (m & (m - 1)) == 0;
 }
 
 static void action_save_haptic(void) {
-    haptic_cfg_t cfg = {
-        .num_detents = (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed),
-        .kp = atomic_load_explicit(&s_ph_kp, memory_order_relaxed),
-        .kd = atomic_load_explicit(&s_ph_kd, memory_order_relaxed),
-        .haptic_type = (int32_t)atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed),
+    haptic_profiles_cfg_t cfg = {
+        .version = HAPTIC_PROFILES_CFG_VERSION,
+        .edit = hp_edit(),
         .sound = (int32_t)atomic_load_explicit(&s_ph_sound, memory_order_relaxed),
-        .pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed),
-        .amplitude = atomic_load_explicit(&s_ph_amp, memory_order_relaxed),
-        .shape = atomic_load_explicit(&s_ph_shape, memory_order_relaxed),
     };
-    config_store_save_haptic(&cfg);
+    for (int p = 0; p < HAPTIC_PROFILE_COUNT; p++) {
+        cfg.feel[p] = hp_feel(p);
+        for (int f = 0; f < HAPTIC_TYPE_COUNT; f++) hp_get_tune(p, f, &cfg.tune[p][f]);
+    }
+    config_store_save_haptic_profiles(&cfg);
 }
 
 static void fmt_hid_type(char *buf, size_t n) {
@@ -226,6 +276,18 @@ static void fmt_hid_type(char *buf, size_t n) {
 static void CONTROL_HOT rotate_hid_type(int8_t dir) {
     int pos = menu_hid_type_pos(atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)) + dir;
     atomic_store_explicit(&s_ph_hid_type, menu_hid_type_at(pos), memory_order_relaxed);
+}
+// KEYBOARD and MOUSE: which haptic profile the knob uses in that mode.
+static bool mode_haptic_enabled(void) {
+    menu_hid_type_t t = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
+    return t == MENU_HID_KEYBOARD || t == MENU_HID_MOUSE;
+}
+static void fmt_mode_haptic(char *buf, size_t n) {
+    snprintf(buf, n, "%s", HAPTIC_PROFILES[LD(s_mode_hp[atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)])].name);
+}
+static void CONTROL_HOT rotate_mode_haptic(int8_t dir) {
+    menu_hid_type_t t = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
+    ST(s_mode_hp[t], clampi(LD(s_mode_hp[t]) + dir, 0, HAPTIC_PROFILE_COUNT - 1));
 }
 static bool midi_mapping_enabled(void) {
     return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed) == MENU_HID_MIDI;
@@ -267,6 +329,9 @@ static void action_save_hid(void) {
     };
     config_store_save_hid(&cfg);
     config_store_save_app_profile(app_profiles_get(atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed))->id);
+    mode_haptic_cfg_t mcfg;
+    for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) mcfg.profile[i] = LD(s_mode_hp[i]);
+    config_store_save_mode_haptic(&mcfg);
 }
 
 static void fmt_boot_mode(char *buf, size_t n) {
@@ -319,11 +384,11 @@ static void action_save_boot(void) {
 // proper rename later.
 
 static const menu_item_t s_haptic_items[MENU_HAPTIC_ROW_COUNT] = {
-    [MENU_HAPTIC_ROW_STEPS] = { .label = "STEPS", .caption = "DETENTS", .kind = MENU_ITEM_VALUE, .format_value = fmt_detents,     .on_rotate = rotate_detents },
-    [MENU_HAPTIC_ROW_SNAP]  = { .label = "SNAP",  .caption = "KP",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kp,          .on_rotate = rotate_kp },
+    [MENU_HAPTIC_ROW_STEPS] = { .label = "STEPS", .caption = "PROFILE", .kind = MENU_ITEM_VALUE, .format_value = fmt_detents,     .on_rotate = rotate_detents },
+    [MENU_HAPTIC_ROW_SNAP]  = { .label = "SNAP",  .caption = "KP",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kp,          .on_rotate = rotate_kp, .is_muted = snap_muted },
     [MENU_HAPTIC_ROW_DAMP]  = { .label = "DAMP",  .caption = "KD",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kd,          .on_rotate = rotate_kd },
-    [MENU_HAPTIC_ROW_SHAPE] = { .label = "SHAPE", .caption = "RAMP",    .kind = MENU_ITEM_VALUE, .format_value = fmt_shape,       .on_rotate = rotate_shape },
-    [MENU_HAPTIC_ROW_FEEL]  = { .label = "FEEL",  .caption = "TYPE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_haptic_type, .on_rotate = rotate_haptic_type },
+    [MENU_HAPTIC_ROW_SHAPE] = { .label = "SHAPE", .caption = "RAMP",    .kind = MENU_ITEM_VALUE, .format_value = fmt_shape,       .on_rotate = rotate_shape, .is_muted = shape_muted },
+    [MENU_HAPTIC_ROW_FEEL]  = { .label = "FEEL",  .caption = "TYPE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_haptic_type, .on_rotate = rotate_haptic_type, .is_muted = feel_muted },
     [MENU_HAPTIC_ROW_AMP]   = { .label = "AMP",   .caption = "AMPLITUDE", .kind = MENU_ITEM_VALUE, .format_value = fmt_amp,       .on_rotate = rotate_amp },
     [MENU_HAPTIC_ROW_PITCH] = { .label = "PITCH", .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_pitch,       .on_rotate = rotate_pitch },
 };
@@ -342,6 +407,7 @@ static const menu_screen_t s_app_profile_screen = {
 
 static const menu_item_t s_hid_items[] = {
     { .label = "PROFILES", .kind = MENU_ITEM_VALUE,   .format_value = fmt_hid_type,     .on_rotate = rotate_hid_type },
+    { .label = "HAPTIC",   .kind = MENU_ITEM_VALUE,   .format_value = fmt_mode_haptic,  .on_rotate = rotate_mode_haptic,  .is_enabled = mode_haptic_enabled },
     { .label = "CHANNEL",  .kind = MENU_ITEM_VALUE,   .format_value = fmt_midi_mapping, .on_rotate = rotate_midi_mapping, .is_enabled = midi_mapping_enabled },
     { .label = "PROFILE",  .kind = MENU_ITEM_SUBMENU, .submenu = &s_app_profile_screen, .format_value = fmt_app_profile, .is_enabled = app_profile_enabled },
 };
@@ -456,6 +522,11 @@ static bool CONTROL_HOT item_enabled(const menu_screen_t *screen, int index) {
     return it->is_enabled == NULL || it->is_enabled();
 }
 
+static bool CONTROL_HOT item_muted(const menu_screen_t *screen, int index) {
+    const menu_item_t *it = &screen->items[index];
+    return it->is_muted != NULL && it->is_muted();
+}
+
 static int first_enabled_index(const menu_screen_t *screen) {
     for (int i = 0; i < screen->item_count; i++) {
         if (item_enabled(screen, i)) return i;
@@ -472,7 +543,7 @@ static int CONTROL_HOT step_index(const menu_screen_t *screen, int current, int8
     for (int i = 0; i < screen->item_count; i++) {
         idx = (idx + dir) % screen->item_count;
         if (idx < 0) idx += screen->item_count;
-        if (item_enabled(screen, idx)) return idx;
+        if (item_enabled(screen, idx) && !item_muted(screen, idx)) return idx;
     }
     return current;
 }
@@ -487,14 +558,11 @@ static int CONTROL_HOT step_index(const menu_screen_t *screen, int current, int8
 // (save), so it's only ever copied under s_state_mux.
 
 typedef struct {
-    int32_t detents;
-    float kp;
-    float kd;
-    int32_t shape;
-    haptic_type_t haptic_type;
+    int32_t hp_edit;
+    int32_t hp_feel[HAPTIC_PROFILE_COUNT];
+    haptic_tune_t hp_tune[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+    int32_t mode_hp[MENU_HID_TYPE_COUNT];
     audio_click_timbre_t sound;
-    float pitch;
-    int32_t amp;
     menu_hid_type_t hid_type;
     int32_t midi_channel;
     int32_t app_profile;
@@ -506,16 +574,16 @@ typedef struct {
 static settings_t s_saved;
 static settings_t s_undo;
 static _Atomic uint32_t s_save_count = 0;
+static _Atomic uint32_t s_reset_count = 0; // a haptic profile went back to factory
 
 static void settings_capture(settings_t *s) {
-    s->detents = atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
-    s->kp = atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
-    s->kd = atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
-    s->shape = atomic_load_explicit(&s_ph_shape, memory_order_relaxed);
-    s->haptic_type = atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
+    s->hp_edit = hp_edit();
+    for (int p = 0; p < HAPTIC_PROFILE_COUNT; p++) {
+        s->hp_feel[p] = hp_feel(p);
+        for (int f = 0; f < HAPTIC_TYPE_COUNT; f++) hp_get_tune(p, f, &s->hp_tune[p][f]);
+    }
+    for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) s->mode_hp[i] = LD(s_mode_hp[i]);
     s->sound = atomic_load_explicit(&s_ph_sound, memory_order_relaxed);
-    s->pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
-    s->amp = atomic_load_explicit(&s_ph_amp, memory_order_relaxed);
     s->hid_type = atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
     s->midi_channel = atomic_load_explicit(&s_ph_midi_channel, memory_order_relaxed);
     s->app_profile = atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
@@ -525,14 +593,13 @@ static void settings_capture(settings_t *s) {
 }
 
 static void settings_restore(const settings_t *s) {
-    atomic_store_explicit(&s_ph_detents, s->detents, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_kp, s->kp, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_kd, s->kd, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_shape, s->shape, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_haptic_type, s->haptic_type, memory_order_relaxed);
+    ST(s_hp_edit, s->hp_edit);
+    for (int p = 0; p < HAPTIC_PROFILE_COUNT; p++) {
+        ST(s_hp_feel[p], s->hp_feel[p]);
+        for (int f = 0; f < HAPTIC_TYPE_COUNT; f++) hp_set_tune(p, f, &s->hp_tune[p][f]);
+    }
+    for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) ST(s_mode_hp[i], s->mode_hp[i]);
     atomic_store_explicit(&s_ph_sound, s->sound, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_pitch, s->pitch, memory_order_relaxed);
-    atomic_store_explicit(&s_ph_amp, s->amp, memory_order_relaxed);
     atomic_store_explicit(&s_ph_hid_type, s->hid_type, memory_order_relaxed);
     atomic_store_explicit(&s_ph_midi_channel, s->midi_channel, memory_order_relaxed);
     atomic_store_explicit(&s_ph_app_profile, s->app_profile, memory_order_relaxed);
@@ -545,18 +612,15 @@ static void settings_restore(const settings_t *s) {
 static void settings_copy_group(settings_t *dst, const settings_t *src, menu_screen_id_t group) {
     switch (group) {
         case MENU_SCREEN_HAPTIC:
-            dst->detents = src->detents;
-            dst->kp = src->kp;
-            dst->kd = src->kd;
-            dst->shape = src->shape;
-            dst->haptic_type = src->haptic_type;
+            dst->hp_edit = src->hp_edit;
+            memcpy(dst->hp_feel, src->hp_feel, sizeof(dst->hp_feel));
+            memcpy(dst->hp_tune, src->hp_tune, sizeof(dst->hp_tune));
             dst->sound = src->sound;
-            dst->pitch = src->pitch;
-            dst->amp = src->amp;
             break;
         case MENU_SCREEN_HID:
             dst->hid_type = src->hid_type;
             dst->midi_channel = src->midi_channel;
+            memcpy(dst->mode_hp, src->mode_hp, sizeof(dst->mode_hp));
             dst->app_profile = src->app_profile;
             break;
         case MENU_SCREEN_APP_PROFILE:
@@ -579,12 +643,12 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
 static bool settings_group_differs(const settings_t *a, const settings_t *b, menu_screen_id_t group) {
     switch (group) {
         case MENU_SCREEN_HAPTIC:
-            return a->detents != b->detents || a->kp != b->kp || a->kd != b->kd
-                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch || a->amp != b->amp
-                || a->shape != b->shape;
+            // Which profile the screen shows (hp_edit) isn't a change to save.
+            return memcmp(a->hp_feel, b->hp_feel, sizeof(a->hp_feel)) != 0
+                || memcmp(a->hp_tune, b->hp_tune, sizeof(a->hp_tune)) != 0 || a->sound != b->sound;
         case MENU_SCREEN_HID:
             return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel
-                || a->app_profile != b->app_profile;
+                || a->app_profile != b->app_profile || memcmp(a->mode_hp, b->mode_hp, sizeof(a->mode_hp)) != 0;
         case MENU_SCREEN_APP_PROFILE:
             return a->app_profile != b->app_profile;
         case MENU_SCREEN_BOOT:
@@ -608,7 +672,7 @@ static menu_screen_id_t save_group(menu_screen_id_t id) {
 // Puts a direct screen's fields back to their saved values (leaving without F2). Core 0,
 // caller holds s_state_mux (s_saved is read here).
 static void revert_group_locked(menu_screen_id_t group) {
-    settings_t cur;
+    static settings_t cur; // Core 0 only, under the spinlock; static: settings_t is ~400 B now
     settings_capture(&cur);
     settings_copy_group(&cur, &s_saved, group);
     settings_restore(&cur);
@@ -629,7 +693,7 @@ static void save_task_fn(void *arg) {
     save_job_t job;
     while (1) {
         xQueueReceive(s_save_queue, &job, portMAX_DELAY);
-        settings_t cur;
+        static settings_t cur; // this task only
         settings_capture(&cur);
         job.save();
         portENTER_CRITICAL(&s_state_mux);
@@ -649,17 +713,33 @@ void menu_init(void) {
     // valid save exists (see config_store.c). No lock needed here -- menu_init() runs once
     // from app_main() before control_task_start()/display_task_start(), i.e. before any other
     // reader or writer of these atomics exists yet.
-    haptic_cfg_t hcfg;
-    if (config_store_load_haptic(&hcfg)) {
-        atomic_store_explicit(&s_ph_detents, (int32_t)hcfg.num_detents, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_kp, hcfg.kp, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_kd, hcfg.kd, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_haptic_type, (haptic_type_t)hcfg.haptic_type, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)hcfg.sound, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_pitch, hcfg.pitch, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_amp, hcfg.amplitude, memory_order_relaxed);
-        atomic_store_explicit(&s_ph_shape, hcfg.shape, memory_order_relaxed);
+    // Haptic profiles: factory values first, then whatever was saved, each value pulled into
+    // its profile's limits (hp_set_tune) so a stale or damaged save can't leave the safe range.
+    for (int p = 0; p < HAPTIC_PROFILE_COUNT; p++) {
+        s_hp_detents[p] = HAPTIC_PROFILES[p].detents;
+        hp_factory(p);
     }
+    for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) ST(s_mode_hp[i], HAPTIC_PROFILE_COARSE);
+    static haptic_profiles_cfg_t hcfg; // static: too big for app_main's stack to carry lightly
+    if (config_store_load_haptic_profiles(&hcfg)) {
+        ST(s_hp_edit, clampi(hcfg.edit, 0, HAPTIC_PROFILE_COUNT - 1));
+        if (hcfg.sound >= 0 && hcfg.sound < AUDIO_TIMBRE_COUNT) {
+            atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)hcfg.sound, memory_order_relaxed);
+        }
+        for (int p = 0; p < HAPTIC_PROFILE_COUNT; p++) {
+            int feel = hcfg.feel[p];
+            if (feel >= 0 && feel < HAPTIC_TYPE_COUNT && (HAPTIC_PROFILES[p].feels & (1u << feel))) ST(s_hp_feel[p], feel);
+            for (int f = 0; f < HAPTIC_TYPE_COUNT; f++) {
+                const haptic_tune_t *t = &hcfg.tune[p][f];
+                if (isfinite(t->kp) && isfinite(t->kd) && isfinite(t->pitch)) hp_set_tune(p, f, t);
+            }
+        }
+    }
+    mode_haptic_cfg_t mcfg;
+    if (config_store_load_mode_haptic(&mcfg)) {
+        for (int i = 0; i < MENU_HID_TYPE_COUNT; i++) ST(s_mode_hp[i], mcfg.profile[i]);
+    }
+    ST(s_hp_active, hp_edit());
     hid_cfg_t icfg;
     if (config_store_load_hid(&icfg)) {
         atomic_store_explicit(&s_ph_hid_type, (menu_hid_type_t)icfg.hid_type, memory_order_relaxed);
@@ -774,7 +854,7 @@ void menu_input_select(void) {
             s_stack[s_stack_depth].selected_index = (idx < 0) ? 0 : idx;
             s_stack_depth++;
         }
-    } else if (it->kind == MENU_ITEM_VALUE) {
+    } else if (it->kind == MENU_ITEM_VALUE && !item_muted(top->screen, top->selected_index)) {
         settings_capture(&s_undo);
         s_editing = true;
     }
@@ -789,7 +869,7 @@ void menu_input_save(void) {
     portENTER_CRITICAL(&s_state_mux);
     if (s_stack_depth > 0) {
         const menu_screen_t *screen = s_stack[s_stack_depth - 1].screen;
-        settings_t cur;
+        static settings_t cur; // Core 0 only, under the spinlock
         settings_capture(&cur);
         if (screen->save != NULL && settings_group_differs(&cur, &s_saved, save_group(screen->id))) {
             save = screen->save;
@@ -818,8 +898,14 @@ void CONTROL_HOT menu_input_rotate(int8_t direction) {
     s_armed = false; // turning away cancels a pending action
     if (s_editing || top->screen->direct_edit) {
         const menu_item_t *it = &top->screen->items[top->selected_index];
-        if (it->on_rotate != NULL) {
+        if (it->on_rotate != NULL && !item_muted(top->screen, top->selected_index)) {
             it->on_rotate(direction); // atomic store(s) only -- see field callbacks above
+        }
+        // The edited row can mute itself' neighbours but never itself, except from outside
+        // (the companion changing FEEL): then the focus moves on.
+        if (!top->screen->direct_edit && item_muted(top->screen, top->selected_index)) {
+            s_editing = false;
+            top->selected_index = step_index(top->screen, top->selected_index, direction);
         }
     } else {
         top->selected_index = step_index(top->screen, top->selected_index, direction);
@@ -867,7 +953,7 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
     menu_stack_frame_t top_copy = { 0 };
     int depth_copy;
     bool editing_copy, armed_copy;
-    settings_t saved_copy;
+    static settings_t saved_copy, cur; // the display task only
 
     portENTER_CRITICAL(&s_state_mux);
     depth_copy = s_stack_depth;
@@ -885,13 +971,13 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
     snap.selected = -1;
     snap.screen = MENU_SCREEN_NONE;
     snap.save_count = atomic_load_explicit(&s_save_count, memory_order_relaxed);
+    snap.reset_count = atomic_load_explicit(&s_reset_count, memory_order_relaxed);
 
     if (snap.open) {
         const menu_screen_t *screen = top_copy.screen;
         snap.screen = screen->id;
         snprintf(snap.title, sizeof(snap.title), "%s", screen->title);
 
-        settings_t cur;
         settings_capture(&cur);
         snap.dirty = settings_group_differs(&cur, &saved_copy, save_group(screen->id));
 
@@ -904,7 +990,10 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
             menu_render_row_t *r = &snap.rows[row];
             snprintf(r->label, sizeof(r->label), "%s", it->label);
             snprintf(r->caption, sizeof(r->caption), "%s", it->caption ? it->caption : "");
-            if (it->kind == MENU_ITEM_VALUE && it->format_value != NULL) {
+            r->muted = item_muted(screen, i);
+            if (r->muted && it->is_muted != feel_muted) { // a one-feel profile still names its feel
+                snprintf(r->value, sizeof(r->value), "--");
+            } else if (it->kind == MENU_ITEM_VALUE && it->format_value != NULL) {
                 it->format_value(r->value, sizeof(r->value));
             } else if (it->kind == MENU_ITEM_ACTION) {
                 bool armed = armed_copy && i == top_copy.selected_index;
@@ -929,24 +1018,59 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
 // already write from Core 0's menu_input_rotate(), and format_value() already reads from
 // Core 1's menu_get_render_snapshot() -- one more atomic reader needs no new synchronization,
 // same lock-free convention this file already relies on for all three.
+// All of these describe the ACTIVE profile -- the one the control loop is running.
 uint32_t CONTROL_HOT menu_get_haptic_num_detents(void) {
-    return (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
+    return s_hp_detents[LD(s_hp_active)];
 }
 
 float CONTROL_HOT menu_get_haptic_kp(void) {
-    return atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
+    int p = LD(s_hp_active);
+    return LD(s_hp_kp[p][hp_feel(p)]);
 }
 
 float CONTROL_HOT menu_get_haptic_kd(void) {
-    return atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
+    int p = LD(s_hp_active);
+    return LD(s_hp_kd[p][hp_feel(p)]);
 }
 
 float CONTROL_HOT menu_get_haptic_shape(void) {
-    return (float)atomic_load_explicit(&s_ph_shape, memory_order_relaxed) * 0.01f;
+    int p = LD(s_hp_active);
+    return (float)LD(s_hp_shape[p][hp_feel(p)]) * 0.01f;
 }
 
 haptic_type_t CONTROL_HOT menu_get_haptic_type(void) {
-    return atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
+    return (haptic_type_t)hp_feel(LD(s_hp_active));
+}
+
+void CONTROL_HOT menu_haptic_set_active(int profile) {
+    if (profile < 0 || profile >= HAPTIC_PROFILE_COUNT) profile = HAPTIC_PROFILE_COARSE;
+    ST(s_hp_active, profile);
+}
+
+int CONTROL_HOT menu_haptic_profile(void) {
+    if (menu_is_open()) return hp_edit(); // tune by feel: the menu runs on the profile it shows
+    return (int)LD(s_mode_hp[atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed)]);
+}
+
+// haptic_profile_for() from RAM, for the control loop (the table itself is in flash).
+int CONTROL_HOT menu_haptic_for(haptic_type_t feel, unsigned detents) {
+    if (feel == HAPTIC_TYPE_VISCOSE) return HAPTIC_PROFILE_SMOOTH;
+    if (detents == 0) return -1;
+    int best = 0;
+    unsigned best_d = ~0u;
+    for (int i = 0; i < HAPTIC_PROFILE_STEPPED_COUNT; i++) {
+        unsigned p = s_hp_detents[i];
+        unsigned dist = p > detents ? p - detents : detents - p;
+        if (dist < best_d) {
+            best_d = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+int menu_haptic_edit_profile(void) {
+    return hp_edit();
 }
 
 audio_click_timbre_t menu_get_haptic_sound(void) {
@@ -954,11 +1078,31 @@ audio_click_timbre_t menu_get_haptic_sound(void) {
 }
 
 float menu_get_haptic_pitch(void) {
-    return atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
+    int p = LD(s_hp_active);
+    return LD(s_hp_pitch[p][hp_feel(p)]);
 }
 
 float menu_get_click_amplitude(void) {
-    return atomic_load_explicit(&s_ph_amp, memory_order_relaxed) / 100.0f;
+    int p = LD(s_hp_active);
+    return LD(s_hp_amp[p][hp_feel(p)]) / 100.0f;
+}
+
+// F2 held on the Haptics screen: the shown profile back to its factory feel and values.
+// Live, like any edit; a normal F2 then saves it. Core 0.
+void menu_input_reset_haptic(void) {
+    bool on_haptic;
+    portENTER_CRITICAL(&s_state_mux);
+    on_haptic = s_stack_depth > 0 && s_stack[s_stack_depth - 1].screen->id == MENU_SCREEN_HAPTIC;
+    if (on_haptic) s_editing = false;
+    portEXIT_CRITICAL(&s_state_mux);
+    if (!on_haptic) return;
+    hp_factory(hp_edit());
+    atomic_fetch_add_explicit(&s_reset_count, 1, memory_order_relaxed);
+}
+
+void menu_remote_reset_haptic(void) {
+    hp_factory(hp_edit());
+    atomic_fetch_add_explicit(&s_reset_count, 1, memory_order_relaxed);
 }
 
 boot_usb_mode_t menu_get_boot_mode(void) {
@@ -997,62 +1141,88 @@ menu_hid_type_t CONTROL_HOT menu_get_hid_type(void) {
 // Same atomics, same clamps as the rotate_*() callbacks; s_saved only under s_state_mux, like
 // everywhere else in this file.
 
-static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ? hi : v; }
-static int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
-
 void menu_remote_get(menu_remote_settings_t *out) {
-    settings_t cur, saved;
+    static settings_t cur, saved; // Core 1 only (host_link.c); static keeps them off its stack
     settings_capture(&cur);
     portENTER_CRITICAL(&s_state_mux);
     saved = s_saved;
     portEXIT_CRITICAL(&s_state_mux);
 
-    out->detents = cur.detents;
-    out->kp = cur.kp;
-    out->kd = cur.kd;
-    out->feel = cur.haptic_type;
-    out->amp = cur.amp;
-    out->pitch = cur.pitch;
+    // The haptic values are those of the profile the Haptics screen shows, in its feel.
+    int p = cur.hp_edit, f = cur.hp_feel[p];
+    const haptic_tune_t *t = &cur.hp_tune[p][f], *st = &saved.hp_tune[p][f];
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
+    out->haptic_profile = p;
+    out->detents = HAPTIC_PROFILES[p].detents;
+    out->feels = HAPTIC_PROFILES[p].feels;
+    out->kp = t->kp;
+    out->kd = t->kd;
+    out->shape = t->shape;
+    out->feel = f;
+    out->amp = t->amp;
+    out->pitch = t->pitch;
+    out->kp_min = l->kp_min;
+    out->kp_max = l->kp_max;
+    out->kd_min = l->kd_min;
+    out->kd_max = l->kd_max;
+    out->amp_max = l->amp_max;
+    out->pitch_min = l->pitch_min;
+    out->pitch_max = l->pitch_max;
     out->sound = cur.sound;
     out->hid_type = cur.hid_type;
+    out->mode_haptic = cur.mode_hp[cur.hid_type];
     out->midi_channel = cur.midi_channel;
     out->profile = cur.app_profile;
     out->boot_mode = cur.boot_mode;
     out->rotation = cur.rotation;
     out->host = cur.host;
-    out->shape = cur.shape;
 
     uint16_t d = 0;
-    if (cur.detents != saved.detents) d |= 1u << HOST_SET_DETENTS;
-    if (cur.kp != saved.kp) d |= 1u << HOST_SET_KP;
-    if (cur.kd != saved.kd) d |= 1u << HOST_SET_KD;
-    if (cur.haptic_type != saved.haptic_type) d |= 1u << HOST_SET_FEEL;
-    if (cur.amp != saved.amp) d |= 1u << HOST_SET_AMP;
-    if (cur.pitch != saved.pitch) d |= 1u << HOST_SET_PITCH;
+    if (t->kp != st->kp) d |= 1u << HOST_SET_KP;
+    if (t->kd != st->kd) d |= 1u << HOST_SET_KD;
+    if (t->shape != st->shape) d |= 1u << HOST_SET_SHAPE;
+    if (f != saved.hp_feel[p]) d |= 1u << HOST_SET_FEEL;
+    if (t->amp != st->amp) d |= 1u << HOST_SET_AMP;
+    if (t->pitch != st->pitch) d |= 1u << HOST_SET_PITCH;
+    // Unsaved changes in the other profiles (or this one's other feels) show on the profile.
+    for (int q = 0; q < HAPTIC_PROFILE_COUNT; q++) {
+        for (int g = 0; g < HAPTIC_TYPE_COUNT; g++) {
+            if ((q != p || g != f) && memcmp(&cur.hp_tune[q][g], &saved.hp_tune[q][g], sizeof(haptic_tune_t)) != 0) {
+                d |= 1u << HOST_SET_HAPTIC_PROFILE;
+            }
+        }
+        if (q != p && cur.hp_feel[q] != saved.hp_feel[q]) d |= 1u << HOST_SET_HAPTIC_PROFILE;
+    }
     if (cur.sound != saved.sound) d |= 1u << HOST_SET_SOUND;
     if (cur.hid_type != saved.hid_type) d |= 1u << HOST_SET_HID_TYPE;
+    if (memcmp(cur.mode_hp, saved.mode_hp, sizeof(cur.mode_hp)) != 0) d |= 1u << HOST_SET_MODE_HAPTIC;
     if (cur.midi_channel != saved.midi_channel) d |= 1u << HOST_SET_MIDI_CH;
     if (cur.app_profile != saved.app_profile) d |= 1u << HOST_SET_PROFILE;
     if (cur.boot_mode != saved.boot_mode) d |= 1u << HOST_SET_BOOT;
     if (cur.rotation != saved.rotation) d |= 1u << HOST_SET_ROTATION;
     if (cur.host != saved.host) d |= 1u << HOST_SET_HOST;
-    if (cur.shape != saved.shape) d |= 1u << HOST_SET_SHAPE;
     out->dirty = d;
 }
 
 bool menu_remote_set(int id, int32_t ival, float fval) {
+    int p = hp_edit(), f = hp_feel(p);
+    const haptic_limits_t *l = &HAPTIC_PROFILES[p].lim[f];
     switch (id) {
-        case HOST_SET_DETENTS:
-            atomic_store(&s_ph_detents, clampi(ival, HAPTIC_NUM_DETENTS_MIN, HAPTIC_NUM_DETENTS_MAX));
+        case HOST_SET_DETENTS: // from before haptic profiles: a count picks the nearest stepped one
+            ST(s_hp_edit, haptic_profile_nearest(ival < 0 ? 0 : (unsigned)ival));
             break;
-        case HOST_SET_KP: atomic_store(&s_ph_kp, clampf(fval, HAPTIC_KP_MIN, HAPTIC_KP_MAX)); break;
-        case HOST_SET_KD: atomic_store(&s_ph_kd, clampf(fval, HAPTIC_KD_MIN, HAPTIC_KD_MAX)); break;
+        case HOST_SET_HAPTIC_PROFILE: ST(s_hp_edit, clampi(ival, 0, HAPTIC_PROFILE_COUNT - 1)); break;
+        case HOST_SET_KP: ST(s_hp_kp[p][f], clampf(fval, l->kp_min, l->kp_max)); break;
+        case HOST_SET_KD: ST(s_hp_kd[p][f], clampf(fval, l->kd_min, l->kd_max)); break;
+        case HOST_SET_SHAPE: ST(s_hp_shape[p][f], clampi(ival, HAPTIC_SHAPE_MIN, HAPTIC_SHAPE_MAX)); break;
         case HOST_SET_FEEL:
-            atomic_store(&s_ph_haptic_type, (haptic_type_t)clampi(ival, 0, HAPTIC_TYPE_COUNT - 1));
+            if (ival < 0 || ival >= HAPTIC_TYPE_COUNT || !(HAPTIC_PROFILES[p].feels & (1u << ival))) return false;
+            ST(s_hp_feel[p], ival);
             break;
-        case HOST_SET_AMP: atomic_store(&s_ph_amp, clampi(ival, AUDIO_CLICK_AMP_MIN, AUDIO_CLICK_AMP_MAX)); break;
-        case HOST_SET_PITCH:
-            atomic_store(&s_ph_pitch, clampf(fval, AUDIO_CLICK_PITCH_MIN, AUDIO_CLICK_PITCH_MAX));
+        case HOST_SET_AMP: ST(s_hp_amp[p][f], clampi(ival, AUDIO_CLICK_AMP_MIN, l->amp_max)); break;
+        case HOST_SET_PITCH: ST(s_hp_pitch[p][f], clampf(fval, l->pitch_min, l->pitch_max)); break;
+        case HOST_SET_MODE_HAPTIC:
+            ST(s_mode_hp[atomic_load(&s_ph_hid_type)], clampi(ival, 0, HAPTIC_PROFILE_COUNT - 1));
             break;
         case HOST_SET_SOUND:
             atomic_store(&s_ph_sound, (audio_click_timbre_t)clampi(ival, 0, AUDIO_TIMBRE_COUNT - 1));
@@ -1067,7 +1237,6 @@ bool menu_remote_set(int id, int32_t ival, float fval) {
             break;
         case HOST_SET_ROTATION: atomic_store(&s_ph_rotation, clampi(ival, 0, MENU_DISPLAY_ROTATIONS - 1)); break;
         case HOST_SET_HOST: atomic_store(&s_ph_host, (menu_host_t)clampi(ival, 0, MENU_HOST_COUNT - 1)); break;
-        case HOST_SET_SHAPE: atomic_store(&s_ph_shape, clampi(ival, HAPTIC_SHAPE_MIN, HAPTIC_SHAPE_MAX)); break;
         default: return false;
     }
     return true;
@@ -1086,7 +1255,7 @@ static const struct {
 void menu_remote_save(void) {
     bool any = false;
     for (size_t i = 0; i < sizeof(s_remote_groups) / sizeof(s_remote_groups[0]); i++) {
-        settings_t cur, saved;
+        static settings_t cur, saved; // Core 1 only
         settings_capture(&cur);
         portENTER_CRITICAL(&s_state_mux);
         saved = s_saved;
@@ -1102,8 +1271,9 @@ void menu_remote_save(void) {
 }
 
 void menu_remote_revert(void) {
+    static settings_t saved; // Core 1 only
     portENTER_CRITICAL(&s_state_mux);
-    settings_t saved = s_saved;
+    saved = s_saved;
     s_editing = false;
     portEXIT_CRITICAL(&s_state_mux);
     settings_restore(&saved);

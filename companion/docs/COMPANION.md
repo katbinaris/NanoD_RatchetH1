@@ -79,9 +79,22 @@ the editor (see [section 6](#6-the-profile-editor)).
 
 ## 4. HAPTICS
 
-<img src="app-haptics.png" width="720" alt="HAPTICS: the three FEEL cards and the six tuning sliders">
+<img src="app-haptics.png" width="720" alt="HAPTICS: the five haptic profile cards, the FEEL cards and the tuning sliders">
 
-**FEEL** is how a step pushes back:
+**STEPS** picks a haptic profile. A haptic profile is a complete feel: how far apart the
+clicks are, plus its own feel and tuning. Modes and app profiles use these profiles, so a
+change here applies everywhere that profile is used.
+
+| Profile | Clicks per turn |
+|---|---|
+| **WIDE** | 8 |
+| **COARSE** | 12 |
+| **MEDIUM** | 24 |
+| **FINE** | 36 |
+| **SMOOTH** | None: a smooth drag |
+
+**FEEL** is how a step pushes back in the chosen profile. Each feel keeps its own tuning, so
+switching feel shows that feel's values. SMOOTH offers VISCOSE only.
 
 | Feel | What it's like |
 |---|---|
@@ -89,19 +102,23 @@ the editor (see [section 6](#6-the-profile-editor)).
 | **SINE** | A round bump |
 | **VISCOSE** | A smooth drag, with no steps |
 
-**TUNE** has six sliders. Drag one, scroll over it, or use the arrow keys.
+**TUNE** has five sliders for the chosen profile and feel. Drag one, scroll over it, or use
+the arrow keys. The knob only accepts values inside a safe range for that profile and feel,
+so the sliders' ranges change with them.
 
-| Slider | What it sets | Range |
-|---|---|---|
-| **STEPS** | Steps (detents) per turn | 3 to 36 |
-| **SNAP** | How firmly a step holds (Kp) | 0 to 20 |
-| **DAMP** | How much the knob resists fast turning (Kd) | 0 to 0.15 |
-| **SHAPE** | How late the pull of a step rises. At 0% it grows evenly from the centre; higher values make the centre softer and the rise near the next step steeper. SAW only | 0 to 90% |
-| **AMP** | Click volume | 0 to 100% |
-| **PITCH** | Click pitch | 0.5x to 2x |
+| Slider | What it sets |
+|---|---|
+| **SNAP** | How firmly a step holds (Kp). Not used in VISCOSE |
+| **DAMP** | How much the knob resists fast turning (Kd) |
+| **SHAPE** | How late the pull of a step rises. At 0% it grows evenly from the centre; higher values make the centre softer and the rise near the next step steeper. SAW only |
+| **AMP** | Click volume. In VISCOSE it is off by default and goes up to 20% |
+| **PITCH** | Click pitch. In VISCOSE, 1x to 2x |
 
-A profile can give an input its own feel and step count (see
-[section 6](#6-the-profile-editor)). Where it doesn't, these settings apply.
+A slider that doesn't apply in the current feel is greyed out and shows `--`.
+
+**RESET TO FACTORY** puts the chosen profile back to its original feel and values. Like any
+change it is live at once and stored when you press **SAVE**. On the knob, holding F2 for
+1.5 seconds on the Haptics screen does the same.
 
 ## 5. PROFILES
 
@@ -115,6 +132,8 @@ A profile can give an input its own feel and step count (see
 | **MOUSE** | Scroll wheel |
 | **KEYS** | Keyboard |
 | **MIDI** | Stores a MIDI channel only; no MIDI is sent yet |
+
+In **MOUSE** and **KEYS**, **HAPTIC** picks which haptic profile the knob uses in that mode.
 
 In **APP** mode, **APP PROFILE** lists the profiles on the knob with the icons the device
 draws. Click one to use it. Under each name is where it comes from:
@@ -177,7 +196,7 @@ There are five inputs: the **KNOB** turned by itself, and the knob turned while 
 | **WHEEL MENU** | Opens the command wheel (F1–F3) | Steps |
 
 - **NAME ON SCREEN** is what the knob's screen shows while that input is in use.
-- **STEPS** left empty uses the STEPS slider from the HAPTICS tab.
+- **FEEL** and **STEPS** together choose a haptic profile for that input: VISCOSE uses SMOOTH, and a step count uses the nearest of WIDE, COARSE, MEDIUM and FINE. The feel and tuning then come from that haptic profile.
 - **QUICK TAP** (F1–F3) is a key or macro sent when you press and let go without turning.
   It works alongside the turning action of the same key.
 - **F4** has no press actions: holding it still opens the knob's menu.

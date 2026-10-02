@@ -138,6 +138,10 @@ export class Device {
   revert() {
     return this.send(encode.revert());
   }
+  // The shown haptic profile back to its factory feel and values (live, not saved).
+  resetHaptic() {
+    return this.send(encode.hapticReset());
+  }
   resetPeaks() {
     return this.send(encode.resetPeaks());
   }

@@ -111,6 +111,7 @@ typedef struct {
     char caption[MENU_CAPTION_TEXT_LEN];
     char value[MENU_VALUE_TEXT_LEN];
     bool selected;
+    bool muted; // not usable in the current feel: value is "--", the knob skips it
 } menu_render_row_t;
 
 typedef struct {
@@ -120,6 +121,7 @@ typedef struct {
     menu_screen_id_t screen;
     int selected;        // index into rows[] of the selected row, -1 if none
     uint32_t save_count; // bumps on every successful F2 save -- the display's SAVED! cue
+    uint32_t reset_count; // bumps when a haptic profile goes back to factory -- the FACTORY cue
     char title[MENU_TITLE_LEN]; // "" at the top-level screen (no title row there)
     int row_count;
     menu_render_row_t rows[MENU_MAX_VISIBLE_ITEMS];
@@ -140,6 +142,7 @@ void menu_input_toggle_open(void);        // F4: closed->open, or open at any de
 void menu_input_back(void);               // F3: cancel edit, else back one level, else close
 void menu_input_select(void);             // F1: enter submenu / enter or confirm edit / next field
 void menu_input_save(void);               // F2: save the current settings screen (if changed)
+void menu_input_reset_haptic(void);       // F2 held 1.5 s on Haptics: the shown profile back to factory
 void menu_input_rotate(int8_t direction); // knob tick, +1/-1: navigate list, or adjust value while editing
 
 bool menu_is_open(void);
@@ -161,6 +164,15 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out);
 // button-combo live-tuning path. Safe to call from Core 0's real-time loop: each is a single
 // atomic load, no lock, same convention as the rest of this file. num_detents is always in
 // [HAPTIC_NUM_DETENTS_MIN, HAPTIC_NUM_DETENTS_MAX] (haptic_params.h) -- never 0.
+// Since haptic profiles (haptic_params.h) these describe the ACTIVE profile: the control loop
+// names it every tick with menu_haptic_set_active() -- menu_haptic_profile() (the one the
+// Haptics screen shows while the menu is open, else the HID type's), or an app input's own.
+int menu_haptic_profile(void);
+void menu_haptic_set_active(int profile);
+int menu_haptic_edit_profile(void); // the profile the Haptics screen shows; any core
+// An app input's (feel, detents) as a haptic profile: VISCOSE -> SMOOTH, a count -> the
+// nearest stepped profile, neither -> -1 (the mode's own). Core 0, every tick in APP mode.
+int menu_haptic_for(haptic_type_t feel, unsigned detents);
 uint32_t menu_get_haptic_num_detents(void);
 float menu_get_haptic_kp(void);
 float menu_get_haptic_kd(void);
@@ -204,9 +216,14 @@ typedef struct {
     float pitch;
     int32_t sound, hid_type, midi_channel, profile, boot_mode, rotation, host;
     int32_t shape;
+    // The haptic values above are those of `haptic_profile` (the one the Haptics screen
+    // shows) in its feel; these are its limits there, and the feels it allows.
+    int32_t haptic_profile, feels, amp_max, mode_haptic;
+    float kp_min, kp_max, kd_min, kd_max, pitch_min, pitch_max;
 } menu_remote_settings_t;
 
 void menu_remote_get(menu_remote_settings_t *out);
 bool menu_remote_set(int id, int32_t ival, float fval); // false: unknown id
 void menu_remote_save(void);   // NVS for every group that differs (a few ms of flash writes)
+void menu_remote_reset_haptic(void); // the shown haptic profile back to factory (live, unsaved)
 void menu_remote_revert(void); // every group back to what NVS holds

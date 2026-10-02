@@ -344,7 +344,7 @@ export function profileEditor(device: Device, startIndex: number, onClose: () =>
             (v) => ((x.feel = v), touch()),
           ),
         );
-      const steps = () => field("STEPS", num(x.detents ?? 0, { min: 0, max: 36, step: 1, zero: "MENU", on: (v) => ((x.detents = v), touch()) }), el("span", { class: "hint" }, "PER TURN, EMPTY = HAPTICS TAB"));
+      const steps = () => field("STEPS", num(x.detents ?? 0, { min: 0, max: 36, step: 1, zero: "MENU", on: (v) => ((x.detents = v), touch()) }), el("span", { class: "hint" }, "PER TURN: USES THE NEAREST HAPTIC PROFILE. EMPTY = THE MODE'S"));
       const dir = () =>
         field(
           "DIRECTION",

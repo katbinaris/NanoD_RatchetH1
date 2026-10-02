@@ -104,6 +104,16 @@ static void build_settings(uint8_t *r) {
     r[27] = (uint8_t)s.rotation;
     r[28] = (uint8_t)s.host;
     r[29] = (uint8_t)s.shape;
+    r[30] = (uint8_t)s.haptic_profile;
+    r[31] = (uint8_t)s.feels;
+    r[32] = (uint8_t)s.amp_max;
+    r[33] = (uint8_t)s.mode_haptic;
+    put_f32(r + 36, s.kp_min);
+    put_f32(r + 40, s.kp_max);
+    put_f32(r + 44, s.kd_min);
+    put_f32(r + 48, s.kd_max);
+    put_f32(r + 52, s.pitch_min);
+    put_f32(r + 56, s.pitch_max);
 }
 
 static void result_reply(uint8_t *r, uint8_t cmd, uint8_t res, int index, bool removed, const char *why) {
@@ -154,6 +164,10 @@ static bool handle(const uint8_t *in, uint8_t *r) {
         }
         case HOST_CMD_SAVE:
             menu_remote_save();
+            build_settings(r);
+            return true;
+        case HOST_CMD_HAPTIC_RESET:
+            menu_remote_reset_haptic();
             build_settings(r);
             return true;
         case HOST_CMD_REVERT:

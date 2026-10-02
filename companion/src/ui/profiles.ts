@@ -3,7 +3,7 @@
 // and RESET TO DEFAULT brings the original back) -- and new ones made from scratch or copied.
 
 import { DeviceError, type Device } from "../device";
-import { HidType, ProfileFlag, Set } from "../proto";
+import { HapticProfiles, HidType, ProfileFlag, Set } from "../proto";
 import { blankProfile, ID_RE } from "../profile";
 import { profileEditor } from "./editor";
 import { cards, el, section } from "./kit";
@@ -39,6 +39,18 @@ export function profilesView(device: Device) {
   let builtFor = "";
   let profileCards: ReturnType<typeof cards<number>> | null = null;
 
+  // MOUSE / KEYS: the haptic profile the knob uses in that mode (tuned on the HAPTICS tab).
+  const modeHapticSec = section("HAPTIC", "HOW THE KNOB FEELS IN THIS MODE");
+  const modeHaptic = cards<number>(
+    HapticProfiles.map((p, i) => ({
+      value: i,
+      body: () => [el("span", { class: "big" }, p.name), el("span", { class: "sub" }, p.detents ? `${p.detents} PER TURN` : "NO STEPS")],
+    })),
+    (v) => device.set(Set.MODE_HAPTIC, v),
+    64,
+  );
+  modeHapticSec.body.append(modeHaptic.root);
+
   // MIDI: the channel.
   const midiSec = section("MIDI CHANNEL");
   const chan = el("span");
@@ -53,7 +65,7 @@ export function profilesView(device: Device) {
     el("p", { class: "hint" }, "STORED ONLY FOR NOW: NO MIDI IS SENT YET."),
   );
 
-  listView.append(modeSec.root, appSec.root, midiSec.root);
+  listView.append(modeSec.root, appSec.root, modeHapticSec.root, midiSec.root);
   root.append(listView);
 
   function origin(flags: number): { text: string; warn: boolean } {
@@ -152,6 +164,8 @@ export function profilesView(device: Device) {
     modes.update(s.hidType, !!bit(Set.HID_TYPE));
     appSec.root.style.display = s.hidType === HidType.APP ? "" : "none";
     midiSec.root.style.display = s.hidType === HidType.MIDI ? "" : "none";
+    modeHapticSec.root.style.display = s.hidType === HidType.MOUSE || s.hidType === HidType.KEYBOARD ? "" : "none";
+    modeHaptic.update(s.modeHaptic, !!bit(Set.MODE_HAPTIC));
     buildProfiles();
     profileCards?.update(s.profile, !!bit(Set.PROFILE));
     const full = device.profiles.length >= 16;

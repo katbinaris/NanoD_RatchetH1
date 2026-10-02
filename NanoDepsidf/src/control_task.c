@@ -344,6 +344,7 @@ static bool s_menu_prev_btn_b_pressed = false;
 static bool s_menu_prev_btn_c_pressed = false;
 static bool s_menu_prev_btn_d_pressed = false;
 static uint32_t s_menu_btn_cooldown_until_iter = 0;
+static uint32_t s_f2_hold_since_iter = 0; // F2 down on the Haptics screen, waiting for release or 1.5 s
 #define MENU_BTN_COOLDOWN_ITERS MS_TO_ITERS(250) // 250ms, same debounce margin the retired scheme used
 
 // Independent safety net, decoupled from the iteration counter above. First bring-up hit a
@@ -847,7 +848,24 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         menu_input_select(); // F1
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
                     } else if (btn_b_pressed && !s_menu_prev_btn_b_pressed) {
-                        menu_input_save(); // F2 -- an NVS commit when something changed, see menu.c
+                        if (menu_current_screen() == MENU_SCREEN_HAPTIC) {
+                            // Haptics: F2 saves on release; held 1.5 s it puts the shown
+                            // profile back to factory instead.
+                            s_f2_hold_since_iter = iterations;
+                        } else {
+                            menu_input_save(); // F2 -- an NVS commit when something changed, see menu.c
+                            s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                        }
+                    }
+                }
+                if (s_f2_hold_since_iter != 0) {
+                    if (!btn_b_pressed) {
+                        s_f2_hold_since_iter = 0;
+                        menu_input_save();
+                        s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
+                    } else if (iterations - s_f2_hold_since_iter >= MS_TO_ITERS(1500)) {
+                        s_f2_hold_since_iter = 0;
+                        menu_input_reset_haptic();
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
                     }
                 }
@@ -885,17 +903,20 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // num_detents is clamped >=HAPTIC_NUM_DETENTS_MIN (3) by menu.c's
                 // rotate_detents(), same bound this file always enforced -- never 0, which
                 // would make detent_spacing below divide-by-zero.
-                uint32_t num_detents = menu_get_haptic_num_detents();
+                // Haptic profiles (haptic_params.h): the profile in force is the one the
+                // Haptics screen shows while the menu is open (tune by feel), otherwise the
+                // HID type's -- or, in APP mode, the live input's own. Its values are then
+                // read once for this tick.
+                bool app_on = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
+                int haptic_profile = menu_haptic_profile();
+                uint32_t detents_override = 0; // parameter mode's fine clicks: finer than any profile
+                if (app_on) app_mode_haptics(&haptic_profile, &detents_override);
+                menu_haptic_set_active(haptic_profile);
+                uint32_t num_detents = detents_override ? detents_override : menu_get_haptic_num_detents();
                 float kp = menu_get_haptic_kp();
                 float kd = menu_get_haptic_kd();
                 float shape = menu_get_haptic_shape();
                 haptic_type_t haptic_type = menu_get_haptic_type();
-                // APP mode (menu closed): the live profile slot sets the feel and the detent
-                // count (app_profiles/ -- e.g. Plasticity drags smooth, Figma steps with
-                // detents, 36 per turn for 1px nudges). The detent crossings below then drive
-                // app_mode_detent() instead of the scroll wheel.
-                bool app_on = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
-                if (app_on) app_mode_haptics(&haptic_type, &num_detents);
                 // A detent-count change (a key picking a different slot) re-bases the detent
                 // grid: without this the index would jump and fire a spurious step.
                 static uint32_t s_last_num_detents = 0;
@@ -903,6 +924,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                     s_haptic_prev_detent_index_valid = false;
                     s_last_num_detents = num_detents;
                 }
+
 
                 // Nearest-grid-point selection: which of the N evenly-spaced detents is
                 // nearest, and the (hysteresis-stabilized) error/rel/velocity relative to it.
@@ -1085,12 +1107,13 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         // as an audible noise burst -- excluded here. Viscose excludes it too
                         // (no positional spring at all, nothing to "click" for). The audible
                         // (I2S) click is a separate, distinct sound source -- still fires for
-                        // Sine (a bump still benefits from a feedback cue), only Viscose
-                        // silences it (genuinely no clicks by design). The HID scroll/menu-
+                        // Sine (a bump still benefits from a feedback cue) and for Viscose,
+                        // on its virtual steps, at its profile's AMP (0 by default, 20% at
+                        // most -- haptic_params.h). The HID scroll/menu-
                         // navigation dispatch further down is NOT gated by any of this -- that's
                         // the knob's actual input function, unrelated to haptic feel.
                         bool electrical_pulse_enabled = (haptic_type == HAPTIC_TYPE_SAW);
-                        bool audio_click_enabled = (haptic_type != HAPTIC_TYPE_VISCOSE);
+                        bool audio_click_enabled = true; // VISCOSE too: its profile caps AMP at 20%, 0 by default
                         if (electrical_pulse_enabled) {
                             uint32_t ticks_since_arm = HAPTIC_PULSE_DURATION_ITERS - s_haptic_pulse_ticks_remaining;
                             bool past_impact_phase = (s_haptic_pulse_ticks_remaining == 0)

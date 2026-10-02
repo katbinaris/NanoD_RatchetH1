@@ -57,6 +57,7 @@ struct OrbitInputs {
     int morph_from;    // previous feel type while morphing, -1 otherwise
     float morph_blend; // 0..1
     bool blink_on;     // "F2 SAVE" blink phase
+    int steps;         // detents per turn, for the STEPS dial
 };
 void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in);
 
@@ -102,6 +103,6 @@ void draw_bindings(const menu_render_snapshot_t &snap, menu_host_t host, bool bl
 // DEVICE -> RECALIBRATE: takes a second F1 to run (its row value is MENU_RECAL_ARMED in between).
 void draw_recalibrate(const menu_render_snapshot_t &snap);
 
-void draw_saved_toast();
+void draw_saved_toast(const char *msg = "SAVED!");
 
 } // namespace ui

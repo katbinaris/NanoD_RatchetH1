@@ -196,9 +196,16 @@ Each tick:
    freely on momentum. VISCOSE keeps damping at any speed.
 5. **Clamp and slew limit.**
 
-`kp`, `kd`, `shape` and the detent count come from the menu (SNAP, DAMP, SHAPE, STEPS) as
-atomics, read once per tick. In APP mode the active profile slot overrides the feel and the detent count
-(`app_mode_haptics`).
+`kp`, `kd`, `shape`, the feel and the detent count are those of the **active haptic
+profile**. There are five (`HAPTIC_PROFILES` in `haptic_params.h`): WIDE 8, COARSE 12,
+MEDIUM 24, FINE 36 and SMOOTH (VISCOSE only). Each has factory values and limits per feel;
+`menu.c` holds the live values (atomics, one set per profile and feel) and clamps every
+change into the profile's limits for that feel. Each tick the loop names the active profile
+(`menu_haptic_set_active`): the one the Haptics screen shows while the menu is open,
+otherwise the HID type's own; in APP mode the live input's (`app_mode_haptics`: VISCOSE maps
+to SMOOTH, a detent count to the nearest stepped profile). Parameter mode overrides only the
+detent count. Per-tick reads come from RAM; the table itself is in flash and is read only
+when a setting changes.
 
 **A detent crossing** is the moment the committed detent index changes. It triggers:
 

@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "haptic_params.h"
 
 // Phase 8 step 2: NVS-backed persistence for the three settings groups exposed by menu.c,
 // following foc_calibration.c's existing load/save pattern (one blob per namespace, sanity-
@@ -11,25 +12,21 @@
 // control_task.c/usb_task.c/main.c reads any of this yet -- that real wiring is Phase 8
 // steps 3/6/7, tracked separately in DEVELOPMENT_PLAN.md.
 
+// The haptic profiles (haptic_params.h): which feel each one uses and its tuning per feel.
+// Size and version are checked on load; menu.c clamps every value into the profile's limits.
+#define HAPTIC_PROFILES_CFG_VERSION 1
 typedef struct {
-    uint32_t num_detents;
-    float kp;
-    float kd;
-    int32_t haptic_type; // haptic_params.h's haptic_type_t, stored as a plain int
-    int32_t sound;       // audio_trigger.h's audio_click_timbre_t, stored as a plain int
-    float pitch;         // audio_trigger.h's AUDIO_CLICK_PITCH_* multiplier -- added after
-                          // haptic_type/sound existed; a blob saved before this field existed
-                          // is a different `sizeof`, so config_store_load_haptic() naturally
-                          // rejects it as wrong-size and the caller's defaults apply instead
-                          // of a silent garbage read -- no explicit versioning needed, this
-                          // is exactly the failure mode the exact-size check already handles.
-    int32_t amplitude;   // click amplitude, AUDIO_CLICK_AMP_* percent. Added later still: a blob
-                         // saved without it (HAPTIC_CFG_V1_SIZE) still loads, at the default.
-    int32_t shape;       // HAPTIC_SHAPE_* percent. Added after amplitude: a blob saved without it
-                         // (HAPTIC_CFG_V2_SIZE) still loads, at the default.
-} haptic_cfg_t;
-#define HAPTIC_CFG_V1_SIZE offsetof(haptic_cfg_t, amplitude)
-#define HAPTIC_CFG_V2_SIZE offsetof(haptic_cfg_t, shape)
+    uint32_t version;
+    int32_t edit;  // the profile last shown on the Haptics screen
+    int32_t sound; // audio_trigger.h's audio_click_timbre_t
+    int32_t feel[HAPTIC_PROFILE_COUNT];
+    haptic_tune_t tune[HAPTIC_PROFILE_COUNT][HAPTIC_TYPE_COUNT];
+} haptic_profiles_cfg_t;
+
+// Which haptic profile each HID type uses, indexed by menu.h's menu_hid_type_t.
+typedef struct {
+    int32_t profile[4];
+} mode_haptic_cfg_t;
 
 typedef struct {
     int32_t hid_type;     // menu.h's menu_hid_type_t
@@ -53,13 +50,15 @@ typedef struct {
 // enum field out of range) -- callers should keep their own compiled-in default in that case,
 // same as foc_calibration_load()'s caller does. Assumes nvs_flash_init() has already been
 // called (done once in app_main(), before menu_init()).
-bool config_store_load_haptic(haptic_cfg_t *out);
+bool config_store_load_haptic_profiles(haptic_profiles_cfg_t *out);
+bool config_store_load_mode_haptic(mode_haptic_cfg_t *out);
 bool config_store_load_hid(hid_cfg_t *out);
 bool config_store_load_boot(boot_cfg_t *out);
 bool config_store_load_display(display_cfg_t *out);
 bool config_store_load_bindings(bind_cfg_t *out);
 
-void config_store_save_haptic(const haptic_cfg_t *cfg);
+void config_store_save_haptic_profiles(const haptic_profiles_cfg_t *cfg);
+void config_store_save_mode_haptic(const mode_haptic_cfg_t *cfg);
 void config_store_save_hid(const hid_cfg_t *cfg);
 void config_store_save_boot(const boot_cfg_t *cfg);
 void config_store_save_display(const display_cfg_t *cfg);

@@ -243,14 +243,39 @@ static void feel_anim(haptic_type_t type, int x, int y, int w, float amp, float 
     }
 }
 
+// STEPS illustration: a dial with one tick per step, and a dot hopping from tick to tick --
+// the spacing is the real one.
+static void steps_dial(int steps, float cx, float cy, float r, uint32_t t, uint32_t c) {
+    if (steps < 1) { // SMOOTH: no steps -- an unbroken ring, the dot gliding round it
+        for (float a = 0; a < 360.0f; a += 2.0f) {
+            float ra = a * (float)M_PI / 180.0f;
+            rect(lroundf(cx + r * cosf(ra)), lroundf(cy + r * sinf(ra)), 1, 1, c);
+        }
+        float ra = (t / 9.0f - 90.0f) * (float)M_PI / 180.0f;
+        rect(lroundf(cx + r * cosf(ra)) - 2, lroundf(cy + r * sinf(ra)) - 2, 5, 5, AMBER);
+        return;
+    }
+    int at = (int)((t / 280) % (uint32_t)steps);
+    float hx = cx, hy = cy - r;
+    for (int i = 0; i < steps; i++) {
+        float a = (-90.0f + i * 360.0f / steps) * (float)M_PI / 180.0f;
+        float x = cx + r * cosf(a), y = cy + r * sinf(a);
+        if (steps > 24) rect(lroundf(x), lroundf(y), 1, 1, c);
+        else rect(lroundf(x) - 1, lroundf(y) - 1, 2, 2, c);
+        if (i == at) hx = x, hy = y;
+    }
+    rect(lroundf(hx) - 2, lroundf(hy) - 2, 5, 5, AMBER);
+}
+
 void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
     for (int i = 0; i < snap.row_count && i < MENU_HAPTIC_ROW_COUNT; i++) {
         float a = (-90.0f + i * ORBIT_STEP_DEG) * (float)M_PI / 180.0f;
         float x = CX + ORBIT_R * cosf(a), y = CY + ORBIT_R * sinf(a);
         bool f = (i == snap.selected);
-        orbit_icon(i, in.feel, x, y - 14, f ? AMBER : WHITE);
+        bool muted = snap.rows[i].muted; // not usable in this feel: all grey, "--"
+        orbit_icon(i, in.feel, x, y - 14, muted ? GREY : f ? AMBER : WHITE);
         text(snap.rows[i].label, x, y - 6, f ? AMBER : GREY, 1, CENTER);
-        text(snap.rows[i].value, x, y + 4, WHITE, 1, CENTER);
+        text(snap.rows[i].value, x, y + 4, muted ? GREY : WHITE, 1, CENTER);
     }
     // Focus arc on the rim -- moves around the glass with the knob.
     if (snap.selected >= 0) {
@@ -268,6 +293,13 @@ void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
     if (snap.selected == MENU_HAPTIC_ROW_FEEL) {
         text(p.caption, CX, 72, GREY, 1, CENTER);
         feel_anim(in.feel, 86, 102, 68, 11, 2, in.t_ms, vc, in.morph_from, in.morph_blend);
+        int sc = fit_scale(p.value, 70, 2);
+        int w = text(p.value, CX, 124, vc, sc, CENTER);
+        if (snap.editing) edit_arrows(CX, 124, w, cap_height(sc), AMBER);
+        save_hint(146, snap.dirty, in.blink_on);
+    } else if (snap.selected == MENU_HAPTIC_ROW_STEPS) {
+        text(p.caption, CX, 72, GREY, 1, CENTER);
+        steps_dial(in.steps, CX, 101, 15, in.t_ms, WHITE);
         int sc = fit_scale(p.value, 70, 2);
         int w = text(p.value, CX, 124, vc, sc, CENTER);
         if (snap.editing) edit_arrows(CX, 124, w, cap_height(sc), AMBER);
@@ -314,6 +346,13 @@ void draw_hid(const menu_render_snapshot_t &snap, const HidInputs &in) {
         // The chosen profile, for reference; F1 opens the PROFILE screen to change it.
         app_badge(in.profile_name, in.profile_icon, CX, 146, WHITE);
         text("F1 PROFILE", CX, 190, GREY, 1, CENTER);
+    } else if ((in.type == MENU_HID_KEYBOARD || in.type == MENU_HID_MOUSE) && snap.row_count > 1) {
+        // The haptic profile this mode uses; F1 moves between the mode and it.
+        bool hp_focus = snap.selected == 1;
+        text("HAPTIC", CX, 132, GREY, 1, CENTER);
+        int w = text(snap.rows[1].value, CX, 146, hp_focus ? AMBER : WHITE, 2, CENTER);
+        if (hp_focus) edit_arrows(CX, 146, w, cap_height(2), AMBER);
+        text(hp_focus ? "F1 TYPE" : "F1 HAPTIC", CX, 190, GREY, 1, CENTER);
     } else if (in.type == MENU_HID_MIDI && snap.row_count > 1) {
         bool ch_focus = snap.selected == 1;
         text("CHANNEL", CX, 132, GREY, 1, CENTER);
@@ -639,12 +678,12 @@ void draw_recalibrate(const menu_render_snapshot_t &snap) {
 
 // --- SAVED! dialog ---
 
-void draw_saved_toast() {
+void draw_saved_toast(const char *msg) {
     // Tall enough to cover the Orbit center value (y 96..111) completely.
     cut(66, 90, 108, 50, BLACK);
     frame_box(66, 90, 108, 50, WHITE);
     frame_box(68, 92, 104, 46, GREY);
-    text("SAVED!", CX, 110, AMBER, 2, CENTER);
+    text(msg, CX, 110, AMBER, fit_scale(msg, 96, 2), CENTER);
 }
 
 } // namespace ui

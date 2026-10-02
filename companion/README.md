@@ -8,8 +8,9 @@ computer, in the same pixel style as the device's own screens.
   colours the LEDs show right now, and the keys light up and press down while held. Hover a key
   to see what it does. (Firmware from before the LED stream: the ring is made up from the
   knob's angle.)
-- **HAPTICS:** FEEL (SAW / SINE / VISCOSE) and the tuning sliders STEPS, SNAP, DAMP, SHAPE, AMP
-  and PITCH. Drag, scroll or use the arrow keys; the knob changes as you go.
+- **HAPTICS:** the haptic profiles (STEPS: WIDE / COARSE / MEDIUM / FINE / SMOOTH) and, for the
+  chosen one, its FEEL (SAW / SINE / VISCOSE) and the tuning sliders SNAP, DAMP, SHAPE, AMP
+  and PITCH. **RESET TO FACTORY** puts that profile back. Drag, scroll or use the arrow keys; the knob changes as you go.
 - **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI) and, in APP, the app profiles with the icons
   the device draws. **EDIT** opens any profile, built-ins included: name, icon (import any
   image), key labels, what the knob and F1–F4 send, and the command wheel. Edits go to the knob

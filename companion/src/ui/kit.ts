@@ -38,6 +38,8 @@ export function section(title: string, note?: Node | string): { root: HTMLElemen
 export interface Slider {
   root: HTMLElement;
   update(value: number, dirty: boolean): void;
+  limits(min: number, max: number): void; // the range changed (another haptic profile or feel)
+  mute(on: boolean): void; // not usable right now: greyed, shows "--"
 }
 
 export interface SliderOpts {
@@ -52,7 +54,9 @@ export interface SliderOpts {
 
 const BLOCKS = 24;
 
-export function slider(o: SliderOpts): Slider {
+export function slider(opts: SliderOpts): Slider {
+  const o = { ...opts };
+  let muted = false;
   const blocks = el("div", { class: "blocks", tabindex: 0 });
   const cells: HTMLElement[] = [];
   for (let i = 0; i < BLOCKS; i++) {
@@ -72,10 +76,11 @@ export function slider(o: SliderOpts): Slider {
   const draw = (v: number) => {
     const k = (v - o.min) / (o.max - o.min);
     const lit = v <= o.min ? 0 : Math.max(1, Math.round(k * BLOCKS));
-    cells.forEach((c, i) => c.classList.toggle("on", i < lit));
-    value.textContent = o.format(v);
+    cells.forEach((c, i) => c.classList.toggle("on", !muted && i < lit));
+    value.textContent = muted ? "--" : o.format(v);
   };
   const setLocal = (v: number) => {
+    if (muted) return;
     v = snap(v);
     if (v === current) return;
     current = v;
@@ -124,6 +129,18 @@ export function slider(o: SliderOpts): Slider {
       current = v;
       draw(v);
     },
+    limits(min, max) {
+      if (min === o.min && max === o.max) return;
+      o.min = min;
+      o.max = max;
+      draw(current);
+    },
+    mute(on) {
+      if (on === muted) return;
+      muted = on;
+      root.classList.toggle("muted", on);
+      draw(current);
+    },
   };
 }
 
@@ -144,11 +161,12 @@ export function cards<T>(choices: Choice<T>[], onPick: (v: T) => void, minWidth 
   });
   return {
     root,
-    update(selected: T, dirty: boolean) {
+    update(selected: T, dirty: boolean, allowed?: (v: T) => boolean) {
       for (const { c, b } of items) {
         const on = c.value === selected;
         b.classList.toggle("on", on);
         b.classList.toggle("dirty", on && dirty);
+        b.disabled = allowed ? !allowed(c.value) : false;
       }
     },
   };

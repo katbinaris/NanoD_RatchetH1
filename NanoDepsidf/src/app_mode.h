@@ -45,7 +45,7 @@ void app_mode_motion(float delta_rad, int64_t now_us);
 void app_mode_detent(int8_t dir, int64_t now_us);
 
 // The live slot's feel: overrides *type / *detents (leaves them if the slot has no action).
-void app_mode_haptics(haptic_type_t *type, uint32_t *detents);
+void app_mode_haptics(int *profile, uint32_t *detents_override);
 
 // True while the detents are parameter mode's fine free-mode clicks (a higher click sound).
 bool app_mode_fine_clicks(void);

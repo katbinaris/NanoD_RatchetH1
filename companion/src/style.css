@@ -674,3 +674,14 @@ button {
   border-color: var(--amber);
   color: var(--amber);
 }
+
+/* Not usable in the current feel (SNAP in VISCOSE, SHAPE outside SAW) or not offered by the
+   haptic profile (a feel SMOOTH doesn't have). */
+.row.muted {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.card:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}

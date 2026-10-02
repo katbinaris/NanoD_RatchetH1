@@ -54,3 +54,94 @@ typedef enum {
                          // velocity damping, no positional spring, no clicks
     HAPTIC_TYPE_COUNT
 } haptic_type_t;
+
+// --- Haptic profiles ---
+// The Haptics STEPS choices are complete, reusable feels: a spacing plus its own FEEL, SNAP,
+// DAMP, SHAPE, AMP and PITCH. Modes and app-profile inputs pick one by id. The user tunes a
+// profile inside the limits given here, per feel, so a spacing can't be tuned into
+// instability; values are kept per feel, so switching FEEL shows that feel's own (saved or
+// factory) values. menu.c holds the live copies and NVS the saved ones.
+//
+// The factory values and limits below are PLACEHOLDERS (the old global defaults and ranges)
+// until they are tuned on hardware.
+typedef enum {
+    HAPTIC_PROFILE_WIDE = 0,
+    HAPTIC_PROFILE_COARSE,
+    HAPTIC_PROFILE_MEDIUM,
+    HAPTIC_PROFILE_FINE,
+    HAPTIC_PROFILE_SMOOTH, // VISCOSE only: drags and free scrolling
+    HAPTIC_PROFILE_COUNT
+} haptic_profile_id_t;
+#define HAPTIC_PROFILE_STEPPED_COUNT 4 // WIDE..FINE, in spacing order
+
+typedef struct {
+    float kp;      // SNAP
+    float kd;      // DAMP
+    int32_t shape; // percent, SAW only
+    int32_t amp;   // click amplitude, percent
+    float pitch;   // click pitch multiplier
+} haptic_tune_t;
+
+typedef struct {
+    float kp_min, kp_max;
+    float kd_min, kd_max;
+    int32_t amp_max;
+    float pitch_min, pitch_max;
+} haptic_limits_t;
+
+typedef struct {
+    const char *name;
+    uint8_t detents; // per turn. SMOOTH has no felt steps; these are where step events fire
+    uint8_t feels;   // allowed feels, 1 << haptic_type_t
+    uint8_t feel;    // factory feel
+    haptic_tune_t tune[HAPTIC_TYPE_COUNT];  // factory values, per feel: SAW, SINE, VISCOSE
+    haptic_limits_t lim[HAPTIC_TYPE_COUNT]; // safe range, per feel
+} haptic_profile_t;
+
+#define HAPTIC_FEELS_ALL ((1u << HAPTIC_TYPE_SAW) | (1u << HAPTIC_TYPE_SINE) | (1u << HAPTIC_TYPE_VISCOSE))
+// VISCOSE everywhere: no SNAP, clicks off by default and never louder than 20%, pitch 1-2x.
+#define HAPTIC_TUNE_VISCOSE {0.0f, 0.05f, 0, 0, 1.0f}
+#define HAPTIC_LIM_VISCOSE {0.0f, 0.0f, HAPTIC_KD_MIN, HAPTIC_KD_MAX, 20, 1.0f, 2.0f}
+// Placeholders for the stepped feels.
+#define HAPTIC_TUNE_TODO {HAPTIC_KP_DEFAULT, HAPTIC_KD_DEFAULT, HAPTIC_SHAPE_DEFAULT, 100, 1.0f}
+#define HAPTIC_LIM_TODO {HAPTIC_KP_MIN, HAPTIC_KP_MAX, HAPTIC_KD_MIN, HAPTIC_KD_MAX, 100, 0.5f, 2.0f}
+
+__attribute__((unused)) static const haptic_profile_t HAPTIC_PROFILES[HAPTIC_PROFILE_COUNT] = {
+    //            detents  feels             factory feel       tune: SAW, SINE, VISCOSE
+    {"WIDE", 8, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
+     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+     {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
+    {"COARSE", 12, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
+     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+     {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
+    {"MEDIUM", 24, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
+     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+     {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
+    {"FINE", 36, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
+     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+     {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
+    {"SMOOTH", 24, 1u << HAPTIC_TYPE_VISCOSE, HAPTIC_TYPE_VISCOSE,
+     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+     {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
+};
+
+// The stepped profile whose spacing is nearest to `detents` per turn.
+static inline int haptic_profile_nearest(unsigned detents) {
+    int best = 0;
+    unsigned best_d = ~0u;
+    for (int i = 0; i < HAPTIC_PROFILE_STEPPED_COUNT; i++) {
+        unsigned p = HAPTIC_PROFILES[i].detents;
+        unsigned dist = p > detents ? p - detents : detents - p;
+        if (dist < best_d) {
+            best_d = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+// What an app-profile input written as (feel, detents) uses: VISCOSE -> SMOOTH, a count ->
+// the nearest stepped profile, no count -> -1 (the mode's own profile).
+static inline int haptic_profile_for(haptic_type_t feel, unsigned detents) {
+    if (feel == HAPTIC_TYPE_VISCOSE) return HAPTIC_PROFILE_SMOOTH;
+    return detents ? haptic_profile_nearest(detents) : -1;
+}

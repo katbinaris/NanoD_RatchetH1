@@ -66,6 +66,25 @@ export class MockTransport implements Transport {
   private upload: { buf: Uint8Array; crc: number; got: number; flags: number } | null = null;
   private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 0, rotation: 0, host: 0, shape: 0 };
   private saved = { ...this.live };
+  // Haptic profiles, like menu.c: a feel per profile and one set of values per profile and
+  // feel, with the firmware's placeholder factory values and limits.
+  private hp = MockTransport.hpFactory();
+  private hpSaved = structuredClone(this.hp);
+  private static hpTune(feel: number) {
+    return feel === 2 ? { kp: 0, kd: 0.05, shape: 0, amp: 0, pitch: 1 } : { kp: 6, kd: 0.01, shape: 0, amp: 100, pitch: 1 };
+  }
+  private static hpProfile(p: number) {
+    return { feel: p === 4 ? 2 : 0, tune: [0, 1, 2].map((f) => MockTransport.hpTune(f)) };
+  }
+  private static hpFactory() {
+    return { edit: 1, mode: [1, 1, 1, 1], profiles: [0, 1, 2, 3, 4].map((p) => MockTransport.hpProfile(p)) };
+  }
+  private static hpLimits(feel: number) {
+    return feel === 2 ? { kpMin: 0, kpMax: 0, kdMin: 0, kdMax: 0.15, ampMax: 20, pitchMin: 1, pitchMax: 2 } : { kpMin: 0, kpMax: 20, kdMin: 0, kdMax: 0.15, ampMax: 100, pitchMin: 0.5, pitchMax: 2 };
+  }
+  private static hpFeels(p: number) {
+    return p === 4 ? 0b100 : 0b111;
+  }
   private timer = 0;
   private t0 = performance.now();
   private seq = 0;
@@ -87,7 +106,7 @@ export class MockTransport implements Transport {
       case Cmd.HELLO: {
         out[0] = Tag.HELLO;
         out[1] = 1;
-        out[1] = 2;
+        out[1] = 3;
         out[2] = this.reg.length;
         out.set(new TextEncoder().encode("DEMO 7142FDA"), 4);
         out.set(new TextEncoder().encode("SEP 30 2026"), 36);
@@ -97,16 +116,36 @@ export class MockTransport implements Transport {
         const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host", "shape"] as const;
         const k = keys[r[1]];
         const f = r[1] === Set.KP || r[1] === Set.KD || r[1] === Set.PITCH;
-        if (k) (this.live as any)[k] = f ? inV.getFloat32(4, true) : inV.getInt32(4, true);
+        const val = f ? inV.getFloat32(4, true) : inV.getInt32(4, true);
+        const prof = this.hp.profiles[this.hp.edit];
+        const tune = prof.tune[prof.feel], lim = MockTransport.hpLimits(prof.feel);
+        const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+        if (r[1] === Set.HAPTIC_PROFILE) this.hp.edit = clamp(val, 0, 4);
+        else if (r[1] === Set.MODE_HAPTIC) this.hp.mode[this.live.hidType] = clamp(val, 0, 4);
+        else if (r[1] === Set.FEEL) {
+          if ((MockTransport.hpFeels(this.hp.edit) >> val) & 1) prof.feel = val;
+        } else if (r[1] === Set.KP) tune.kp = clamp(val, lim.kpMin, lim.kpMax);
+        else if (r[1] === Set.KD) tune.kd = clamp(val, lim.kdMin, lim.kdMax);
+        else if (r[1] === Set.SHAPE) tune.shape = clamp(val, 0, 90);
+        else if (r[1] === Set.AMP) tune.amp = clamp(val, 0, lim.ampMax);
+        else if (r[1] === Set.PITCH) tune.pitch = clamp(val, lim.pitchMin, lim.pitchMax);
+        else if (k) (this.live as any)[k] = val;
+        this.settings(out);
+        return reply();
+      }
+      case Cmd.HAPTIC_RESET: {
+        this.hp.profiles[this.hp.edit] = MockTransport.hpProfile(this.hp.edit);
         this.settings(out);
         return reply();
       }
       case Cmd.SAVE:
         this.saved = { ...this.live };
+        this.hpSaved = structuredClone(this.hp);
         this.settings(out);
         return reply();
       case Cmd.REVERT:
         this.live = { ...this.saved };
+        this.hp = { ...structuredClone(this.hpSaved), edit: this.hp.edit };
         this.settings(out);
         return reply();
       case Cmd.GET_SETTINGS:
@@ -240,19 +279,39 @@ export class MockTransport implements Transport {
   private settings(out: Uint8Array) {
     const v = new DataView(out.buffer);
     const l = this.live, s = this.saved;
-    const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host", "shape"] as const;
+    const keys = ["sound", "hidType", "midi", "profile", "boot", "rotation", "host"] as const;
+    const ids = [Set.SOUND, Set.HID_TYPE, Set.MIDI_CH, Set.PROFILE, Set.BOOT, Set.ROTATION, Set.HOST];
     let dirty = 0;
     keys.forEach((k, i) => {
-      if (Math.abs((l as any)[k] - (s as any)[k]) > 1e-6) dirty |= 1 << i;
+      if (l[k] !== s[k]) dirty |= 1 << ids[i];
     });
+    // The shown haptic profile in its feel, against what's saved; anything else unsaved in
+    // the profiles shows on HAPTIC_PROFILE.
+    const e = this.hp.edit, prof = this.hp.profiles[e], was = this.hpSaved.profiles[e];
+    const t = prof.tune[prof.feel], st = was.tune[prof.feel], lim = MockTransport.hpLimits(prof.feel);
+    const ne = (a: number, b: number) => Math.abs(a - b) > 1e-6;
+    if (ne(t.kp, st.kp)) dirty |= 1 << Set.KP;
+    if (ne(t.kd, st.kd)) dirty |= 1 << Set.KD;
+    if (t.shape !== st.shape) dirty |= 1 << Set.SHAPE;
+    if (prof.feel !== was.feel) dirty |= 1 << Set.FEEL;
+    if (t.amp !== st.amp) dirty |= 1 << Set.AMP;
+    if (ne(t.pitch, st.pitch)) dirty |= 1 << Set.PITCH;
+    this.hp.profiles.forEach((p, q) => {
+      const ps = this.hpSaved.profiles[q];
+      p.tune.forEach((x, g) => {
+        if ((q !== e || g !== prof.feel) && JSON.stringify(x) !== JSON.stringify(ps.tune[g])) dirty |= 1 << Set.HAPTIC_PROFILE;
+      });
+      if (q !== e && p.feel !== ps.feel) dirty |= 1 << Set.HAPTIC_PROFILE;
+    });
+    if (this.hp.mode.join() !== this.hpSaved.mode.join()) dirty |= 1 << Set.MODE_HAPTIC;
     out[0] = Tag.SETTINGS;
     v.setUint16(1, dirty, true);
-    v.setInt32(4, l.detents, true);
-    v.setFloat32(8, l.kp, true);
-    v.setFloat32(12, l.kd, true);
-    out[16] = l.feel;
-    out[17] = l.amp;
-    v.setFloat32(18, l.pitch, true);
+    v.setInt32(4, [8, 12, 24, 36, 24][e], true);
+    v.setFloat32(8, t.kp, true);
+    v.setFloat32(12, t.kd, true);
+    out[16] = prof.feel;
+    out[17] = t.amp;
+    v.setFloat32(18, t.pitch, true);
     out[22] = l.sound;
     out[23] = l.hidType;
     out[24] = l.midi;
@@ -260,7 +319,17 @@ export class MockTransport implements Transport {
     out[26] = l.boot;
     out[27] = l.rotation;
     out[28] = l.host;
-    out[29] = l.shape;
+    out[29] = t.shape;
+    out[30] = e;
+    out[31] = MockTransport.hpFeels(e);
+    out[32] = lim.ampMax;
+    out[33] = this.hp.mode[l.hidType];
+    v.setFloat32(36, lim.kpMin, true);
+    v.setFloat32(40, lim.kpMax, true);
+    v.setFloat32(44, lim.kdMin, true);
+    v.setFloat32(48, lim.kdMax, true);
+    v.setFloat32(52, lim.pitchMin, true);
+    v.setFloat32(56, lim.pitchMax, true);
   }
 
   // A pixel badge in the profile's colour: rounded square + white initial bar.

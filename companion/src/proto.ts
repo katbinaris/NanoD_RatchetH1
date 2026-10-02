@@ -3,7 +3,7 @@
 // Little-endian; floats are IEEE-754 single.
 
 export const REPORT_SIZE = 64;
-export const PROTO_VERSION = 2;
+export const PROTO_VERSION = 3;
 export const TEXT_CHUNK = 60; // profile JSON per report
 export const ICON_BYTES = 48 * 48 * 2;
 export const LED_COUNT = 68; // 0-59 the ring (clockwise from 12 o'clock), 60-67 the keys, two each
@@ -23,6 +23,7 @@ export const Cmd = {
   UPLOAD_DATA: 0x1b,
   UPLOAD_END: 0x1c,
   PROFILE_OP: 0x1d,
+  HAPTIC_RESET: 0x1e,
 } as const;
 
 export const UploadFlag = { SAVE: 0x01 } as const;
@@ -65,6 +66,8 @@ export const Set = {
   ROTATION: 11,
   HOST: 12,
   SHAPE: 13,
+  HAPTIC_PROFILE: 14,
+  MODE_HAPTIC: 15,
 } as const;
 export type SetId = (typeof Set)[keyof typeof Set];
 const FLOAT_SETTINGS: ReadonlySet<number> = new globalThis.Set([Set.KP, Set.KD, Set.PITCH]);
@@ -76,6 +79,17 @@ export const Host = { MAC: 0, PC: 1 } as const;
 export const Boot = { HID: 0, SERIAL: 1 } as const;
 
 // Limits, as the firmware clamps them (haptic_params.h, audio_trigger.h).
+// The haptic profiles (haptic_params.h HAPTIC_PROFILES), by id. KP, KD, SHAPE, FEEL, AMP and
+// PITCH in Settings are the values of one of them (Settings.hapticProfile) in its feel.
+export const HapticProfiles = [
+  { name: "WIDE", detents: 8 },
+  { name: "COARSE", detents: 12 },
+  { name: "MEDIUM", detents: 24 },
+  { name: "FINE", detents: 36 },
+  { name: "SMOOTH", detents: 0 }, // VISCOSE only: no felt steps
+] as const;
+
+// The widest ranges; a profile's own limits come with Settings.
 export const Limits = {
   detents: { min: 3, max: 36, step: 1 },
   kp: { min: 0, max: 20, step: 0.05 },
@@ -109,6 +123,16 @@ export interface Settings {
   rotation: number;
   host: number;
   shape: number; // percent; 0 from firmware before SHAPE existed
+  hapticProfile: number; // index into HapticProfiles: the one the haptic values are of
+  feels: number; // the feels it allows, 1 << Feel
+  modeHaptic: number; // the haptic profile the current HID type uses
+  kpMin: number;
+  kpMax: number;
+  kdMin: number;
+  kdMax: number;
+  ampMax: number;
+  pitchMin: number;
+  pitchMax: number;
 }
 
 export interface Profile {
@@ -211,6 +235,7 @@ export const encode = {
   save: () => report(Cmd.SAVE),
   revert: () => report(Cmd.REVERT),
   resetPeaks: () => report(Cmd.RESET_PEAKS),
+  hapticReset: () => report(Cmd.HAPTIC_RESET),
   stream: (hz: number) => {
     const r = report(Cmd.STREAM);
     r[1] = Math.max(0, Math.min(50, Math.round(hz)));
@@ -320,6 +345,10 @@ export function decode(b: Uint8Array): Message {
           rotation: b[27],
           host: b[28],
           shape: b[29],
+          // Firmware before haptic profiles (protocol 2) leaves these zero: the old ranges.
+          ...(b[31]
+            ? { hapticProfile: b[30], feels: b[31], ampMax: b[32], modeHaptic: b[33], kpMin: f32(36), kpMax: f32(40), kdMin: f32(44), kdMax: f32(48), pitchMin: f32(52), pitchMax: f32(56) }
+            : { hapticProfile: 1, feels: 7, ampMax: 100, modeHaptic: 1, kpMin: Limits.kp.min, kpMax: Limits.kp.max, kdMin: Limits.kd.min, kdMax: Limits.kd.max, pitchMin: Limits.pitch.min, pitchMax: Limits.pitch.max }),
         },
       };
     case Tag.PROFILE:

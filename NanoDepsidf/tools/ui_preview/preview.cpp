@@ -48,7 +48,7 @@ static menu_render_snapshot_t haptic_snap(int selected, bool editing, bool dirty
     s.editing = editing;
     s.dirty = dirty;
     s.selected = selected;
-    const char *L[7][3] = {{"STEPS", "DETENTS", "12"}, {"SNAP", "KP", "6.00"}, {"DAMP", "KD", ".010"},
+    const char *L[7][3] = {{"STEPS", "PROFILE", "COARSE"}, {"SNAP", "KP", "6.00"}, {"DAMP", "KD", ".010"},
                            {"SHAPE", "RAMP", "40%"}, {"FEEL", "TYPE", "VISCOSE"}, {"AMP", "AMPLITUDE", "80%"},
                            {"PITCH", "CLICK", "1.00X"}};
     for (int i = 0; i < 7; i++) s.rows[i] = row(L[i][0], L[i][1], L[i][2], i == selected);
@@ -135,15 +135,32 @@ int main() {
     ui::draw_menu_list(root, 0);
     keep("menu");
 
-    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_FEEL, true, true), {HAPTIC_TYPE_SINE, 700, -1, 1, true});
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_FEEL, true, true), {HAPTIC_TYPE_SINE, 700, -1, 1, true, 12});
     keep("orbit FEEL editing");
     ui::set_saw_shape(0.9f);
-    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SHAPE, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SHAPE, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true, 12});
     ui::set_saw_shape(0.0f);
     keep("orbit SHAPE editing");
-    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_AMP, true, true), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_AMP, true, true), {HAPTIC_TYPE_SAW, 0, -1, 1, true, 12});
     keep("orbit AMP editing");
-    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_STEPS, false, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_STEPS, true, false), {HAPTIC_TYPE_SAW, 900, -1, 1, true, 12});
+    keep("orbit STEPS editing");
+    {
+        // SMOOTH: VISCOSE only -- SNAP, SHAPE and FEEL are muted.
+        menu_render_snapshot_t m = haptic_snap(MENU_HAPTIC_ROW_STEPS, true, false);
+        snprintf(m.rows[MENU_HAPTIC_ROW_STEPS].value, sizeof(m.rows[0].value), "SMOOTH");
+        for (int r : {MENU_HAPTIC_ROW_SNAP, MENU_HAPTIC_ROW_SHAPE}) {
+            m.rows[r].muted = true;
+            snprintf(m.rows[r].value, sizeof(m.rows[r].value), "--");
+        }
+        m.rows[MENU_HAPTIC_ROW_FEEL].muted = true;
+        snprintf(m.rows[MENU_HAPTIC_ROW_AMP].value, sizeof(m.rows[0].value), "0%%");
+        ui::draw_orbit(m, {HAPTIC_TYPE_VISCOSE, 900, -1, 1, true, 0});
+        keep("orbit SMOOTH");
+        ui::draw_saved_toast("FACTORY");
+        keep("orbit FACTORY toast");
+    }
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_STEPS, false, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true, 12});
     ui::draw_saved_toast();
     keep("orbit + SAVED!");
 

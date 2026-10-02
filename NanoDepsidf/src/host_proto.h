@@ -13,7 +13,7 @@
 // Fixed little messages for settings and state. Whole profiles travel as JSON text
 // (app_profiles/profile_json.h), in 60-byte pieces with a CRC-32 over the whole text (zlib's).
 
-#define HOST_PROTO_VERSION 2
+#define HOST_PROTO_VERSION 3
 #define HOST_REPORT_SIZE 64
 
 // --- Host -> device ---
@@ -37,6 +37,7 @@ enum {
     HOST_CMD_UPLOAD_DATA = 0x1B,  // [1..3]=offset (24-bit) [4..63]=text, 60 bytes (fewer in the
                                   //   last piece, by the length); no reply, in order
     HOST_CMD_UPLOAD_END = 0x1C,   // checks and applies the profile -> HOST_TAG_RESULT
+    HOST_CMD_HAPTIC_RESET = 0x1E, // the shown haptic profile back to factory -> HOST_TAG_SETTINGS
     HOST_CMD_PROFILE_OP = 0x1D,   // [1]=index [2]=HOST_OP_* -> HOST_TAG_RESULT
 };
 
@@ -52,7 +53,7 @@ enum {
 
 // Setting ids for HOST_CMD_SET (and the order of HOST_TAG_SETTINGS' dirty bits).
 enum {
-    HOST_SET_DETENTS = 0,   // i32, HAPTIC_NUM_DETENTS_MIN..MAX
+    HOST_SET_DETENTS = 0,   // i32 detents per turn: shows the nearest stepped haptic profile (older apps)
     HOST_SET_KP = 1,        // f32 (SNAP)
     HOST_SET_KD = 2,        // f32 (DAMP)
     HOST_SET_FEEL = 3,      // i32 haptic_type_t
@@ -66,6 +67,8 @@ enum {
     HOST_SET_ROTATION = 11, // i32 quarter turns 0..3
     HOST_SET_HOST = 12,     // i32 menu_host_t
     HOST_SET_SHAPE = 13,    // i32 percent, HAPTIC_SHAPE_MIN..MAX
+    HOST_SET_HAPTIC_PROFILE = 14, // i32 haptic_profile_id_t: the profile the haptic values are of
+    HOST_SET_MODE_HAPTIC = 15,    // i32 haptic_profile_id_t: the profile the current HID type uses
     HOST_SET_COUNT
 };
 
@@ -79,6 +82,11 @@ enum {
     // [4..7]=detents i32 [8..11]=kp f32 [12..15]=kd f32 [16]=feel [17]=amp % [18..21]=pitch f32
     // [22]=sound [23]=hid type [24]=midi ch [25]=profile [26]=boot [27]=rotation [28]=host
     // [29]=shape % (0 from firmware before SHAPE existed)
+    // Haptic profiles (protocol 3): KP, KD, SHAPE, FEEL, AMP and PITCH are the values of one
+    // haptic profile in its current feel, and are clamped to that profile's limits.
+    // [30]=haptic profile shown [31]=feels it allows (1 << haptic_type_t) [32]=amp max %
+    // [33]=the HID type's haptic profile [36..39]=kp min [40..43]=kp max [44..47]=kd min
+    // [48..51]=kd max [52..55]=pitch min [56..59]=pitch max (f32)
     HOST_TAG_PROFILE = 0xB2,
     // [1]=index [2]=count [3]=flags: bit0 has icon48, bit1 built-in, bit2 stored, bit3 live
     // edit (APP_PROFILE_* << 1) [4..15]=id [16..31]=name [32..63]=legend: 4 x 8 bytes

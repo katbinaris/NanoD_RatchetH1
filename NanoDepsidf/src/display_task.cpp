@@ -163,6 +163,8 @@ static uint8_t s_last_buttons = 0;
 static int32_t s_last_detent = 0;
 
 static uint32_t s_last_save_count = 0;
+static uint32_t s_last_reset_count = 0;
+static bool s_toast_factory = false; // the toast says FACTORY, not SAVED!
 static int64_t s_toast_until_us = 0;
 
 static haptic_type_t s_last_feel = HAPTIC_TYPE_SAW;
@@ -561,6 +563,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             ui::OrbitInputs in = {
                 menu_get_haptic_type(), (uint32_t)(now / 1000),
                 morphing ? s_morph_from : -1, morphing ? ease_out3(m / (FEEL_MORPH_MS * 1000.0f)) : 1.0f, blink_on,
+                menu_haptic_edit_profile() == HAPTIC_PROFILE_SMOOTH ? 0 : (int)HAPTIC_PROFILES[menu_haptic_edit_profile()].detents,
             };
             ui::draw_orbit(snap, in);
             break;
@@ -621,7 +624,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
     }
     if (is_settings_view(v) && now < s_toast_until_us) {
-        ui::draw_saved_toast();
+        ui::draw_saved_toast(s_toast_factory ? "FACTORY" : "SAVED!");
     }
 }
 
@@ -676,6 +679,12 @@ static Pace update_ui(void) {
     if (snap.save_count != s_last_save_count) {
         s_last_save_count = snap.save_count;
         s_toast_until_us = now + TOAST_MS * 1000LL;
+        s_toast_factory = false;
+    }
+    if (snap.reset_count != s_last_reset_count) { // F2 held on Haptics: the profile is back to factory
+        s_last_reset_count = snap.reset_count;
+        s_toast_until_us = now + TOAST_MS * 1000LL;
+        s_toast_factory = true;
     }
     if (feel != s_last_feel) {
         s_morph_from = s_last_feel;
@@ -775,7 +784,8 @@ static Pace update_ui(void) {
     bool looping = s_booting || s_view == V_ATTRACT
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC
-                    && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE));
+                    && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE
+                        || snap.selected == MENU_HAPTIC_ROW_STEPS));
     bool blink_on = ((now / 1000) % 900) < 600;
     bool blink_edge = is_settings_view(s_view) && snap.dirty && blink_on != s_drawn_blink;
     bool toast_on = is_settings_view(s_view) && now < s_toast_until_us;

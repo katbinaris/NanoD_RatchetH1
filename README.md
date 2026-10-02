@@ -187,7 +187,7 @@ opens the menu** instead.
 | Screen | Settings |
 |---|---|
 | **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
-| **HAPTICS** | STEPS (detents per turn), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises, 0–90%), FEEL (SAW / SINE / VISCOSE), AMP (click amplitude, 0–100% in 5% steps), PITCH (click pitch). Changes are live while you tune; F2 saves. |
+| **HAPTICS** | STEPS picks a haptic profile: WIDE, COARSE, MEDIUM or FINE (8, 12, 24 or 36 detents per turn) or SMOOTH (no steps). Each profile keeps its own FEEL (SAW / SINE / VISCOSE; SMOOTH is VISCOSE only), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises), AMP and PITCH, within safe limits for that profile and feel. An item that doesn't apply in the current feel shows `--`. Changes are live while you tune; F2 saves; holding F2 for 1.5 s puts the shown profile back to factory. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
 | **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **BINDINGS**: MAC or PC. Profiles are written with Mac shortcuts; on PC every Cmd is sent as Ctrl (Option is Alt on both). Switches as you turn, F2 saves. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
@@ -594,7 +594,7 @@ settings from the computer, in the device's own pixel style:
 
 - **The glass:** a live mirror of the device. It shows the LED ring with the knob's spot, the
   detents, the active app or mode, and F1–F4.
-- **HAPTICS:** FEEL and the STEPS, SNAP, DAMP, SHAPE, AMP and PITCH sliders.
+- **HAPTICS:** the haptic profiles (STEPS), and each one's FEEL and SNAP, DAMP, SHAPE, AMP and PITCH sliders.
 - **PROFILES:** the mode and the built-in app profiles, with their icons.
 - **DEVICE:** BINDINGS, rotation, boot mode and the firmware version.
 - **SYS INFO:** power, heat, CPU and system, with a minute of history.

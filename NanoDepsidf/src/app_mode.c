@@ -712,17 +712,20 @@ bool CONTROL_HOT app_mode_at_end(int8_t dir) {
     return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
-void CONTROL_HOT app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
+void CONTROL_HOT app_mode_haptics(int *profile, uint32_t *detents_override) {
     if (s_profile == NULL) return;
     if (s_param) { // one click per step; free (number field: the 0.01 step) = fine clicks
-        *type = HAPTIC_TYPE_SAW;
-        *detents = param_fine() ? APP_PARAM_FINE_DETENTS : APP_PARAM_STEP_DETENTS;
+        uint32_t n = param_fine() ? APP_PARAM_FINE_DETENTS : APP_PARAM_STEP_DETENTS;
+        *profile = n > 24 ? HAPTIC_PROFILE_FINE : HAPTIC_PROFILE_COARSE;
+        *detents_override = n;
         return;
     }
     const app_action_t *a = action(s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
     if (a->kind == APP_ACT_NONE || a->kind == APP_ACT_TAP) return;
-    *type = a->feel;
-    if (a->detents) *detents = a->detents;
+    // The input's (feel, detents) names a haptic profile: VISCOSE = SMOOTH, a count = the
+    // nearest spacing, neither = the mode's own.
+    int p = menu_haptic_for(a->feel, a->detents);
+    if (p >= 0) *profile = p;
 }
 
 int app_mode_live_slot(void) {
