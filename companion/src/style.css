@@ -185,6 +185,9 @@ button {
   cursor: default;
 }
 /* The fork's remote (extensions v6): the knob's own screen, and the picture to press and turn. */
+.device-mirror {
+  image-rendering: auto; /* drawn at the display's own pixels already (deviceView.ts) */
+}
 .device-turn {
   border-radius: 50%;
   touch-action: none;

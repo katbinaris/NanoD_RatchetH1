@@ -124,6 +124,11 @@ export function deviceView(device: Device) {
     const d = GLASS.r * 2 * s;
     Object.assign(screen.style, { left: `${(GLASS.x - GLASS.r - CROP.x) * s}px`, top: `${(GLASS.y - GLASS.r - CROP.y) * s}px`, width: `${d}px`, height: `${d}px` });
     Object.assign(mirror.style, { left: screen.style.left, top: screen.style.top, width: `${d}px`, height: `${d}px` });
+    const px = Math.round(d * (window.devicePixelRatio || 1)); // drawn at the display's own pixels
+    if (mirror.width !== px) {
+      mirror.width = mirror.height = px;
+      shown = -1;
+    }
     const pr = (RING_R + 36) * s;
     Object.assign(pad.style, { left: `${(GLASS.x - CROP.x) * s - pr}px`, top: `${(GLASS.y - CROP.y) * s - pr}px`, width: `${pr * 2}px`, height: `${pr * 2}px` });
     keys.forEach((k, i) => {
@@ -178,17 +183,34 @@ export function deviceView(device: Device) {
     ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
   }
 
-  // The knob's own screen, when it streams one.
+  // The knob's own screen, when it streams one -- "sharp bilinear": up a whole number of times
+  // with no smoothing, then smoothly to the exact size. Plain nearest-neighbour at a size that
+  // isn't a multiple of 240 drops or doubles rows, and the 1px strokes of the small font fall
+  // apart; plain smoothing blurs them.
   let shown = -1;
+  const raw = el("canvas", { width: SCREEN_SIZE, height: SCREEN_SIZE });
+  const big = el("canvas");
   function drawScreen() {
     const live = device.status === "connected" && device.screenLive;
     mirror.style.display = live ? "" : "none";
     screen.style.visibility = live ? "hidden" : "";
     root.classList.toggle("remote", remote());
-    if (live && device.screenVersion !== shown) {
-      shown = device.screenVersion;
-      mirror.getContext("2d")!.putImageData(device.screen, 0, 0);
+    if (!live || device.screenVersion === shown || mirror.width === 0) return;
+    shown = device.screenVersion;
+    raw.getContext("2d")!.putImageData(device.screen, 0, 0);
+    const k = Math.max(1, Math.ceil(mirror.width / SCREEN_SIZE));
+    let src = raw;
+    if (k > 1) {
+      if (big.width !== SCREEN_SIZE * k) big.width = big.height = SCREEN_SIZE * k;
+      const b = big.getContext("2d")!;
+      b.imageSmoothingEnabled = false;
+      b.drawImage(raw, 0, 0, big.width, big.height);
+      src = big;
     }
+    const ctx = mirror.getContext("2d")!;
+    ctx.imageSmoothingEnabled = src.width !== mirror.width;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(src, 0, 0, mirror.width, mirror.height);
   }
 
   function draw() {

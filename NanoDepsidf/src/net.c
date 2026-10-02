@@ -257,6 +257,8 @@ bool net_configure(const char *ssid, const char *pass, bool enabled) {
     if (ssid) strcpy(s_st.ssid, ssid);
     if (pass) strcpy(s_pass, pass);
     s_st.enabled = enabled;
+    s_st.state = enabled && s_st.ssid[0] ? NET_CONNECTING : NET_OFF; // what the reply says: net_task follows
+    if (s_st.state != NET_CONNECTED) s_st.ip = 0;
     portEXIT_CRITICAL(&s_mux);
     if (s_task) xTaskNotify(s_task, EV_APPLY, eSetBits);
     return true;
