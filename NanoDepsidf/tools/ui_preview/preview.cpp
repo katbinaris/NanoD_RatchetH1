@@ -522,6 +522,35 @@ int main() {
         }
     }
 
+    {
+        // MUSIC now playing: a synthetic cover (COVER_RAW, 240x240 RGB565 BE, band already darkened).
+        static uint8_t cover[240 * 240 * 2];
+        FILE *f = getenv("COVER_RAW") ? fopen(getenv("COVER_RAW"), "rb") : nullptr;
+        bool have = f && fread(cover, 1, sizeof(cover), f) == sizeof(cover);
+        if (f) fclose(f);
+        struct NP { const char *name; bool playing; int vol; float vk; int glyph; float gk; };
+        const NP nps[] = {{"np: playing", true, 42, 0, 0, 0}, {"np: volume ring", true, 42, 1, 0, 0},
+                          {"np: paused + glyph", false, 42, 0, ui::NP_GLYPH_PLAY, 1}};
+        for (const NP &n : nps) {
+            if (have) ui::image565(0, 0, 240, 240, cover);
+            ui::draw_now_playing({"MIDNIGHT CITY", "M83", have, app_icon_music_48, 0xFF8C3C, n.playing, n.vol, n.vk,
+                                  n.glyph, n.gk});
+            keep(n.name);
+        }
+        ui::draw_now_playing({"NO COVER YET", "ARTIST", false, app_icon_music_48, 0xFF8C3C, true, -1, 0, 0, 0});
+        keep("np: no cover");
+        // AGENTS dashboard over the APP main screen (middle cleared).
+        const app_profile_t &ap = app_profile_agents;
+        ui::AppView av = {ap.name, ap.icon24, {ap.legend[0], ap.legend[1], ap.legend[2], ap.legend[3]}, "", "", "KNOB"};
+        ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &av});
+        const ui::AgentRowView rows[] = {{0xE8825F, "binaris", 1}, {0x4F9DFF, "api-server", 2}, {0xB98CFF, "web", 3}};
+        ui::draw_agent_board(rows, 3, 900);
+        keep("agents: board");
+        ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &av});
+        ui::draw_agent_board(rows, 0, 0);
+        keep("agents: none");
+    }
+
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.
     const int cols = 4, sc = 2, cell = 240 * sc + 16;
     int rows = (int)(tiles.size() + cols - 1) / cols;

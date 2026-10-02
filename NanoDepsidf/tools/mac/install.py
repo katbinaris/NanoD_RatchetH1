@@ -6,9 +6,10 @@
     python3 tools/agents/install.py --uninstall  take it all out again
 
 What it does:
-  * copies quadra_agentd.py, quadra_hook.py and the quadra.py CLI to ~/.quadra/, writes
+  * copies quadrad.py (the service), quadra_hook.py and the quadra.py CLI to ~/.quadra/, writes
     config.json (once);
-  * runs the daemon as a LaunchAgent (com.quadra.agentd, log ~/Library/Logs/quadra-agentd.log);
+  * runs the service as a LaunchAgent (com.quadra.daemon, log ~/Library/Logs/quadrad.log): agent
+    approvals + the AGENTS dashboard, and now playing for the MUSIC profile;
   * adds hooks next to whatever is already there, in
       ~/.claude/settings.json   (Claude Code: PermissionRequest, Notification, Stop, ...)
       ~/.codex/hooks.json       (Codex: PermissionRequest, Stop, UserPromptSubmit, PostToolUse)
@@ -31,9 +32,11 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 QDIR = os.path.join(HOME, ".quadra")
-PLIST = os.path.join(HOME, "Library/LaunchAgents/com.quadra.agentd.plist")
-LOG = os.path.join(HOME, "Library/Logs/quadra-agentd.log")
-LABEL = "com.quadra.agentd"
+PLIST = os.path.join(HOME, "Library/LaunchAgents/com.quadra.daemon.plist")
+LOG = os.path.join(HOME, "Library/Logs/quadrad.log")
+LABEL = "com.quadra.daemon"
+# The first release ran as com.quadra.agentd / quadra_agentd.py: taken out on (re)install.
+OLD_LABEL, OLD_PLIST = "com.quadra.agentd", os.path.join(HOME, "Library/LaunchAgents/com.quadra.agentd.plist")
 MARK = "quadra_hook.py"
 PY = sys.executable
 
@@ -51,12 +54,14 @@ CLAUDE = {
     "UserPromptSubmit": (None, "activity", {"async": True, "timeout": 10}),
     "PostToolUse": ("*", "tool-done", {"async": True, "timeout": 10}),
     "SessionEnd": (None, "end", {"async": True, "timeout": 5}),
+    "SessionStart": (None, "start", {"async": True, "timeout": 5}),
 }
 CODEX = {
     "PermissionRequest": (None, "permission", {"timeout": 120}),
     "Stop": (None, "stop", {"timeout": 10}),
     "UserPromptSubmit": (None, "activity", {"timeout": 10}),
     "PostToolUse": (None, "tool-done", {"timeout": 10}),
+    "SessionStart": (None, "start", {"timeout": 5}),
 }
 CURSOR = {
     "beforeShellExecution": "shell",
@@ -65,6 +70,8 @@ CURSOR = {
     "afterMCPExecution": "after",
     "stop": "stop",
     "beforeSubmitPrompt": "activity",
+    "sessionStart": "start",
+    "sessionEnd": "end",
 }
 
 
@@ -187,13 +194,17 @@ def daemon(uninstall, dry):
         print(f"--- would {'remove' if uninstall else 'install and start'} {PLIST} ---")
         return
     launchctl("bootout", f"{domain}/{LABEL}")
+    launchctl("bootout", f"{domain}/{OLD_LABEL}")
+    for stale in (OLD_PLIST, os.path.join(QDIR, "quadra_agentd.py")):
+        if os.path.exists(stale):
+            os.remove(stale)
     if uninstall:
         if os.path.exists(PLIST):
             os.remove(PLIST)
         print("daemon stopped and removed")
         return
     os.makedirs(QDIR, mode=0o700, exist_ok=True)
-    for src in ("quadra_agentd.py", "quadra_hook.py", "../quadra.py"):
+    for src in ("quadrad.py", "quadra_hook.py", "../quadra.py"):
         dst = os.path.join(QDIR, os.path.basename(src))
         shutil.copy2(os.path.join(HERE, src), dst)
         os.chmod(dst, 0o700)
@@ -201,11 +212,11 @@ def daemon(uninstall, dry):
     if not os.path.exists(cfg):
         sys.path.insert(0, HERE)
         sys.modules.setdefault("hid", type(sys)("hid"))  # only DEFAULTS is needed here
-        from quadra_agentd import DEFAULTS
+        from quadrad import DEFAULTS
         with open(cfg, "w") as f:
             json.dump(DEFAULTS, f, indent=2)
     with open(PLIST, "w") as f:
-        f.write(PLIST_XML.format(label=LABEL, py=PY, daemon=os.path.join(QDIR, "quadra_agentd.py"), log=LOG))
+        f.write(PLIST_XML.format(label=LABEL, py=PY, daemon=os.path.join(QDIR, "quadrad.py"), log=LOG))
     r = launchctl("bootstrap", domain, PLIST)
     print("daemon installed:", PLIST, "" if r.returncode == 0 else f"(launchctl: {r.stderr.strip()})")
 

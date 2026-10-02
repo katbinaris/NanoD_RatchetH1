@@ -28,6 +28,9 @@ extern "C" {
 #include "sysmon.h"
 #include "notify.h"
 #include "led_task.h"
+#include "media.h"
+#include "agent_board.h"
+#include "esp_heap_caps.h"
 #include "user_prefs.h"
 #include "app_colors.h"
 }
@@ -143,6 +146,61 @@ static inline bool is_settings_view(View v) {
     return v == V_HAPTIC || v == V_HID || v == V_BOOTMODE || v == V_APP_PROFILE || v == V_DISPLAY || v == V_BINDINGS
         || v == V_LIGHTS;
 }
+
+// --- MUSIC: the now-playing cover (media.h) ---
+// Decoded once per cover into a PSRAM sprite, its lower part darkened under the title, then
+// copied into the frame each time the screen is drawn.
+static LGFX_Sprite s_cover;
+static uint8_t *s_jpeg = nullptr;
+static uint32_t s_cover_seen = 0;
+static bool s_cover_ok = false;
+
+static void cover_tick(void) {
+    uint32_t v = media_cover_version();
+    if (v == s_cover_seen) return;
+    s_cover_seen = v;
+    if (s_jpeg == nullptr) s_jpeg = (uint8_t *)heap_caps_malloc(MEDIA_COVER_MAX, MALLOC_CAP_SPIRAM);
+    if (s_cover.getBuffer() == nullptr) {
+        s_cover.setColorDepth(16);
+        s_cover.setPsram(true);
+        s_cover.createSprite(LCD_WIDTH, LCD_HEIGHT);
+    }
+    uint32_t ver;
+    size_t n = s_jpeg ? media_cover_copy(s_jpeg, MEDIA_COVER_MAX, &ver) : 0;
+    if (n == 0 || s_cover.getBuffer() == nullptr) {
+        s_cover_ok = false;
+        return;
+    }
+    s_cover.fillScreen(TFT_BLACK);
+    s_cover_ok = s_cover.drawJpg(s_jpeg, n, 0, 0);
+    if (!s_cover_ok) {
+        ESP_LOGW(TAG, "cover: JPEG decode failed (%u bytes)", (unsigned)n);
+        return;
+    }
+    // Darken the lower part for the title: a smooth ramp from y 148 to 188, then 24%.
+    uint16_t *px = (uint16_t *)s_cover.getBuffer(); // RGB565, byte-swapped (big-endian)
+    for (int y = 148; y < LCD_HEIGHT; y++) {
+        float t = y >= 188 ? 1.0f : (y - 148) / 40.0f;
+        float k = 1.0f - 0.76f * t * t * (3 - 2 * t);
+        for (int x = 0; x < LCD_WIDTH; x++) {
+            uint16_t v = px[y * LCD_WIDTH + x];
+            v = (uint16_t)(v << 8 | v >> 8);
+            uint16_t r = (uint16_t)(((v >> 11) & 31) * k), g = (uint16_t)(((v >> 5) & 63) * k), b = (uint16_t)((v & 31) * k);
+            v = (uint16_t)(r << 11 | g << 5 | b);
+            px[y * LCD_WIDTH + x] = (uint16_t)(v << 8 | v >> 8);
+        }
+    }
+}
+
+static bool profile_is(const char *id) {
+    return menu_get_hid_type() == MENU_HID_APP && strcmp(app_profiles_get(menu_get_app_profile())->id, id) == 0;
+}
+
+// Overlays on the now-playing screen: the volume while the knob turns, a glyph after a key.
+#define NP_VOLUME_MS 1500
+#define NP_GLYPH_MS 700
+static int64_t s_np_turned_us = -(1LL << 40), s_np_key_us = -(1LL << 40);
+static int s_np_glyph = ui::NP_GLYPH_NONE;
 
 // The notification on show, kept for the iris that closes on it after it's been answered.
 static notify_item_t s_notice;
@@ -608,7 +666,21 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
         }
         case V_MAIN: {
             bool app = menu_get_hid_type() == MENU_HID_APP;
+            // MUSIC with something playing: the cover takes the whole screen.
+            media_track_t trk;
+            if (profile_is("music") && media_get_track(&trk)) {
+                if (s_cover_ok) s_cover.pushSprite(&s_frame, 0, 0);
+                float vk = 1.0f - (now - s_np_turned_us) / (NP_VOLUME_MS * 1000.0f);
+                float gk = 1.0f - (now - s_np_key_us) / (NP_GLYPH_MS * 1000.0f);
+                ui::draw_now_playing({trk.title, trk.artist, s_cover_ok, app_profiles_get(menu_get_app_profile())->icon48,
+                                      trk.palette[0] ? trk.palette[0] : ui::AMBER, trk.playing, trk.volume,
+                                      vk > 0 ? (vk > 0.25f ? 1.0f : vk * 4) : 0.0f, s_np_glyph, gk > 0 ? gk : 0.0f});
+                break;
+            }
             ui::AppView av = app ? app_view(app_mode_live_slot(), now) : ui::AppView{};
+            // AGENTS at rest: the dashboard of running agents takes the middle.
+            bool board = app && profile_is("agents") && app_mode_live_slot() == APP_SLOT_KNOB && !s_wheel_was_open;
+            if (board) av.action = av.action_via = "";
             ui::WheelView wv;
             bool wheel = app && s_wheel_was_open;
             if (wheel) wv = wheel_view(now);
@@ -630,6 +702,17 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
                 wheel ? &wv : nullptr, param ? &pv : nullptr,
             };
             ui::draw_main(in);
+            if (board && !wheel && !param && !av.echo) {
+                agent_row_t rows[AGENT_BOARD_MAX];
+                ui::AgentRowView views[AGENT_BOARD_MAX];
+                int n = agent_board_get(rows, AGENT_BOARD_MAX);
+                for (int i = 0; i < n; i++) {
+                    notify_item_t tmp = {};
+                    tmp.source = rows[i].source;
+                    views[i] = {notify_color(&tmp), rows[i].name, rows[i].state};
+                }
+                ui::draw_agent_board(views, n, (uint32_t)(now / 1000));
+            }
             break;
         }
         case V_ROOT:
@@ -791,11 +874,39 @@ static Pace update_ui(void) {
     }
     s_notice_hold = notice ? nhold : 0;
 
+    // MUSIC's now-playing (media.h) and AGENTS' dashboard (agent_board.h), both from the host.
+    cover_tick();
+    static uint32_t s_media_seen = 0, s_board_seen = 0;
+    bool media_changed = media_version() != s_media_seen, board_changed = agent_board_version() != s_board_seen;
+    s_media_seen = media_version();
+    s_board_seen = agent_board_version();
+    media_track_t trk;
+    bool music_on = profile_is("music") && media_get_track(&trk);
+    bool music_playing = music_on && trk.playing;
+    if (music_on && !snap.open) {
+        if (detent != s_last_detent) s_np_turned_us = now; // volume ring
+        uint8_t pressed = buttons & ~s_last_buttons;
+        if (pressed & (UI_BTN_F1 | UI_BTN_F2 | UI_BTN_F3)) {
+            s_np_key_us = now;
+            s_np_glyph = (pressed & UI_BTN_F1) ? (trk.playing ? ui::NP_GLYPH_PAUSE : ui::NP_GLYPH_PLAY)
+                       : (pressed & UI_BTN_F2) ? ui::NP_GLYPH_PREV : ui::NP_GLYPH_NEXT;
+        }
+    }
+    bool np_overlay = music_on && (now - s_np_turned_us < NP_VOLUME_MS * 1000LL || now - s_np_key_us < NP_GLYPH_MS * 1000LL);
+    bool board_live = false; // a row is animating (WORKING dots, ASKING blink)
+    if (profile_is("agents")) {
+        agent_row_t rows[AGENT_BOARD_MAX];
+        int n = agent_board_get(rows, AGENT_BOARD_MAX);
+        for (int i = 0; i < n; i++) board_live |= rows[i].state == AGENT_WORKING || rows[i].state == AGENT_ASKING;
+    }
+
     bool snapshot_changed = memcmp(&snap, &s_last_snap, sizeof(snap)) != 0;
     bool buttons_changed = buttons != s_last_buttons;
-    // A new icon counts as activity so an upload wakes the screen and shows it.
-    bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed || notice_changed;
-    if (activity || notice) s_last_activity_us = now;
+    // A new icon counts as activity so an upload wakes the screen and shows it; so does a new
+    // track. While music plays, its cover stays up instead of the idle animation.
+    bool activity = snapshot_changed || buttons_changed || detent != s_last_detent || icon_changed || notice_changed
+                 || (music_on && media_changed);
+    if (activity || notice || music_playing) s_last_activity_us = now;
 
     if (snap.save_count != s_last_save_count) {
         s_last_save_count = snap.save_count;
@@ -879,7 +990,8 @@ static Pace update_ui(void) {
     s_last_power = power;
     s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
-               || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed;
+               || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed
+               || media_changed || board_changed;
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -905,6 +1017,7 @@ static Pace update_ui(void) {
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT || s_view == V_NOTIFY // the notification breathes
                 || s_view == V_LIGHTS // the rim mirrors the animated LED ring
+                || (s_view == V_MAIN && (np_overlay || board_live)) // volume ring / key glyph, board dots
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC
                     && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE
@@ -983,5 +1096,6 @@ static void display_task_fn(void *arg) {
 void display_task_start(void) {
     // 6KB (was 4KB): the Pixel UI draw path is deeper (screen -> toolkit -> text lambdas) and
     // the last measured high-water mark at 4KB was ~2.2KB free before it existed.
-    xTaskCreatePinnedToCore(display_task_fn, "display", 6144, NULL, PRIO_DISPLAY, NULL, CORE_IO);
+    // 8KB: + the now-playing cover's JPEG decode (its work pool is on the heap, its state isn't).
+    xTaskCreatePinnedToCore(display_task_fn, "display", 8192, NULL, PRIO_DISPLAY, NULL, CORE_IO);
 }

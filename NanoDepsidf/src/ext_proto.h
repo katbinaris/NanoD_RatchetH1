@@ -5,7 +5,7 @@
 // range (0x20-0x2F, replies and events 0xC0-0xCF) so upstream can grow 0x10-0x1F freely.
 // Host side: tools/quadra.py, tools/agents/.
 
-#define EXT_PROTO_VERSION 2
+#define EXT_PROTO_VERSION 3
 
 // --- Host -> device ---
 enum {
@@ -20,7 +20,19 @@ enum {
     EXT_CMD_NOTIFY = 0x25, // [1]=EXT_NOTIFY_* [2..3]=id; POST: [4]=source [5]=kind (notify.h),
                            //   | EXT_NOTIFY_NUDGE [6..21]=title [22..60]=body, NUL-padded
                            //   [61..63]=colour RGB (0,0,0 = the source's own). No reply.
+    EXT_CMD_COVER = 0x26,  // now-playing cover, a JPEG (media.h), in order:
+                           //   [1]=EXT_COVER_BEGIN [4..7]=length [8..11]=CRC-32 -> EXT_TAG_ACK
+                           //   [1]=EXT_COVER_DATA [2..4]=offset (24-bit) [5]=n (<= 58) [6..]=bytes
+                           //   [1]=EXT_COVER_END -> EXT_TAG_ACK (EXT_ST_BAD_PARAM: rejected)
+    EXT_CMD_TRACK = 0x27,  // [1]=EXT_TRACK_* flags [2]=volume % (0xFF unknown) [3..11]=3 cover
+                           //   colours RGB [12..35]=title [36..59]=artist, NUL-padded. No reply.
+    EXT_CMD_AGENTS = 0x28, // the AGENTS dashboard (agent_board.h): [1]=rows (<= 4), then 14 bytes
+                           //   each from [2]: source, agent_state_t, name (12). No reply.
 };
+enum { EXT_COVER_BEGIN = 1, EXT_COVER_DATA = 2, EXT_COVER_END = 3 };
+#define EXT_COVER_CHUNK 58
+#define EXT_TRACK_PLAYING 0x01
+#define EXT_TRACK_NONE 0x80 // nothing playing: back to the normal MUSIC screen
 #define EXT_NOTIFY_NUDGE 0x80 // POST [5]: input is needed -- the knob taps gently every few seconds
 
 enum {

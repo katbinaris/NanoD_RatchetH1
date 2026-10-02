@@ -4,6 +4,8 @@
 #include "host_proto.h"
 #include "menu.h"
 #include "notify.h"
+#include "media.h"
+#include "agent_board.h"
 #include "tasks_common.h"
 #include "user_prefs.h"
 #include "esp_attr.h"
@@ -35,6 +37,7 @@ static _Atomic bool s_text_pending = false;
 static lights_t s_lights_req;
 static bool s_lights_save;
 static _Atomic bool s_lights_pending = false;
+static _Atomic bool s_cover_end_pending = false;
 
 bool ext_take_serial_boot(void) {
     bool requested = s_serial_boot == SERIAL_BOOT_MAGIC && esp_reset_reason() == ESP_RST_SW;
@@ -117,6 +120,48 @@ bool ext_link_handle(const uint8_t *in, uint8_t *r) {
         case EXT_CMD_PREFS:
             build_prefs(r);
             return true;
+        case EXT_CMD_COVER:
+            if (in[1] == EXT_COVER_BEGIN) {
+                uint32_t len, crc;
+                memcpy(&len, in + 4, 4);
+                memcpy(&crc, in + 8, 4);
+                ack(r, in[0], media_cover_begin(len, crc) ? EXT_ST_OK : EXT_ST_BAD_PARAM);
+                return true;
+            }
+            if (in[1] == EXT_COVER_DATA) {
+                uint32_t off = in[2] | in[3] << 8 | (uint32_t)in[4] << 16;
+                media_cover_data(off, in + 6, in[5] <= EXT_COVER_CHUNK ? in[5] : 0); // a failure shows at END
+                return false;
+            }
+            if (in[1] == EXT_COVER_END) {
+                atomic_store(&s_cover_end_pending, true); // the CRC runs in the usb task
+                return false;
+            }
+            ack(r, in[0], EXT_ST_BAD_PARAM);
+            return true;
+        case EXT_CMD_TRACK:
+            if (in[1] & EXT_TRACK_NONE) {
+                media_clear();
+            } else {
+                media_track_t t = {.playing = in[1] & EXT_TRACK_PLAYING, .volume = in[2] <= 100 ? (int8_t)in[2] : -1};
+                for (int i = 0; i < 3; i++) t.palette[i] = (uint32_t)in[3 + i * 3] << 16 | (uint32_t)in[4 + i * 3] << 8 | in[5 + i * 3];
+                memcpy(t.title, in + 12, MEDIA_TEXT_MAX);
+                memcpy(t.artist, in + 36, MEDIA_TEXT_MAX);
+                media_set_track(&t);
+            }
+            return false;
+        case EXT_CMD_AGENTS: {
+            agent_row_t rows[AGENT_BOARD_MAX] = {0};
+            int n = in[1] <= AGENT_BOARD_MAX ? in[1] : AGENT_BOARD_MAX;
+            for (int i = 0; i < n; i++) {
+                const uint8_t *p = in + 2 + i * 14;
+                rows[i].source = p[0] < NOTIFY_SRC_COUNT ? p[0] : NOTIFY_SRC_OTHER;
+                rows[i].state = p[1] < AGENT_STATE_COUNT ? p[1] : AGENT_IDLE;
+                memcpy(rows[i].name, p + 2, AGENT_NAME_MAX);
+            }
+            agent_board_set(rows, n);
+            return false;
+        }
         case EXT_CMD_NOTIFY: {
             uint16_t id = rd_u16(in + 2);
             uint8_t kind = in[5] & 0x7F;
@@ -158,6 +203,13 @@ void ext_link_poll(void) {
         build_prefs(r);
         host_link_queue(r);
         atomic_store(&s_lights_pending, false);
+    }
+    if (atomic_load(&s_cover_end_pending)) {
+        bool ok = media_cover_end();
+        memset(r, 0, sizeof(r));
+        ack(r, EXT_CMD_COVER, ok ? EXT_ST_OK : EXT_ST_BAD_PARAM);
+        host_link_queue(r);
+        atomic_store(&s_cover_end_pending, false);
     }
     uint16_t id;
     uint8_t decision;

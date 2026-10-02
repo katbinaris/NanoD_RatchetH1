@@ -91,10 +91,16 @@ def tell(req: dict):
     ask_daemon(req, 1.0)
 
 
+def where(data: dict) -> str:
+    roots = data.get("workspace_roots") or []
+    return str(data.get("cwd") or (roots[0] if roots else "") or "")
+
+
 def permission(agent: str, data: dict):
     tool, inp = data.get("tool_name", ""), data.get("tool_input", {})
     title, body = summarize(tool, inp)
     r = ask_daemon({"op": "ask", "source": agent, "session": str(data.get("session_id", "")),
+                    "cwd": where(data), "state": "asking",
                     "title": title, "body": body, "fp": fingerprint(tool, inp)}, timeout=900)
     decision = (r or {}).get("decision")
     if decision == "allow":
@@ -108,55 +114,66 @@ def permission(agent: str, data: dict):
 
 def claude_or_codex(agent: str, event: str, data: dict):
     session = str(data.get("session_id", ""))
+    base = {"source": agent, "session": session, "cwd": where(data)}
     if event == "permission":
         permission(agent, data)
+    elif event == "start":
+        tell({"op": "seen", **base, "state": "idle"})
     elif event == "notification":
         kind = data.get("notification_type", "")
         msg = data.get("message", "")
         if kind == "idle_prompt":
-            tell({"op": "info", "source": agent, "session": session, "key": "attention",
+            tell({"op": "info", **base, "state": "turn", "key": "attention",
                   "title": "YOUR TURN", "body": clip(msg or "waiting for your input", BODY_MAX)})
         elif kind in ("elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"):
-            tell({"op": "info", "source": agent, "session": session, "key": "attention",
+            tell({"op": "info", **base, "state": "asking", "key": "attention",
                   "title": "NEEDS INPUT", "body": clip(msg or "answer in the app", BODY_MAX)})
         elif kind == "permission_prompt":
-            tell({"op": "info", "source": agent, "session": session, "key": "inapp", "unless_ask": True,
+            tell({"op": "info", **base, "state": "asking", "key": "inapp", "unless_ask": True,
                   "title": "APPROVE IN APP", "body": clip(msg or "a prompt is waiting", BODY_MAX)})
     elif event == "stop":
         if data.get("stop_hook_active") or data.get("background_tasks"):
             return  # not really idle yet
-        tell({"op": "clear", "source": agent, "session": session, "what": "asks"})
-        tell({"op": "info", "source": agent, "session": session, "key": "turn", "delay": "turn",
+        tell({"op": "clear", **base, "what": "asks"})
+        tell({"op": "info", **base, "state": "turn", "key": "turn", "delay": "turn",
               "title": "YOUR TURN", "body": clip(data.get("last_assistant_message", "") or "done", BODY_MAX)})
     elif event == "tool-done":
-        tell({"op": "clear", "source": agent, "session": session, "what": "fp",
+        tell({"op": "clear", **base, "state": "working", "what": "fp",
               "fp": fingerprint(data.get("tool_name", ""), data.get("tool_input", {}))})
-    elif event in ("activity", "end"):
-        tell({"op": "clear", "source": agent, "session": session, "what": "all"})
+    elif event == "activity":
+        tell({"op": "clear", **base, "state": "working", "what": "all"})
+    elif event == "end":
+        tell({"op": "clear", **base, "state": "end", "what": "all"})
 
 
 def cursor(event: str, data: dict):
-    conv = str(data.get("conversation_id", ""))
+    base = {"source": "cursor", "session": str(data.get("conversation_id", "")), "cwd": where(data)}
     if event in ("shell", "mcp"):
         if event == "shell":
             title, body = "RUN?", clip(data.get("command", ""), BODY_MAX)
         else:
             title = clip((data.get("tool_name") or "MCP").upper(), TITLE_MAX)
             body = clip(f"{data.get('mcp_server_name', 'mcp')}: {data.get('tool_input', '')}", BODY_MAX)
-        tell({"op": "info", "source": "cursor", "session": conv, "key": "run", "delay": "run",
+        tell({"op": "info", **base, "state": "working", "key": "run", "delay": "run",
               "title": title, "body": body})
         print("{}")  # no opinion: Cursor's own Run card decides
     elif event == "after":
-        tell({"op": "clear", "source": "cursor", "session": conv, "what": "run"})
+        tell({"op": "clear", **base, "state": "working", "what": "run"})
         print("{}")
     elif event == "stop":
-        tell({"op": "clear", "source": "cursor", "session": conv, "what": "run"})
+        tell({"op": "clear", **base, "what": "run"})
         if data.get("status", "completed") == "completed":
-            tell({"op": "info", "source": "cursor", "session": conv, "key": "turn", "delay": "turn",
+            tell({"op": "info", **base, "state": "turn", "key": "turn", "delay": "turn",
                   "title": "YOUR TURN", "body": "Cursor finished"})
         print("{}")
+    elif event == "start":
+        tell({"op": "seen", **base, "state": "idle"})
+        print("{}")
+    elif event == "end":
+        tell({"op": "clear", **base, "state": "end", "what": "all"})
+        print("{}")
     elif event == "activity":
-        tell({"op": "clear", "source": "cursor", "session": conv, "what": "all"})
+        tell({"op": "clear", **base, "state": "working", "what": "all"})
         print(json.dumps({"continue": True}))
 
 

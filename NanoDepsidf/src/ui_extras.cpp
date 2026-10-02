@@ -226,4 +226,107 @@ void draw_notify(const NotifyInputs &in) {
     }
 }
 
+// --- MUSIC: now playing ---
+
+// A triangle h px tall pointing right (or left), h/2+1 wide, top-left at (x, y).
+static void tri(float x, float y, int h, bool right, uint32_t c) {
+    int half = h / 2;
+    for (int i = 0; i < h; i++) {
+        int w = (i <= half ? i : h - 1 - i) + 1;
+        rect(right ? x : x + half + 1 - w, y + i, w, 1, c);
+    }
+}
+
+static void glyph(int g, float cx, float cy, uint32_t c) {
+    const int h = 27, w = h / 2 + 1;
+    switch (g) {
+        case NP_GLYPH_PLAY: tri(cx - w / 2.0f + 2, cy - h / 2.0f, h, true, c); break;
+        case NP_GLYPH_PAUSE:
+            rect(cx - 10, cy - 12, 7, 25, c);
+            rect(cx + 3, cy - 12, 7, 25, c);
+            break;
+        case NP_GLYPH_NEXT:
+            tri(cx - w - 2, cy - h / 2.0f, h, true, c);
+            tri(cx - 2, cy - h / 2.0f, h, true, c);
+            rect(cx + w - 2, cy - h / 2.0f, 4, h, c);
+            break;
+        case NP_GLYPH_PREV:
+            rect(cx - w - 2, cy - h / 2.0f, 4, h, c);
+            tri(cx - w + 2, cy - h / 2.0f, h, false, c);
+            tri(cx + 2, cy - h / 2.0f, h, false, c);
+            break;
+        default: break;
+    }
+}
+
+void draw_now_playing(const NowPlayingInputs &in) {
+    if (!in.has_cover && in.icon48) image565(CX - 48, 46, 48, 48, in.icon48, 1.0f, 2); // stands in for the cover
+
+    // Title and artist on the darkened lower part of the cover.
+    const char *title = in.title && in.title[0] ? in.title : "NOW PLAYING";
+    text(title, CX, 174, WHITE, fit_scale(title, 172, 2), CENTER);
+    if (in.artist && in.artist[0]) text(in.artist, CX, 194, 0xBDBDBD, 1, CENTER);
+
+    if (!in.playing) { // paused: a small badge at the top
+        int w = text_width("PAUSED") + 22;
+        cut((int)(CX - w / 2.0f), 22, w, 15, 0x000000);
+        frame_box((int)(CX - w / 2.0f), 22, w, 15, DARK);
+        rect(CX - w / 2.0f + 6, 26, 2, 7, WHITE);
+        rect(CX - w / 2.0f + 10, 26, 2, 7, WHITE);
+        text("PAUSED", CX - w / 2.0f + 16, 26, WHITE);
+    }
+
+    // Volume: a ring round the glass and the number in the middle, while the knob turns.
+    if (in.volume_k > 0 && in.volume >= 0) {
+        const float r = 113;
+        int steps = (int)(2 * (float)M_PI * r), fill = (int)(steps * in.volume / 100.0f);
+        for (int s = 0; s < steps; s += 2) {
+            float a = (float)s / steps * 2 * (float)M_PI - (float)M_PI / 2;
+            rect(CX + cosf(a) * r - 1, CY + sinf(a) * r - 1, 3, 3, scale_rgb(DARK, in.volume_k));
+        }
+        float a = 0;
+        for (int s = 0; s <= fill; s++) {
+            a = (float)s / steps * 2 * (float)M_PI - (float)M_PI / 2;
+            rect(CX + cosf(a) * r - 2.5f, CY + sinf(a) * r - 2.5f, 5, 5, scale_rgb(in.accent, in.volume_k));
+        }
+        if (fill > 0) disc(CX + cosf(a) * r, CY + sinf(a) * r, 3.5f, scale_rgb(WHITE, in.volume_k));
+        disc(CX, CY - 8, 30, BLACK);
+        char v[8];
+        snprintf(v, sizeof(v), "%d", in.volume);
+        text("VOL", CX, CY - 27, scale_rgb(GREY, in.volume_k), 1, CENTER);
+        text(v, CX, CY - 15, scale_rgb(WHITE, in.volume_k), 3, CENTER);
+    } else if (in.glyph != NP_GLYPH_NONE && in.glyph_k > 0) { // a media key, just pressed
+        disc(CX, CY - 8, 30, BLACK);
+        glyph(in.glyph, CX, CY - 8, scale_rgb(WHITE, in.glyph_k));
+    }
+}
+
+// --- AGENTS: the dashboard ---
+
+void draw_agent_board(const AgentRowView *rows, int n, uint32_t t_ms) {
+    if (n == 0) {
+        text("NO AGENTS RUNNING", CX, 86, GREY, 1, CENTER);
+        text("CLAUDE  CODEX  CURSOR", CX, 102, DARK, 1, CENTER);
+        return;
+    }
+    static const char *const STATE[4] = {"IDLE", "WORKING", "YOUR TURN", "ASKING"};
+    const int y0 = n <= 2 ? 78 : 62;
+    for (int i = 0; i < n && i < 4; i++) {
+        const AgentRowView &r = rows[i];
+        int y = y0 + i * 19;
+        int st = r.state >= 0 && r.state < 4 ? r.state : 0;
+        bool blink = ((t_ms / 450) % 2) == 0;
+        disc(52, y + 3, 3, st == 3 && !blink ? scale_rgb(r.color, 0.35f) : r.color);
+        text(r.name, 62, y, WHITE);
+        uint32_t sc = st == 1 ? AMBER : st == 2 ? WHITE : st == 3 ? (blink ? r.color : WHITE) : GREY;
+        if (st == 1) { // working: three dots that walk
+            int w = text(STATE[st], 178, y, sc, 1, RIGHT);
+            (void)w;
+            for (int d = 0; d < 3; d++) rect(182 + d * 4, y + 5, 2, 2, (int)((t_ms / 300) % 4) > d ? AMBER : DARK);
+        } else {
+            text(STATE[st], 190, y, sc, 1, RIGHT);
+        }
+    }
+}
+
 } // namespace ui

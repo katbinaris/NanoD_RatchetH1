@@ -36,4 +36,30 @@ struct NotifyInputs {
 };
 void draw_notify(const NotifyInputs &in);
 
+// MUSIC, something playing: drawn over the cover (already in the frame, its lower part
+// darkened for the text) -- title and artist, a volume ring while the knob turns, and a big
+// glyph for a moment after a media key.
+enum { NP_GLYPH_NONE = 0, NP_GLYPH_PLAY, NP_GLYPH_PAUSE, NP_GLYPH_PREV, NP_GLYPH_NEXT };
+struct NowPlayingInputs {
+    const char *title;
+    const char *artist;
+    bool has_cover;     // false: the icon stands in for it
+    const uint8_t *icon48;
+    uint32_t accent;    // the cover's colour (RGB888)
+    bool playing;
+    int volume;         // 0..100, -1 unknown
+    float volume_k;     // 0..1: how visible the volume ring is (fades out after turning)
+    int glyph;          // NP_GLYPH_*
+    float glyph_k;      // 0..1, fading
+};
+void draw_now_playing(const NowPlayingInputs &in);
+
+// AGENTS: who's running and what each is doing, in the Main Screen's middle.
+struct AgentRowView {
+    uint32_t color;
+    const char *name;
+    int state; // agent_board.h agent_state_t
+};
+void draw_agent_board(const AgentRowView *rows, int n, uint32_t t_ms);
+
 } // namespace ui

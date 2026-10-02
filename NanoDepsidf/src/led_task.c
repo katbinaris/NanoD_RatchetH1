@@ -15,6 +15,7 @@
 #include "pd_status.h"
 #include "user_prefs.h"
 #include "notify.h"
+#include "media.h"
 #include <math.h>
 #include <string.h>
 
@@ -69,6 +70,17 @@ static const uint8_t KEY_LED[4][2] = {{3, 4}, {2, 5}, {1, 6}, {0, 7}};
 typedef struct { float r, g, b; } rgbf_t;
 static rgbf_t s_ring[NANO_LED_A_NUM], s_keys[NANO_LED_B_NUM];
 static led_strip_handle_t s_ring_h = NULL, s_keys_h = NULL;
+
+// Brand and cover colours are made for screens. The LEDs are linear and run dim, so a pastel
+// like Claude's coral washes out to pink; a 2.2 gamma brings the hue back.
+static uint32_t gamma_rgb(uint32_t c) {
+    uint32_t out = 0;
+    for (int s = 16; s >= 0; s -= 8) {
+        float v = ((c >> s) & 0xFF) / 255.0f;
+        out |= (uint32_t)lroundf(powf(v, 2.2f) * 255.0f) << s;
+    }
+    return out;
+}
 
 static rgbf_t hexf(uint32_t c, float level) {
     return (rgbf_t){((c >> 16) & 0xFF) / 255.0f * level, ((c >> 8) & 0xFF) / 255.0f * level, (c & 0xFF) / 255.0f * level};
@@ -222,7 +234,14 @@ static void led_task_fn(void *arg) {
             float sat = L.sat / 100.0f;
             for (int i = 0; i < 3; i++) custom[i] = lights_hsv((float)L.hue + (i - 1) * 18.0f, sat, 1.0f);
         }
-        const uint32_t *look = L.src == LIGHT_SRC_CUSTOM ? custom : acc;
+        // MUSIC with something playing: the cover's colours (unless LIGHTS sets its own).
+        uint32_t cover[3];
+        media_track_t trk;
+        const bool music = p && strcmp(p->id, "music") == 0 && media_get_track(&trk) && trk.palette[0];
+        if (music) {
+            for (int i = 0; i < 3; i++) cover[i] = gamma_rgb(trk.palette[i] ? trk.palette[i] : trk.palette[0]);
+        }
+        const uint32_t *look = L.src == LIGHT_SRC_CUSTOM ? custom : music ? cover : acc;
         const uint32_t *pal = menu && !preview ? AMBERS : look;
         const int fx = menu && !preview ? LIGHT_FX_GRADIENT : (int)L.fx;
         const float t_s = (float)(now % 600000000LL) / 1e6f; // seconds, wrapping every 10 min
@@ -310,6 +329,7 @@ static void led_task_fn(void *arg) {
                 cols[0] = notify_color(&ni);
                 n = 1;
             }
+            for (int i = 0; i < n; i++) cols[i] = gamma_rgb(cols[i]);
             float b = 0.10f + 0.90f * (0.5f - 0.5f * cosf(2 * (float)M_PI * t_s / NOTIFY_BREATH_S));
             int filled = (int)(hold * NANO_LED_A_NUM);
             for (int i = 0; i < NANO_LED_A_NUM; i++) {
@@ -326,7 +346,7 @@ static void led_task_fn(void *arg) {
             rgbf_t c;
             if (notice) {
                 bool ask = ni.kind == NOTIFY_ASK;
-                uint32_t col = ask && k == 0 ? NOTICE_ALLOW : ask && k == 2 ? NOTICE_DENY : ask ? 0xFFFFFFu : notify_color(&ni);
+                uint32_t col = ask && k == 0 ? NOTICE_ALLOW : ask && k == 2 ? NOTICE_DENY : ask ? 0xFFFFFFu : gamma_rgb(notify_color(&ni));
                 float lv = (held & (1u << k)) ? 1.0f : (ask && (k == 0 || k == 2)) ? 0.85f : 0.25f;
                 c = hexf(col, lv);
             } else {
