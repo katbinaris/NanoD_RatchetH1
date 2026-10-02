@@ -196,11 +196,13 @@ static bool profile_is(const char *id) {
     return menu_get_hid_type() == MENU_HID_APP && strcmp(app_profiles_get(menu_get_app_profile())->id, id) == 0;
 }
 
-// Overlays on the now-playing screen: the volume while the knob turns, a glyph after a key.
-#define NP_VOLUME_MS 1500
+// Overlays on the now-playing screen: the volume ring while the knob turns it (media_volume(),
+// shared with the LEDs), a glyph after a key.
 #define NP_GLYPH_MS 700
-static int64_t s_np_turned_us = -(1LL << 40), s_np_key_us = -(1LL << 40);
+static int64_t s_np_key_us = -(1LL << 40);
 static int s_np_glyph = ui::NP_GLYPH_NONE;
+static int s_np_volume = -1;
+static float s_np_volume_k = 0;
 
 // The notification on show, kept for the iris that closes on it after it's been answered.
 static notify_item_t s_notice;
@@ -670,11 +672,10 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             media_track_t trk;
             if (profile_is("music") && media_get_track(&trk)) {
                 if (s_cover_ok) s_cover.pushSprite(&s_frame, 0, 0);
-                float vk = 1.0f - (now - s_np_turned_us) / (NP_VOLUME_MS * 1000.0f);
                 float gk = 1.0f - (now - s_np_key_us) / (NP_GLYPH_MS * 1000.0f);
                 ui::draw_now_playing({trk.title, trk.artist, s_cover_ok, app_profiles_get(menu_get_app_profile())->icon48,
-                                      trk.palette[0] ? trk.palette[0] : ui::AMBER, trk.playing, trk.volume,
-                                      vk > 0 ? (vk > 0.25f ? 1.0f : vk * 4) : 0.0f, s_np_glyph, gk > 0 ? gk : 0.0f});
+                                      trk.palette[0] ? trk.palette[0] : ui::AMBER, trk.playing, s_np_volume,
+                                      s_np_volume_k, s_np_glyph, gk > 0 ? gk : 0.0f});
                 break;
             }
             ui::AppView av = app ? app_view(app_mode_live_slot(), now) : ui::AppView{};
@@ -810,7 +811,7 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
 }
 
 // Runs one tick. Returns how soon the next one should come.
-enum Pace { PACE_IDLE, PACE_LOOP, PACE_FAST };
+enum Pace { PACE_IDLE, PACE_LOOP, PACE_TICK, PACE_FAST };
 
 static Pace update_ui(void) {
     int64_t now = esp_timer_get_time();
@@ -883,8 +884,8 @@ static Pace update_ui(void) {
     media_track_t trk;
     bool music_on = profile_is("music") && media_get_track(&trk);
     bool music_playing = music_on && trk.playing;
+    s_np_volume = media_volume(now, &s_np_volume_k);
     if (music_on && !snap.open) {
-        if (detent != s_last_detent) s_np_turned_us = now; // volume ring
         uint8_t pressed = buttons & ~s_last_buttons;
         if (pressed & (UI_BTN_F1 | UI_BTN_F2 | UI_BTN_F3)) {
             s_np_key_us = now;
@@ -892,7 +893,8 @@ static Pace update_ui(void) {
                        : (pressed & UI_BTN_F2) ? ui::NP_GLYPH_PREV : ui::NP_GLYPH_NEXT;
         }
     }
-    bool np_overlay = music_on && (now - s_np_turned_us < NP_VOLUME_MS * 1000LL || now - s_np_key_us < NP_GLYPH_MS * 1000LL);
+    bool np_ring = music_on && s_np_volume_k > 0;
+    bool np_overlay = np_ring || (music_on && now - s_np_key_us < NP_GLYPH_MS * 1000LL);
     static bool s_np_overlay_was = false;
     bool np_overlay_ended = s_np_overlay_was && !np_overlay; // one more frame, or its last faint one stays up
     s_np_overlay_was = np_overlay;
@@ -1047,7 +1049,9 @@ static Pace update_ui(void) {
     s_last_snap = snap;
     s_last_buttons = buttons;
     s_last_detent = detent;
-    return fast ? PACE_FAST : looping ? PACE_LOOP : PACE_IDLE;
+    // Now playing polls every tick, so the volume ring's first frame isn't a 30ms poll behind
+    // the knob (a poll that draws nothing costs microseconds).
+    return fast ? PACE_FAST : (s_view == V_MAIN && music_on) ? PACE_TICK : looping ? PACE_LOOP : PACE_IDLE;
 }
 
 static void display_task_fn(void *arg) {
@@ -1085,6 +1089,12 @@ static void display_task_fn(void *arg) {
                 // the same-priority I2S task, and lower-priority tasks wait at most one
                 // transition (IRIS_MS).
                 taskYIELD();
+                break;
+            case PACE_TICK:
+                // Now playing: the volume ring keeps up with the knob. Not PACE_FAST: this lasts
+                // as long as the music plays, and core 1's idle task (which the task watchdog
+                // checks) only runs while we block.
+                vTaskDelay(1);
                 break;
             case PACE_LOOP:
                 vTaskDelay(pdMS_TO_TICKS(UI_ANIM_DELAY_MS));

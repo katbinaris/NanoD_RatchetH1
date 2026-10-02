@@ -3,7 +3,7 @@
 
     quadra.py hello                   firmware and extension versions
     quadra.py profile [name]          list app profiles, or switch to one (saved)
-    quadra.py text DVIROS             the idle-screen word ("" = QUADRA)
+    quadra.py text HELLO              the idle-screen word ("" = QUADRA)
     quadra.py lights [--color custom --hue 200 --effect breathe ... --save]
     quadra.py notify --ask --nudge    test a notification on the knob
     quadra.py reboot [--serial]       restart; --serial = one boot as USB-Serial-JTAG (flashing)

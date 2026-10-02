@@ -62,6 +62,9 @@ int app_mode_live_slot(void);
 // Command wheel: true while open; *ring = index into the profile's rings, *entry 0 = cancel,
 // n = the ring's command n-1.
 bool app_mode_wheel(int *ring, int *entry);
+
+// Volume keys sent so far: +1 per Volume Increment, -1 per Volume Decrement (any core).
+int32_t app_mode_volume_steps(void);
 // Commands run so far (a counter that moves on every run) and which one ran last.
 uint32_t app_mode_last_run(int *ring, int *entry);
 // Slot taps fired so far (a counter) and which slot fired last -- a key's quick-press `tap`.

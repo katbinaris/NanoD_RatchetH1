@@ -30,6 +30,11 @@ bool media_cover_end(void);
 
 // --- display / LEDs (Core 1) ---
 bool media_get_track(media_track_t *out); // false = nothing playing
+// The volume ring, the same for the screen and the LEDs: the volume to show (-1 = unknown) --
+// the host's report, run ahead by the knob's own volume keys so the ring moves with the detent
+// rather than a USB round trip later -- and how visible the ring is (0..1: up while the knob
+// turns it, fading out after).
+int media_volume(int64_t now_us, float *visible);
 uint32_t media_version(void);              // bumps on any change (track, volume, cover)
 // The current cover's JPEG, copied into `dst` (up to `cap` bytes). Returns its length, 0
 // when there's no cover. `*version` gets the cover's version.

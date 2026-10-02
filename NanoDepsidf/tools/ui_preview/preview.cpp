@@ -424,7 +424,7 @@ int main() {
     }
 
     // --- this fork: the user's idle word, LIGHTS, agent notifications, the AGENTS wheel ---
-    for (const char *word : {"DVIROS", "MAKE IT NICE"}) {
+    for (const char *word : {"HELLO", "MAKE IT NICE"}) {
         ui::fx_set_word(word);
         ui::fx_boot(2600);
         keep(strdup(word));

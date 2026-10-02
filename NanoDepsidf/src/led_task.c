@@ -237,10 +237,15 @@ static void led_task_fn(void *arg) {
         // MUSIC with something playing: the cover's colours (unless LIGHTS sets its own).
         uint32_t cover[3];
         media_track_t trk;
-        const bool music = p && strcmp(p->id, "music") == 0 && media_get_track(&trk) && trk.palette[0];
+        const bool now_playing = p && strcmp(p->id, "music") == 0 && media_get_track(&trk);
+        const bool music = now_playing && trk.palette[0];
         if (music) {
             for (int i = 0; i < 3; i++) cover[i] = gamma_rgb(trk.palette[i] ? trk.palette[i] : trk.palette[0]);
         }
+        // The volume ring, shared with the screen (read every frame: it counts the knob's keys).
+        float vol_vis;
+        const int vol = media_volume(now, &vol_vis);
+        const bool vol_ring = now_playing && !menu && vol >= 0 && vol_vis > 0;
         const uint32_t *look = L.src == LIGHT_SRC_CUSTOM ? custom : music ? cover : acc;
         const uint32_t *pal = menu && !preview ? AMBERS : look;
         const int fx = menu && !preview ? LIGHT_FX_GRADIENT : (int)L.fx;
@@ -297,10 +302,23 @@ static void led_task_fn(void *arg) {
                         break;
                 }
             }
+            // MUSIC: while the knob sets the volume, the ring shows it -- the screen's arc, from 12
+            // o'clock clockwise, in the cover's colour, its head whiter -- instead of the knob spot
+            // (whose place says nothing about the volume).
+            if (vol_ring) {
+                const float f = vol / 100.0f * NANO_LED_A_NUM;
+                const rgbf_t lit = hexf(music ? cover[0] : gamma_rgb(0xFFC94Du), 1.0f);
+                const rgbf_t head = mixf(lit, (rgbf_t){1, 1, 1}, 0.5f), dim = {lit.r * 0.06f, lit.g * 0.06f, lit.b * 0.06f};
+                const int h = (int)ceilf(f) - 1;
+                for (int i = 0; i < NANO_LED_A_NUM; i++) {
+                    float a = fminf(1.0f, fmaxf(0.0f, f - i)); // how much of this LED the volume covers
+                    s_ring[i] = mixf(s_ring[i], mixf(dim, i == h ? head : lit, a), vol_vis);
+                }
+            }
             // The knob spot: follows the knob, pulses on each click, fades out once it rests.
             int64_t since = now - moved_at;
             float vis = since < SPOT_HOLD_US ? 1 : since < SPOT_HOLD_US + SPOT_FADE_US ? 1 - (float)(since - SPOT_HOLD_US) / SPOT_FADE_US : 0;
-            if (vis > 0 && !idle) {
+            if (vis > 0 && !idle && !vol_ring) {
                 float pulse = now - click_at < PULSE_US ? 1 - (float)(now - click_at) / PULSE_US : 0;
                 float pos = (float)angle / 10000.0f / (2 * (float)M_PI) * NANO_LED_A_NUM;
                 int c = (int)lroundf(pos);
