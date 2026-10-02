@@ -29,7 +29,7 @@ typedef struct {
     uint8_t modifier;
     uint8_t keycode;  // HID_KEY_*, or a Consumer usage when `consumer` is set
     uint8_t wait_ticks;
-    uint8_t consumer; // 1 = keycode is a 8-bit HID Consumer usage (APP_ACT_MEDIA)
+    uint8_t consumer; // 1 = keycode is an 8-bit HID Consumer usage (APP_ACT_MEDIA)
 } app_tap_t;
 
 // --- control task side (Core 0) ---

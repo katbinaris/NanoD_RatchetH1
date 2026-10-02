@@ -117,11 +117,12 @@ static void CONTROL_HOT push_tap(app_key_t key) {
     push_tap_wait(key, 0);
 }
 
-// APP_ACT_MEDIA: one Consumer-page usage (press + release sent by the usb task).
-static void CONTROL_HOT push_media(uint8_t usage) {
+// APP_ACT_MEDIA: one Consumer-page usage, under the key's modifier (press + release sent by
+// the usb task).
+static void CONTROL_HOT push_media(app_key_t key) {
     uint32_t head = atomic_load(&s_tap_head);
     if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
-    s_taps[head % APP_TAP_RING] = (app_tap_t){0, usage, 0, 1};
+    s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, 0, 1};
     atomic_store(&s_tap_head, head + 1);
 }
 
@@ -559,7 +560,7 @@ void CONTROL_HOT app_mode_update(bool active, int64_t now_us, uint8_t held, bool
             if (a->macro) macro_start(a->macro);
             else push_tap(a->cw);
         } else if (a->kind == APP_ACT_MEDIA && slot != APP_SLOT_F4) {
-            push_media(a->cw.keycode); // fires on press, like TAP
+            push_media(a->cw); // fires on press, like TAP
         } else if (s_slot < 0 || s_slot_key == 0) {
             // A key takes over from the knob-alone slot. F4 always starts a slot (even with
             // no action) so its long press can open the menu; so does a key with only a
@@ -704,7 +705,7 @@ void CONTROL_HOT app_mode_detent(int8_t dir, int64_t now_us) {
             break;
         case APP_ACT_MEDIA:
             s_engaged = true;
-            push_media(dir > 0 ? a->cw.keycode : a->ccw.keycode);
+            push_media(dir > 0 ? a->cw : a->ccw);
             break;
         default:
             break; // drags follow app_mode_motion(); taps fire on press

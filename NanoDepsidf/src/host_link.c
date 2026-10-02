@@ -1,5 +1,6 @@
 #include "host_link.h"
 #include "host_proto.h"
+#include "ext_link.h"
 #include "icon_store.h"
 #include "menu.h"
 #include "sysmon.h"
@@ -283,6 +284,8 @@ void host_link_handle_report(const uint8_t *report, uint16_t len) {
     memcpy(in, report, len < sizeof(in) ? len : sizeof(in));
     if (in[0] >= 0x10 && in[0] <= 0x1F) {
         if (handle(in, r)) queue_reply(r);
+    } else if (in[0] >= 0x20 && in[0] <= 0x2F) {
+        if (ext_link_handle(in, r)) queue_reply(r);
     } else if (icon_store_handle_report(in, sizeof(in), r)) {
         queue_reply(r);
     }
@@ -473,6 +476,7 @@ static void profile_work(void) {
 
 void host_link_poll(void) {
     profile_work();
+    ext_link_poll();
 
     // Queued replies first, in order; one that can't go out yet waits for the next pass.
     uint8_t r[HOST_REPORT_SIZE];

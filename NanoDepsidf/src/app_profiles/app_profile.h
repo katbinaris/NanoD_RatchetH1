@@ -38,8 +38,9 @@ typedef enum {
     // Media keys (HID Consumer page). Knob turn -> one consumer usage per detent: `cw.keycode`
     // one way, `ccw.keycode` the other (volume up / down). Key press -> `cw.keycode`, like TAP
     // (F1-F3 only). The common usages fit in 8 bits: volume 0xE9/0xEA, mute 0xE2, play/pause
-    // 0xCD, next/prev 0xB5/0xB6, stop 0xB7. `modifier` is ignored; the host's OS handles these
-    // natively (macOS shows its volume OSD), so no app focus is needed.
+    // 0xCD, next/prev 0xB5/0xB6, stop 0xB7. The OS handles these itself (macOS shows its volume
+    // OSD), so no app focus is needed. `modifier` is held around the usage on a Mac
+    // (Shift+Option + volume = quarter steps); BINDINGS = PC drops it.
     APP_ACT_MEDIA,
 } app_action_kind_t;
 
