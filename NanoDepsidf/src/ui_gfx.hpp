@@ -73,6 +73,8 @@ int text_blocks(const char *s, float cx, float y, int scale, int16_t (*out)[2], 
 
 // Force-curve shapes for the three haptic types, one period over u in [0,1).
 float wave_y(haptic_type_t type, float u);
+// The Haptics SHAPE setting (0..0.9): every SAW curve drawn after this bends with it.
+void set_saw_shape(float shape);
 // A curve `w` px wide, `periods` periods, shifted by `phase` (periods). With morph_from >= 0
 // it blends from that type's shape (blend 0) to `type`'s (blend 1).
 void plot_curve(haptic_type_t type, int x, int y, int w, float amp, float periods, float phase,

@@ -49,13 +49,14 @@ export function hapticsView(device: Device) {
 
   root.append(feelSec.root, tuneSec.root);
 
-  let drawnFeel = -1;
+  let drawnFeel = -1, drawnShape = -1;
   function update() {
     const s = device.settings;
     if (!s) return;
     feelCards.update(s.feel, !!bit(Set.FEEL));
-    if (s.feel !== drawnFeel) {
+    if (s.feel !== drawnFeel || s.shape !== drawnShape) {
       drawnFeel = s.feel;
+      drawnShape = s.shape;
       curves.forEach((cv, i) => curve(cv, i, i === s.feel ? C.amber : C.grey));
     }
     for (const r of rows) r.s.update(s[r.key], !!bit(r.id));

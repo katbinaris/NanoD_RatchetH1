@@ -244,10 +244,20 @@ int text_blocks(const char *s, float cx, float y, int scale, int16_t (*out)[2], 
 
 // --- curves ---
 
+static float s_saw_shape = 0.0f;
+
+void set_saw_shape(float shape) {
+    s_saw_shape = shape;
+}
+
 float wave_y(haptic_type_t type, float u) {
     switch (type) {
         case HAPTIC_TYPE_SINE: return -sinf(u * 2.0f * (float)M_PI);
-        case HAPTIC_TYPE_SAW: return 1.0f - 2.0f * u;
+        case HAPTIC_TYPE_SAW: {
+            // The control loop's law (control_task.c): the straight line, bent by SHAPE.
+            float e = 1.0f - 2.0f * u;
+            return e * (1.0f - s_saw_shape + s_saw_shape * e * e);
+        }
         default: return 0.2f * sinf(u * 4.0f * (float)M_PI); // VISCOSE: drag, barely any shape
     }
 }

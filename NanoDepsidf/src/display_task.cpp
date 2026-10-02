@@ -632,6 +632,7 @@ static Pace update_ui(void) {
     int64_t now = esp_timer_get_time();
     menu_render_snapshot_t snap;
     menu_get_render_snapshot(&snap);
+    ui::set_saw_shape(menu_get_haptic_shape());
     uint8_t buttons = ui_state_get_buttons();
     int32_t detent = ui_state_get_detent();
     haptic_type_t feel = menu_get_haptic_type();
@@ -773,7 +774,8 @@ static Pace update_ui(void) {
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
-                || (s_view == V_HAPTIC && snap.selected == MENU_HAPTIC_ROW_FEEL);
+                || (s_view == V_HAPTIC
+                    && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE));
     bool blink_on = ((now / 1000) % 900) < 600;
     bool blink_edge = is_settings_view(s_view) && snap.dirty && blink_on != s_drawn_blink;
     bool toast_on = is_settings_view(s_view) && now < s_toast_until_us;

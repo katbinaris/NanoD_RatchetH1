@@ -137,7 +137,9 @@ int main() {
 
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_FEEL, true, true), {HAPTIC_TYPE_SINE, 700, -1, 1, true});
     keep("orbit FEEL editing");
+    ui::set_saw_shape(0.9f);
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SHAPE, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    ui::set_saw_shape(0.0f);
     keep("orbit SHAPE editing");
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_AMP, true, true), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
     keep("orbit AMP editing");

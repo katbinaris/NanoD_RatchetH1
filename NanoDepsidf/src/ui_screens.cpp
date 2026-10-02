@@ -272,6 +272,14 @@ void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
         int w = text(p.value, CX, 124, vc, sc, CENTER);
         if (snap.editing) edit_arrows(CX, 124, w, cap_height(sc), AMBER);
         save_hint(146, snap.dirty, in.blink_on);
+    } else if (snap.selected == MENU_HAPTIC_ROW_SHAPE) {
+        // The SAW curve itself, bending as the value turns (SHAPE is SAW only).
+        text(p.caption, CX, 72, GREY, 1, CENTER);
+        feel_anim(HAPTIC_TYPE_SAW, 86, 102, 68, 11, 2, in.t_ms, vc, -1, 1);
+        int sc = fit_scale(p.value, 70, 2);
+        int w = text(p.value, CX, 124, vc, sc, CENTER);
+        if (snap.editing) edit_arrows(CX, 124, w, cap_height(sc), AMBER);
+        save_hint(146, snap.dirty, in.blink_on);
     } else {
         text(p.caption, CX, 80, GREY, 1, CENTER);
         int sc = fit_scale(p.value, 70, 3);

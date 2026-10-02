@@ -157,10 +157,19 @@ export function cards<T>(choices: Choice<T>[], onPick: (v: T) => void, minWidth 
 // --- pixel drawing ---
 
 // The device's wave shapes, exactly (ui_gfx.cpp wave_y): one period in u, output -1..1.
+let sawShape = 0;
+// The SHAPE setting (0..0.9): every SAW curve drawn after this bends with it.
+export function setSawShape(shape: number) {
+  sawShape = shape;
+}
+
 export function waveY(feel: number, u: number): number {
   u -= Math.floor(u);
   if (feel === 1) return -Math.sin(u * 2 * Math.PI); // SINE
-  if (feel === 0) return 1 - 2 * u; // SAW
+  if (feel === 0) {
+    const e = 1 - 2 * u; // SAW: the straight line, bent by SHAPE like the control loop does
+    return e * (1 - sawShape + sawShape * e * e);
+  }
   return 0.2 * Math.sin(u * 4 * Math.PI); // VISCOSE: drag, barely any shape
 }
 

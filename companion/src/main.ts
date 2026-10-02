@@ -3,7 +3,7 @@
 
 import { Device } from "./device";
 import { createTransport, isTauri } from "./transport";
-import { el } from "./ui/kit";
+import { el, setSawShape } from "./ui/kit";
 import { deviceView as deviceRender } from "./ui/deviceView";
 import { hapticsView } from "./ui/haptics";
 import { profilesView } from "./ui/profiles";
@@ -100,6 +100,7 @@ function render() {
         : "SEARCHING...";
   status.classList.toggle("on", connected);
 
+  setSawShape(connected ? (device.settings!.shape ?? 0) / 100 : 0);
   const dirty = connected ? device.settings!.dirty : 0;
   const n = popcount(dirty);
   saveBtn.disabled = !connected || n === 0;
