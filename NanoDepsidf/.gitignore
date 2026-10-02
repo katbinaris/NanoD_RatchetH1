@@ -14,3 +14,4 @@ tools/.venv
 
 # Host UI preview build output
 tools/ui_preview/out
+build.log
