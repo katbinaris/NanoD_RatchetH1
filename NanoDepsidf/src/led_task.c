@@ -59,9 +59,13 @@ static const char *TAG = "led";
 #define NOTICE_ALLOW 0x22DD66u
 #define NOTICE_DENY 0xFF3B30u
 
-// Ring geometry, to confirm on hardware: which LED sits at 12 o'clock with the screen upright,
-// and whether indices run clockwise (+1) or anticlockwise (-1). The legacy firmware ran the
-// knob backwards along the ring, hence -1. A screen rotation turns the ring by 15 per quarter.
+// Ring geometry: which LED sits at 12 o'clock with the knob the way the companion draws it
+// (keys at the bottom, rotation 0), and whether indices run clockwise (+1) or anticlockwise
+// (-1) -- the legacy firmware ran the knob backwards along the ring, hence -1. Each DISPLAY
+// rotation step turns the screen's content a quarter anticlockwise (on hardware: 270 is upright
+// with the keys on the right), so the screen's 12 o'clock is 15 LEDs further anticlockwise per
+// step: ring position = p - 15 * rotation. (+15 put the volume arc on the opposite half at 90
+// and 270 -- it cancels out at 0 and 180.)
 #define RING_OFFSET 0
 #define RING_DIR (-1)
 // Keys: two LEDs each on ring B (legacy_fw hmi_thread.cpp).
@@ -176,7 +180,7 @@ static void flush(int rotation, float level) {
     if (s_ring_h) {
         bool dirty = false;
         for (int p = 0; p < NANO_LED_A_NUM; p++) {
-            int i = ((RING_OFFSET + RING_DIR * (p + 15 * rotation)) % NANO_LED_A_NUM + NANO_LED_A_NUM) % NANO_LED_A_NUM;
+            int i = ((RING_OFFSET + RING_DIR * (p - 15 * rotation)) % NANO_LED_A_NUM + NANO_LED_A_NUM) % NANO_LED_A_NUM;
             dirty |= put_pixel(s_ring_h, s_ring_sent[i], i, s_ring[p], k);
             memcpy(s_view[p], s_ring_sent[i], 3);
         }
