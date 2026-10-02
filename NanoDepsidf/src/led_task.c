@@ -12,6 +12,7 @@
 #include "app_colors.h"
 #include "app_profiles/app_profiles.h"
 #include "sysmon.h"
+#include "pd_status.h"
 #include <math.h>
 #include <string.h>
 
@@ -40,6 +41,12 @@ static const char *TAG = "led";
 #define LED_KEY_OFF 0.06f    // a key with no action
 #define LED_SPOT 0.8f        // the knob spot; a click pulses it to 1.0
 #define LED_BUDGET_MA 250.0f // estimated draw cap (~20 mA per channel at full), whatever the pattern
+// On a weak port the cap comes down: what the port offers (pd_status) less a reserve for the
+// rest of the board (~150 mA, sysmon.c SYSMON_BOARD_MA) and the motor (~250 mA: the measured
+// peaks are ~100 mA; the 0.756 A coil limit could reach ~450 mA). 500 mA USB -> 100 mA of LEDs;
+// 1.5 A and up -> the full LED_BUDGET_MA.
+#define LED_RESERVE_MA 400.0f
+#define LED_BUDGET_MIN_MA 60.0f
 #define SPOT_HOLD_US 1200000 // the spot stays this long after the knob last moved...
 #define SPOT_FADE_US 500000  // ...then fades back into the gradient
 #define PULSE_US 140000      // detent click pulse
@@ -132,14 +139,21 @@ static bool put_pixel(led_strip_handle_t h, uint8_t sent[3], int i, rgbf_t c, fl
     return true;
 }
 
+static float budget_ma(void) {
+    pd_status_t pd = pd_status_get();
+    float avail = pd.ma ? pd.ma : 500.0f; // not read yet, or no PD chip: plain USB
+    float b = avail - LED_RESERVE_MA;
+    return b < LED_BUDGET_MIN_MA ? LED_BUDGET_MIN_MA : b > LED_BUDGET_MA ? LED_BUDGET_MA : b;
+}
+
 // Scale everything so the estimated draw stays under the budget, then send what changed.
 static void flush(int rotation) {
     float sum = 0;
     for (int i = 0; i < NANO_LED_A_NUM; i++) sum += s_ring[i].r + s_ring[i].g + s_ring[i].b;
     for (int i = 0; i < NANO_LED_B_NUM; i++) sum += s_keys[i].r + s_keys[i].g + s_keys[i].b;
-    float k = LED_MAX, ma = sum * LED_MAX * 20.0f;
-    if (ma > LED_BUDGET_MA) k *= LED_BUDGET_MA / ma;
-    sysmon_set_led_ma(ma > LED_BUDGET_MA ? LED_BUDGET_MA : ma);
+    float k = LED_MAX, ma = sum * LED_MAX * 20.0f, budget = budget_ma();
+    if (ma > budget) k *= budget / ma;
+    sysmon_set_led_ma(ma > budget ? budget : ma);
     if (s_ring_h) {
         bool dirty = false;
         for (int p = 0; p < NANO_LED_A_NUM; p++) {
