@@ -25,8 +25,11 @@ typedef struct {
                           // is exactly the failure mode the exact-size check already handles.
     int32_t amplitude;   // click amplitude, AUDIO_CLICK_AMP_* percent. Added later still: a blob
                          // saved without it (HAPTIC_CFG_V1_SIZE) still loads, at the default.
+    int32_t shape;       // HAPTIC_SHAPE_* percent. Added after amplitude: a blob saved without it
+                         // (HAPTIC_CFG_V2_SIZE) still loads, at the default.
 } haptic_cfg_t;
 #define HAPTIC_CFG_V1_SIZE offsetof(haptic_cfg_t, amplitude)
+#define HAPTIC_CFG_V2_SIZE offsetof(haptic_cfg_t, shape)
 
 typedef struct {
     int32_t hid_type;     // menu.h's menu_hid_type_t

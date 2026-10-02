@@ -35,12 +35,13 @@ export function hapticsView(device: Device) {
   );
   feelSec.body.append(feelCards.root);
 
-  // Sliders, named like the device (STEPS / SNAP / DAMP / AMP / PITCH) with the engineering name.
+  // Sliders, named like the device (STEPS / SNAP / DAMP / SHAPE / AMP / PITCH) with the engineering name.
   const tuneSec = section("TUNE", "SCROLL OR DRAG");
-  const rows: { id: SetId; key: "detents" | "kp" | "kd" | "amp" | "pitch"; s: ReturnType<typeof slider> }[] = [
+  const rows: { id: SetId; key: "detents" | "kp" | "kd" | "shape" | "amp" | "pitch"; s: ReturnType<typeof slider> }[] = [
     { id: Set.DETENTS, key: "detents", s: slider({ label: "STEPS", caption: "DETENTS", ...Limits.detents, format: (v) => `${v}`, onInput: (v) => send(Set.DETENTS, v) }) },
     { id: Set.KP, key: "kp", s: slider({ label: "SNAP", caption: "KP", ...Limits.kp, format: (v) => v.toFixed(2), onInput: (v) => send(Set.KP, v) }) },
     { id: Set.KD, key: "kd", s: slider({ label: "DAMP", caption: "KD", ...Limits.kd, format: (v) => v.toFixed(3).replace(/^0/, ""), onInput: (v) => send(Set.KD, v) }) },
+    { id: Set.SHAPE, key: "shape", s: slider({ label: "SHAPE", caption: "SAW ONLY", ...Limits.shape, format: (v) => `${v}%`, onInput: (v) => send(Set.SHAPE, v) }) },
     { id: Set.AMP, key: "amp", s: slider({ label: "AMP", caption: "CLICK VOLUME", ...Limits.amp, format: (v) => `${v}%`, onInput: (v) => send(Set.AMP, v) }) },
     { id: Set.PITCH, key: "pitch", s: slider({ label: "PITCH", caption: "CLICK", ...Limits.pitch, format: (v) => `${v.toFixed(2)}X`, onInput: (v) => send(Set.PITCH, v) }) },
   ];

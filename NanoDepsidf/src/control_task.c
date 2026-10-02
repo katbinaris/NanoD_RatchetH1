@@ -888,6 +888,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 uint32_t num_detents = menu_get_haptic_num_detents();
                 float kp = menu_get_haptic_kp();
                 float kd = menu_get_haptic_kd();
+                float shape = menu_get_haptic_shape();
                 haptic_type_t haptic_type = menu_get_haptic_type();
                 // APP mode (menu closed): the live profile slot sets the feel and the detent
                 // count (app_profiles/ -- e.g. Plasticity drags smooth, Figma steps with
@@ -1015,9 +1016,18 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                                              : (-kp * sinf((float)num_detents * rel) - kd * s_haptic_filtered_velocity);
                             break;
                         case HAPTIC_TYPE_SAW:
-                        default:
-                            vq = is_coasting ? 0.0f : (kp * error - kd * s_haptic_filtered_velocity);
+                        default: {
+                            // SHAPE bends the straight line: the gain grows from (1 - shape)
+                            // at the centre to 1 at the midpoint (u = 1), so the midpoint
+                            // force is unchanged, the centre is softer and the rise comes
+                            // later and steeper. shape = 0 is the plain kp * error. Held at 1
+                            // past the midpoint (the hysteresis margin).
+                            float u = fabsf(error) * (float)num_detents * (1.0f / (float)M_PI);
+                            if (u > 1.0f) u = 1.0f;
+                            float gain = 1.0f - shape + shape * u * u;
+                            vq = is_coasting ? 0.0f : (kp * gain * error - kd * s_haptic_filtered_velocity);
                             break;
+                        }
                     }
                     if (vq > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                     if (vq < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;

@@ -64,6 +64,7 @@ export const Set = {
   BOOT: 10,
   ROTATION: 11,
   HOST: 12,
+  SHAPE: 13,
 } as const;
 export type SetId = (typeof Set)[keyof typeof Set];
 const FLOAT_SETTINGS: ReadonlySet<number> = new globalThis.Set([Set.KP, Set.KD, Set.PITCH]);
@@ -79,6 +80,7 @@ export const Limits = {
   detents: { min: 3, max: 36, step: 1 },
   kp: { min: 0, max: 20, step: 0.05 },
   kd: { min: 0, max: 0.15, step: 0.005 },
+  shape: { min: 0, max: 90, step: 5 },
   amp: { min: 0, max: 100, step: 5 },
   pitch: { min: 0.5, max: 2, step: 0.05 },
 };
@@ -106,6 +108,7 @@ export interface Settings {
   boot: number;
   rotation: number;
   host: number;
+  shape: number; // percent; 0 from firmware before SHAPE existed
 }
 
 export interface Profile {
@@ -316,6 +319,7 @@ export function decode(b: Uint8Array): Message {
           boot: b[26],
           rotation: b[27],
           host: b[28],
+          shape: b[29],
         },
       };
     case Tag.PROFILE:

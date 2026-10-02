@@ -72,6 +72,7 @@ enum {
     MENU_HAPTIC_ROW_STEPS = 0,
     MENU_HAPTIC_ROW_SNAP,
     MENU_HAPTIC_ROW_DAMP,
+    MENU_HAPTIC_ROW_SHAPE,
     MENU_HAPTIC_ROW_FEEL,
     MENU_HAPTIC_ROW_AMP,   // click amplitude; TONE (timbre) is hidden for now, see menu.c
     MENU_HAPTIC_ROW_PITCH,
@@ -163,6 +164,7 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out);
 uint32_t menu_get_haptic_num_detents(void);
 float menu_get_haptic_kp(void);
 float menu_get_haptic_kd(void);
+float menu_get_haptic_shape(void); // 0..0.9, the Haptics SHAPE setting
 haptic_type_t menu_get_haptic_type(void);
 
 // Phase 8 step 5: live click timbre, adjustable via the Haptic Configurator's "Haptic Sound"
@@ -201,6 +203,7 @@ typedef struct {
     int32_t feel, amp;
     float pitch;
     int32_t sound, hid_type, midi_channel, profile, boot_mode, rotation, host;
+    int32_t shape;
 } menu_remote_settings_t;
 
 void menu_remote_get(menu_remote_settings_t *out);

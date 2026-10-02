@@ -64,7 +64,7 @@ export class MockTransport implements Transport {
     return { builtin: json, stored: null, live: null };
   });
   private upload: { buf: Uint8Array; crc: number; got: number; flags: number } | null = null;
-  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 0, rotation: 0, host: 0 };
+  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 0, rotation: 0, host: 0, shape: 0 };
   private saved = { ...this.live };
   private timer = 0;
   private t0 = performance.now();
@@ -94,7 +94,7 @@ export class MockTransport implements Transport {
         return reply();
       }
       case Cmd.SET: {
-        const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host"] as const;
+        const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host", "shape"] as const;
         const k = keys[r[1]];
         const f = r[1] === Set.KP || r[1] === Set.KD || r[1] === Set.PITCH;
         if (k) (this.live as any)[k] = f ? inV.getFloat32(4, true) : inV.getInt32(4, true);
@@ -240,7 +240,7 @@ export class MockTransport implements Transport {
   private settings(out: Uint8Array) {
     const v = new DataView(out.buffer);
     const l = this.live, s = this.saved;
-    const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host"] as const;
+    const keys = ["detents", "kp", "kd", "feel", "amp", "pitch", "sound", "hidType", "midi", "profile", "boot", "rotation", "host", "shape"] as const;
     let dirty = 0;
     keys.forEach((k, i) => {
       if (Math.abs((l as any)[k] - (s as any)[k]) > 1e-6) dirty |= 1 << i;
@@ -260,6 +260,7 @@ export class MockTransport implements Transport {
     out[26] = l.boot;
     out[27] = l.rotation;
     out[28] = l.host;
+    out[29] = l.shape;
   }
 
   // A pixel badge in the profile's colour: rounded square + white initial bar.

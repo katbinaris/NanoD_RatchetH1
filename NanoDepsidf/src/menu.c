@@ -66,6 +66,7 @@ struct menu_screen_s {
 static _Atomic int32_t s_ph_detents = HAPTIC_NUM_DETENTS_DEFAULT;
 static _Atomic float s_ph_kp = HAPTIC_KP_DEFAULT;
 static _Atomic float s_ph_kd = HAPTIC_KD_DEFAULT;
+static _Atomic int32_t s_ph_shape = HAPTIC_SHAPE_DEFAULT; // percent
 
 // haptic_type_t itself now lives in haptic_params.h (Phase 8 step 4) -- control_task.c
 // branches on it directly to pick a restoring-force law, so it can no longer be a
@@ -154,6 +155,16 @@ static void CONTROL_HOT rotate_kd(int8_t dir) {
     atomic_store_explicit(&s_ph_kd, v, memory_order_relaxed);
 }
 
+static void fmt_shape(char *buf, size_t n) {
+    snprintf(buf, n, "%ld%%", (long)atomic_load_explicit(&s_ph_shape, memory_order_relaxed));
+}
+static void CONTROL_HOT rotate_shape(int8_t dir) {
+    int32_t v = atomic_load_explicit(&s_ph_shape, memory_order_relaxed) + dir * HAPTIC_SHAPE_STEP;
+    if (v < HAPTIC_SHAPE_MIN) v = HAPTIC_SHAPE_MIN;
+    if (v > HAPTIC_SHAPE_MAX) v = HAPTIC_SHAPE_MAX;
+    atomic_store_explicit(&s_ph_shape, v, memory_order_relaxed);
+}
+
 static void fmt_haptic_type(char *buf, size_t n) {
     snprintf(buf, n, "%s", ph_haptic_type_name(atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed)));
 }
@@ -204,6 +215,7 @@ static void action_save_haptic(void) {
         .sound = (int32_t)atomic_load_explicit(&s_ph_sound, memory_order_relaxed),
         .pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed),
         .amplitude = atomic_load_explicit(&s_ph_amp, memory_order_relaxed),
+        .shape = atomic_load_explicit(&s_ph_shape, memory_order_relaxed),
     };
     config_store_save_haptic(&cfg);
 }
@@ -310,6 +322,7 @@ static const menu_item_t s_haptic_items[MENU_HAPTIC_ROW_COUNT] = {
     [MENU_HAPTIC_ROW_STEPS] = { .label = "STEPS", .caption = "DETENTS", .kind = MENU_ITEM_VALUE, .format_value = fmt_detents,     .on_rotate = rotate_detents },
     [MENU_HAPTIC_ROW_SNAP]  = { .label = "SNAP",  .caption = "KP",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kp,          .on_rotate = rotate_kp },
     [MENU_HAPTIC_ROW_DAMP]  = { .label = "DAMP",  .caption = "KD",      .kind = MENU_ITEM_VALUE, .format_value = fmt_kd,          .on_rotate = rotate_kd },
+    [MENU_HAPTIC_ROW_SHAPE] = { .label = "SHAPE", .caption = "RAMP",    .kind = MENU_ITEM_VALUE, .format_value = fmt_shape,       .on_rotate = rotate_shape },
     [MENU_HAPTIC_ROW_FEEL]  = { .label = "FEEL",  .caption = "TYPE",    .kind = MENU_ITEM_VALUE, .format_value = fmt_haptic_type, .on_rotate = rotate_haptic_type },
     [MENU_HAPTIC_ROW_AMP]   = { .label = "AMP",   .caption = "AMPLITUDE", .kind = MENU_ITEM_VALUE, .format_value = fmt_amp,       .on_rotate = rotate_amp },
     [MENU_HAPTIC_ROW_PITCH] = { .label = "PITCH", .caption = "CLICK",   .kind = MENU_ITEM_VALUE, .format_value = fmt_pitch,       .on_rotate = rotate_pitch },
@@ -477,6 +490,7 @@ typedef struct {
     int32_t detents;
     float kp;
     float kd;
+    int32_t shape;
     haptic_type_t haptic_type;
     audio_click_timbre_t sound;
     float pitch;
@@ -497,6 +511,7 @@ static void settings_capture(settings_t *s) {
     s->detents = atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
     s->kp = atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
     s->kd = atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
+    s->shape = atomic_load_explicit(&s_ph_shape, memory_order_relaxed);
     s->haptic_type = atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
     s->sound = atomic_load_explicit(&s_ph_sound, memory_order_relaxed);
     s->pitch = atomic_load_explicit(&s_ph_pitch, memory_order_relaxed);
@@ -513,6 +528,7 @@ static void settings_restore(const settings_t *s) {
     atomic_store_explicit(&s_ph_detents, s->detents, memory_order_relaxed);
     atomic_store_explicit(&s_ph_kp, s->kp, memory_order_relaxed);
     atomic_store_explicit(&s_ph_kd, s->kd, memory_order_relaxed);
+    atomic_store_explicit(&s_ph_shape, s->shape, memory_order_relaxed);
     atomic_store_explicit(&s_ph_haptic_type, s->haptic_type, memory_order_relaxed);
     atomic_store_explicit(&s_ph_sound, s->sound, memory_order_relaxed);
     atomic_store_explicit(&s_ph_pitch, s->pitch, memory_order_relaxed);
@@ -532,6 +548,7 @@ static void settings_copy_group(settings_t *dst, const settings_t *src, menu_scr
             dst->detents = src->detents;
             dst->kp = src->kp;
             dst->kd = src->kd;
+            dst->shape = src->shape;
             dst->haptic_type = src->haptic_type;
             dst->sound = src->sound;
             dst->pitch = src->pitch;
@@ -563,7 +580,8 @@ static bool settings_group_differs(const settings_t *a, const settings_t *b, men
     switch (group) {
         case MENU_SCREEN_HAPTIC:
             return a->detents != b->detents || a->kp != b->kp || a->kd != b->kd
-                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch || a->amp != b->amp;
+                || a->haptic_type != b->haptic_type || a->sound != b->sound || a->pitch != b->pitch || a->amp != b->amp
+                || a->shape != b->shape;
         case MENU_SCREEN_HID:
             return a->hid_type != b->hid_type || a->midi_channel != b->midi_channel
                 || a->app_profile != b->app_profile;
@@ -640,6 +658,7 @@ void menu_init(void) {
         atomic_store_explicit(&s_ph_sound, (audio_click_timbre_t)hcfg.sound, memory_order_relaxed);
         atomic_store_explicit(&s_ph_pitch, hcfg.pitch, memory_order_relaxed);
         atomic_store_explicit(&s_ph_amp, hcfg.amplitude, memory_order_relaxed);
+        atomic_store_explicit(&s_ph_shape, hcfg.shape, memory_order_relaxed);
     }
     hid_cfg_t icfg;
     if (config_store_load_hid(&icfg)) {
@@ -922,6 +941,10 @@ float CONTROL_HOT menu_get_haptic_kd(void) {
     return atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
 }
 
+float CONTROL_HOT menu_get_haptic_shape(void) {
+    return (float)atomic_load_explicit(&s_ph_shape, memory_order_relaxed) * 0.01f;
+}
+
 haptic_type_t CONTROL_HOT menu_get_haptic_type(void) {
     return atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
 }
@@ -997,6 +1020,7 @@ void menu_remote_get(menu_remote_settings_t *out) {
     out->boot_mode = cur.boot_mode;
     out->rotation = cur.rotation;
     out->host = cur.host;
+    out->shape = cur.shape;
 
     uint16_t d = 0;
     if (cur.detents != saved.detents) d |= 1u << HOST_SET_DETENTS;
@@ -1012,6 +1036,7 @@ void menu_remote_get(menu_remote_settings_t *out) {
     if (cur.boot_mode != saved.boot_mode) d |= 1u << HOST_SET_BOOT;
     if (cur.rotation != saved.rotation) d |= 1u << HOST_SET_ROTATION;
     if (cur.host != saved.host) d |= 1u << HOST_SET_HOST;
+    if (cur.shape != saved.shape) d |= 1u << HOST_SET_SHAPE;
     out->dirty = d;
 }
 
@@ -1042,6 +1067,7 @@ bool menu_remote_set(int id, int32_t ival, float fval) {
             break;
         case HOST_SET_ROTATION: atomic_store(&s_ph_rotation, clampi(ival, 0, MENU_DISPLAY_ROTATIONS - 1)); break;
         case HOST_SET_HOST: atomic_store(&s_ph_host, (menu_host_t)clampi(ival, 0, MENU_HOST_COUNT - 1)); break;
+        case HOST_SET_SHAPE: atomic_store(&s_ph_shape, clampi(ival, HAPTIC_SHAPE_MIN, HAPTIC_SHAPE_MAX)); break;
         default: return false;
     }
     return true;

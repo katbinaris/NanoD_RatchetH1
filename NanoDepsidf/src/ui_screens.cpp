@@ -195,6 +195,7 @@ void draw_menu_list(const menu_render_snapshot_t &snap, float scroll) {
 // Each ring item is a stack around its anchor point: 1.5x icon, label, value.
 
 static const float ORBIT_R = 82;
+static const float ORBIT_STEP_DEG = 360.0f / (int)MENU_HAPTIC_ROW_COUNT;
 
 static void orbit_icon(int row, haptic_type_t feel, float cx, float cy, uint32_t c) {
     const Sprite *s = nullptr;
@@ -202,6 +203,7 @@ static void orbit_icon(int row, haptic_type_t feel, float cx, float cy, uint32_t
         case MENU_HAPTIC_ROW_STEPS: s = &SPR_STEPS_M; break;
         case MENU_HAPTIC_ROW_SNAP: s = &SPR_SNAP_M; break;
         case MENU_HAPTIC_ROW_DAMP: s = &SPR_DAMP_M; break;
+        case MENU_HAPTIC_ROW_SHAPE: s = &SPR_SHAPE_M; break;
         case MENU_HAPTIC_ROW_AMP: s = &SPR_SPK_M; break;
         case MENU_HAPTIC_ROW_PITCH: s = &SPR_PITCH_M; break;
         default: break;
@@ -243,7 +245,7 @@ static void feel_anim(haptic_type_t type, int x, int y, int w, float amp, float 
 
 void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
     for (int i = 0; i < snap.row_count && i < MENU_HAPTIC_ROW_COUNT; i++) {
-        float a = (-90.0f + i * 60.0f) * (float)M_PI / 180.0f;
+        float a = (-90.0f + i * ORBIT_STEP_DEG) * (float)M_PI / 180.0f;
         float x = CX + ORBIT_R * cosf(a), y = CY + ORBIT_R * sinf(a);
         bool f = (i == snap.selected);
         orbit_icon(i, in.feel, x, y - 14, f ? AMBER : WHITE);
@@ -252,7 +254,7 @@ void draw_orbit(const menu_render_snapshot_t &snap, const OrbitInputs &in) {
     }
     // Focus arc on the rim -- moves around the glass with the knob.
     if (snap.selected >= 0) {
-        float a0 = -90.0f + snap.selected * 60.0f;
+        float a0 = -90.0f + snap.selected * ORBIT_STEP_DEG;
         for (float d = -17; d <= 17; d += 0.4f) {
             float a = (a0 + d) * (float)M_PI / 180.0f;
             float ca = cosf(a), sa = sinf(a);

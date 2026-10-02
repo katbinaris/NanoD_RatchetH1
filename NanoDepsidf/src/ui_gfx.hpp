@@ -41,7 +41,7 @@ extern const Sprite SPR_STEPS, SPR_SNAP, SPR_DAMP, SPR_PITCH;
 // 1.5x, at 2x for 3x.
 extern const Sprite SPR_USB_M, SPR_SPK_M, SPR_KBD_M, SPR_MOUSE_M, SPR_NOTE_M, SPR_TERM_M, SPR_CUBE_M;
 extern const Sprite SPR_TRI_L_M, SPR_TRI_R_M;
-extern const Sprite SPR_STEPS_M, SPR_SNAP_M, SPR_DAMP_M, SPR_PITCH_M;
+extern const Sprite SPR_STEPS_M, SPR_SNAP_M, SPR_DAMP_M, SPR_SHAPE_M, SPR_PITCH_M;
 
 void bind(LGFX_Sprite *target);
 void clip(int x, int y, int w, int h);

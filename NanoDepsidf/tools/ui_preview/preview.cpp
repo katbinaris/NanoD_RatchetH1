@@ -48,10 +48,11 @@ static menu_render_snapshot_t haptic_snap(int selected, bool editing, bool dirty
     s.editing = editing;
     s.dirty = dirty;
     s.selected = selected;
-    const char *L[6][3] = {{"STEPS", "DETENTS", "12"}, {"SNAP", "KP", "6.00"}, {"DAMP", "KD", ".010"},
-                           {"FEEL", "TYPE", "VISCOSE"}, {"AMP", "AMPLITUDE", "80%"}, {"PITCH", "CLICK", "1.00X"}};
-    for (int i = 0; i < 6; i++) s.rows[i] = row(L[i][0], L[i][1], L[i][2], i == selected);
-    s.row_count = 6;
+    const char *L[7][3] = {{"STEPS", "DETENTS", "12"}, {"SNAP", "KP", "6.00"}, {"DAMP", "KD", ".010"},
+                           {"SHAPE", "RAMP", "40%"}, {"FEEL", "TYPE", "VISCOSE"}, {"AMP", "AMPLITUDE", "80%"},
+                           {"PITCH", "CLICK", "1.00X"}};
+    for (int i = 0; i < 7; i++) s.rows[i] = row(L[i][0], L[i][1], L[i][2], i == selected);
+    s.row_count = 7;
     return s;
 }
 
@@ -64,7 +65,7 @@ int main() {
                                &ui::SPR_TRI_L, &ui::SPR_TRI_R, &ui::SPR_STEPS, &ui::SPR_SNAP, &ui::SPR_DAMP,
                                &ui::SPR_PITCH, &ui::SPR_USB_M, &ui::SPR_SPK_M, &ui::SPR_KBD_M, &ui::SPR_MOUSE_M,
                                &ui::SPR_NOTE_M, &ui::SPR_TERM_M, &ui::SPR_TRI_L_M, &ui::SPR_TRI_R_M,
-                               &ui::SPR_STEPS_M, &ui::SPR_SNAP_M, &ui::SPR_DAMP_M, &ui::SPR_PITCH_M};
+                               &ui::SPR_STEPS_M, &ui::SPR_SNAP_M, &ui::SPR_DAMP_M, &ui::SPR_SHAPE_M, &ui::SPR_PITCH_M};
     for (const ui::Sprite *s : all) {
         if (strlen(s->rows) != (size_t)s->w * s->h) {
             fprintf(stderr, "sprite %dx%d has %zu chars\n", s->w, s->h, strlen(s->rows));
@@ -136,8 +137,8 @@ int main() {
 
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_FEEL, true, true), {HAPTIC_TYPE_SINE, 700, -1, 1, true});
     keep("orbit FEEL editing");
-    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SNAP, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
-    keep("orbit SNAP editing");
+    ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_SHAPE, true, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
+    keep("orbit SHAPE editing");
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_AMP, true, true), {HAPTIC_TYPE_SAW, 0, -1, 1, true});
     keep("orbit AMP editing");
     ui::draw_orbit(haptic_snap(MENU_HAPTIC_ROW_STEPS, false, false), {HAPTIC_TYPE_SAW, 0, -1, 1, true});

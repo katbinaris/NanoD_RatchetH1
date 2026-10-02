@@ -79,7 +79,7 @@ the editor (see [section 6](#6-the-profile-editor)).
 
 ## 4. HAPTICS
 
-<img src="app-haptics.png" width="720" alt="HAPTICS: the three FEEL cards and the five tuning sliders">
+<img src="app-haptics.png" width="720" alt="HAPTICS: the three FEEL cards and the six tuning sliders">
 
 **FEEL** is how a step pushes back:
 
@@ -89,13 +89,14 @@ the editor (see [section 6](#6-the-profile-editor)).
 | **SINE** | A round bump |
 | **VISCOSE** | A smooth drag, with no steps |
 
-**TUNE** has five sliders. Drag one, scroll over it, or use the arrow keys.
+**TUNE** has six sliders. Drag one, scroll over it, or use the arrow keys.
 
 | Slider | What it sets | Range |
 |---|---|---|
 | **STEPS** | Steps (detents) per turn | 3 to 36 |
 | **SNAP** | How firmly a step holds (Kp) | 0 to 20 |
 | **DAMP** | How much the knob resists fast turning (Kd) | 0 to 0.15 |
+| **SHAPE** | How late the pull of a step rises. At 0% it grows evenly from the centre; higher values make the centre softer and the rise near the next step steeper. SAW only | 0 to 90% |
 | **AMP** | Click volume | 0 to 100% |
 | **PITCH** | Click pitch | 0.5x to 2x |
 

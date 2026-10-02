@@ -186,15 +186,18 @@ Each tick:
 2. **Velocity.** The angle difference from the last tick, low-pass filtered with a 6.7 ms time
    constant.
 3. **The law.** The FEEL setting (or the active profile slot) selects one:
-   - **SAW:** `vq = kp × error − kd × velocity`, a spring toward the detent plus damping.
+   - **SAW:** `vq = kp × gain × error − kd × velocity`, a spring toward the detent plus damping.
+     `gain = 1 − shape + shape × u²`, where `u` runs from 0 at the detent to 1 at the midpoint
+     to the next one. With SHAPE at 0 the gain is 1 (a straight line). Higher values soften
+     the centre and steepen the rise near the midpoint; the force at the midpoint is the same.
    - **SINE:** `vq = −kp × sin(num_detents × position) − kd × velocity`, a smooth bump.
    - **VISCOSE:** `vq = −kd × velocity`, damping only, no detents.
 4. **Coasting.** Above 30 rad/s (a fast flick), SAW and SINE apply no torque, so the knob spins
    freely on momentum. VISCOSE keeps damping at any speed.
 5. **Clamp and slew limit.**
 
-`kp`, `kd` and the detent count come from the menu (SNAP, DAMP, STEPS) as atomics, read once
-per tick. In APP mode the active profile slot overrides the feel and the detent count
+`kp`, `kd`, `shape` and the detent count come from the menu (SNAP, DAMP, SHAPE, STEPS) as
+atomics, read once per tick. In APP mode the active profile slot overrides the feel and the detent count
 (`app_mode_haptics`).
 
 **A detent crossing** is the moment the committed detent index changes. It triggers:

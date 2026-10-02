@@ -103,6 +103,7 @@ static void build_settings(uint8_t *r) {
     r[26] = (uint8_t)s.boot_mode;
     r[27] = (uint8_t)s.rotation;
     r[28] = (uint8_t)s.host;
+    r[29] = (uint8_t)s.shape;
 }
 
 static void result_reply(uint8_t *r, uint8_t cmd, uint8_t res, int index, bool removed, const char *why) {
