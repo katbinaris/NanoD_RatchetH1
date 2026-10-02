@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Install (or remove) the Quadra agent notifications on this Mac.
+"""Install (or remove) the Quadra knob's Mac service: agent notifications and now playing.
 
-    python3 tools/agents/install.py              install / update
-    python3 tools/agents/install.py --dry-run    show what would change
-    python3 tools/agents/install.py --uninstall  take it all out again
+    python3 tools/mac/install.py              install / update
+    python3 tools/mac/install.py --dry-run    show what would change
+    python3 tools/mac/install.py --uninstall  take it all out again
 
 What it does:
   * copies quadrad.py (the service), quadra_hook.py and the quadra.py CLI to ~/.quadra/, writes
-    config.json (once);
+    config.json (once), and builds nowplaying.dylib there (the Now Playing helper; needs the Xcode
+    Command Line Tools -- without them the service falls back to AppleScript for Music/Spotify);
   * runs the service as a LaunchAgent (com.quadra.daemon, log ~/Library/Logs/quadrad.log): agent
     approvals + the AGENTS dashboard, and now playing for the MUSIC profile;
   * adds hooks next to whatever is already there, in
@@ -188,6 +189,24 @@ def launchctl(*args):
     return subprocess.run(["launchctl", *args], capture_output=True, text=True)
 
 
+def build_nowplaying():
+    """The Now Playing helper (nowplaying.m), for whichever arch /usr/bin/perl runs as."""
+    out = os.path.join(QDIR, "nowplaying.dylib")
+    tmp = out + ".tmp"  # replace, never rewrite in place: a running helper has the old one mapped
+    try:
+        r = subprocess.run(["xcrun", "clang", "-dynamiclib", "-fobjc-arc", "-O2", "-arch", "arm64", "-arch",
+                            "x86_64", "-framework", "Foundation", "-o", tmp, os.path.join(HERE, "nowplaying.m")],
+                           capture_output=True, text=True)
+    except OSError as e:
+        r = subprocess.CompletedProcess([], 1, "", str(e))
+    if r.returncode != 0:
+        print("now playing helper NOT built (needs the Command Line Tools: xcode-select --install);"
+              " Music/Spotify over AppleScript meanwhile\n  " + r.stderr.strip()[-400:])
+        return
+    os.replace(tmp, out)
+    print("now playing helper built:", out)
+
+
 def daemon(uninstall, dry):
     domain = f"gui/{os.getuid()}"
     if dry:
@@ -208,6 +227,7 @@ def daemon(uninstall, dry):
         dst = os.path.join(QDIR, os.path.basename(src))
         shutil.copy2(os.path.join(HERE, src), dst)
         os.chmod(dst, 0o700)
+    build_nowplaying()
     cfg = os.path.join(QDIR, "config.json")
     if not os.path.exists(cfg):
         sys.path.insert(0, HERE)

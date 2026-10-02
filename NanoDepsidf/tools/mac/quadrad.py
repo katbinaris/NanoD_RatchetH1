@@ -8,25 +8,29 @@ answer in the app. Nothing here approves on its own: without a knob, after `appr
 or when the hook goes away, the answer is "no decision" and the agent asks in its own UI. The
 same events keep the AGENTS profile's dashboard (EXT_CMD_AGENTS) current.
 
-Music. What's playing (Kaset via its saved session, Music and Spotify via AppleScript) goes to
-the MUSIC profile: the cover as a 240x240 JPEG (EXT_CMD_COVER), the title, artist, the cover's
-colours, the system volume and whether audio is running (EXT_CMD_TRACK).
+Music. The Mac's Now Playing -- what Control Center shows, from any player: Kaset, Music,
+Spotify, a browser tab -- read from MediaRemote by a small helper that /usr/bin/perl loads
+(nowplaying.m; no Full Disk Access or Automation prompts), goes to the MUSIC profile: the cover
+as a 240x240 JPEG (EXT_CMD_COVER), the title, artist, the cover's colours, the system volume and
+the play state (EXT_CMD_TRACK). Without the helper: Music and Spotify over AppleScript.
 
 Config: ~/.quadra/config.json (see DEFAULTS). Log: stdout (the LaunchAgent sends it to
 ~/Library/Logs/quadrad.log).
 """
 import asyncio
+import base64
+import colorsys
 import ctypes
 import io
 import json
 import os
-import plistlib
 import queue
 import ssl
 import struct
 import subprocess
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import zlib
@@ -60,7 +64,6 @@ DEFAULTS = {
     # that moved to the app, "your turn", Cursor's "run?".
     "nudge": {"ask": True, "attention": True, "inapp": True, "turn": False, "run": False},
     "music": True,          # now playing on the MUSIC profile
-    "players": ["Kaset", "Music", "Spotify"],
 }
 
 # --- device (src/ext_proto.h, src/notify.h, src/media.h, src/agent_board.h) ---
@@ -108,8 +111,13 @@ def rgb(spec) -> bytes:
         return b"\0\0\0"
 
 
+ASCII_PUNCT = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "..."})
+
+
 def cstr(s: str, n: int) -> bytes:
-    s = "".join(c if 0x20 <= ord(c) <= 0x7E else "?" for c in str(s))
+    """The knob's font is ASCII: accents come off (Semberé -> Sembere), anything else is '?'."""
+    s = unicodedata.normalize("NFKD", str(s).translate(ASCII_PUNCT))
+    s = "".join(c if 0x20 <= ord(c) <= 0x7E else "?" for c in s if not unicodedata.combining(c))
     return s.encode("ascii")[:n].ljust(n, b"\0")
 
 
@@ -438,13 +446,18 @@ try:
 except Exception:
     SSL_CTX = ssl.create_default_context()
 
-KASET_PLIST = os.path.expanduser(
-    "~/Library/Containers/com.sertacozercan.Kaset/Data/Library/Preferences/com.sertacozercan.Kaset.plist")
 MAX_ART = 8 * 1024 * 1024
+NP_LIB = os.path.join(HOME, "nowplaying.dylib")
+# mediaremoted (the Mac's Now Playing) only answers Apple-signed processes since macOS 15.4.
+# /usr/bin/perl is one: it loads the helper (tools/mac/nowplaying.m) and runs it for us.
+NP_PERL = ('use DynaLoader; my $h = DynaLoader::dl_load_file($ARGV[0], 0) or die DynaLoader::dl_error();'
+           ' my $f = DynaLoader::dl_find_symbol($h, "quadra_np_stream") or die DynaLoader::dl_error();'
+           ' &{DynaLoader::dl_install_xsub("main::np", $f)}();')
+NP_NO_API = 3  # the helper's exit status when this macOS has no MediaRemote Now Playing
 
 
 class CoreAudio:
-    """The system volume and whether anything is playing, straight from CoreAudio (cheap)."""
+    """The system output volume, straight from CoreAudio (cheap)."""
 
     class Addr(ctypes.Structure):
         _fields_ = [("sel", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("elem", ctypes.c_uint32)]
@@ -463,14 +476,52 @@ class CoreAudio:
                                                  ctypes.byref(size), ctypes.byref(v))
         return None if err else v.value
 
-    def state(self):
-        """(volume 0..100 or -1, audio running)"""
+    def volume(self):
+        """0..100, or -1 = unknown"""
         dev = self._get(1, "dOut", "glob", ctypes.c_uint32)
-        if not dev:
-            return -1, False
-        vol = self._get(dev, "vmvc", "outp", ctypes.c_float)
-        running = self._get(dev, "gone", "glob", ctypes.c_uint32)
-        return (round(vol * 100) if vol is not None else -1), bool(running)
+        vol = self._get(dev, "vmvc", "outp", ctypes.c_float) if dev else None
+        return round(vol * 100) if vol is not None else -1
+
+
+class NowPlaying(threading.Thread):
+    """The Mac's Now Playing, from the helper. `latest` = (state, artwork bytes or None), None until
+    the helper speaks; `usable` is False without a working helper (then AppleScript stands in).
+    state: {"bundle", "playing", "title", "artist", "album", "art_seq"} (see nowplaying.m)."""
+
+    def __init__(self):
+        super().__init__(name="nowplaying", daemon=True)
+        self.latest, self.usable = None, os.path.exists(NP_LIB)
+
+    def run(self):
+        fails = 0
+        while self.usable:
+            started, art = time.monotonic(), None
+            try:
+                p = subprocess.Popen(["/usr/bin/perl", "-e", NP_PERL, NP_LIB],
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE)
+            except OSError as e:
+                log(f"now playing: no /usr/bin/perl ({e}): AppleScript instead")
+                self.usable = False
+                break
+            for line in p.stdout:
+                try:
+                    state = json.loads(line)
+                    if "art" in state:
+                        a = state.pop("art")
+                        art = base64.b64decode(a) if a else None
+                except (ValueError, TypeError, AttributeError):
+                    continue
+                self.latest = (state, art)
+            self.latest = None
+            code = p.wait()
+            quick = time.monotonic() - started < 10
+            fails = fails + 1 if quick else 0
+            if code == NP_NO_API or fails >= 3:
+                log(f"now playing: the MediaRemote helper doesn't work here ({code}): AppleScript instead")
+                self.usable = False
+            else:
+                log(f"now playing helper stopped ({code}), restarting")
+                time.sleep(10 if quick else 2)
 
 
 def osa(script, timeout=3):
@@ -500,75 +551,90 @@ def fetch(url):
         return None
 
 
+def loose(s):
+    """A name for comparing: no case, accents or punctuation."""
+    s = unicodedata.normalize("NFKD", s if isinstance(s, str) else "").casefold()
+    return " ".join("".join(c if c.isalnum() else " " for c in s if not unicodedata.combining(c)).split())
+
+
 def itunes_cover(title, artist):
+    """The iTunes Store's cover for the song -- only when its result really is this song."""
+    want_t, want_a = loose(title), loose(artist)
+    if not (want_t and want_a):
+        return None
     try:
-        term = urllib.parse.quote(f"{artist} {title}".strip())
-        with urllib.request.urlopen(f"https://itunes.apple.com/search?term={term}&entity=song&limit=1",
+        term = urllib.parse.quote(f"{artist} {title}")
+        with urllib.request.urlopen(f"https://itunes.apple.com/search?term={term}&entity=song&limit=5",
                                     timeout=5, context=SSL_CTX) as r:
-            res = json.loads(r.read(256 * 1024)).get("results") or []
-        art = res[0].get("artworkUrl100", "").replace("100x100bb", "600x600bb") if res else ""
-        return fetch(art)
+            results = json.loads(r.read(256 * 1024)).get("results") or []
     except Exception:
         return None
+    for s in results:
+        t, a = loose(s.get("trackName")), loose(s.get("artistName"))
+        if t and a and (want_t in t or t in want_t) and (want_a in a or a in want_a):
+            return fetch(s.get("artworkUrl100", "").replace("100x100bb", "600x600bb"))
+    return None
+
+
+def placeholder(title, artist):
+    """A cover for a track that has none anywhere (so the last track's never stays up): a record
+    on a gradient in the track's own colours, the same ones every time. PNG bytes."""
+    from PIL import Image, ImageDraw
+    h = zlib.crc32(f"{artist}\t{title}".encode()) % 360 / 360
+    top = tuple(round(v * 255) for v in colorsys.hsv_to_rgb(h, 0.65, 0.85))
+    bottom = tuple(round(v * 255) for v in colorsys.hsv_to_rgb((h + 0.08) % 1, 0.8, 0.35))
+    img = Image.composite(Image.new("RGB", (240, 240), bottom), Image.new("RGB", (240, 240), top),
+                          Image.linear_gradient("L").resize((240, 240)))
+    d, cx, cy, ink = ImageDraw.Draw(img), 120, 104, (16, 16, 20)
+    d.ellipse((cx - 84, cy - 84, cx + 84, cy + 84), fill=ink)
+    for r in range(78, 32, -7):  # the grooves
+        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(42, 42, 48))
+    d.ellipse((cx - 28, cy - 28, cx + 28, cy + 28), fill=top)  # the label
+    d.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=ink)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
 
 
 class Music:
     POLL_S = 0.5
-    GONE_S = 15  # nothing playing for this long: the MUSIC screen goes back to normal
+    GONE_S = 15     # nothing playing for this long: the MUSIC screen goes back to normal
+    ART_WAIT_S = 3  # a track's artwork often comes a moment after its title
 
     def __init__(self, daemon):
         self.d = daemon
         self.audio = CoreAudio()
-        self.track = None       # {"id", "title", "artist", "player"}
-        self.cover = None       # JPEG bytes of the current track
+        self.np = NowPlaying()
+        self.track = None       # {"id", "title", "artist", "player", "playing"}
+        self.since = 0.0        # when this track came on
+        self.art_seq = None     # the helper's artwork last looked at
+        self.cover_of = None    # the id of the track the knob's cover belongs to
+        self.cover = None       # the knob's cover: JPEG bytes
         self.palette = [0, 0, 0]
         self.sent = None        # the last EXT_CMD_TRACK report
         self.need_cover = False
         self.last_seen = 0.0
-        self.kaset_warned = False
-        self.busy = False
 
     def status(self):
         t = self.track or {}
-        return {"player": t.get("player"), "title": t.get("title"), "artist": t.get("artist"),
-                "cover_bytes": len(self.cover or b"")}
+        return {"source": "MediaRemote" if self.np.usable else "AppleScript", "player": t.get("player"),
+                "title": t.get("title"), "artist": t.get("artist"), "cover_bytes": len(self.cover or b"")}
 
     def resend(self):
         self.sent = None
         self.need_cover = self.cover is not None
 
-    # --- what's playing (blocking: runs in the executor) ---
-    def kaset(self):
-        if not running("Kaset"):
+    @staticmethod
+    def from_np(s):
+        """A track from the helper's state, None when nothing is playing. The album isn't part of
+        which track it is: Kaset's stand-in card (paused, loading) has none, its WebKit card has."""
+        title, artist, player = s.get("title") or "", s.get("artist") or "", s.get("bundle") or "?"
+        if not title:
             return None
-        try:
-            with open(KASET_PLIST, "rb") as fh:
-                d = plistlib.load(fh)
-        except PermissionError:
-            if not self.kaset_warned:
-                self.kaset_warned = True
-                log("Kaset: macOS won't let this Python read Kaset's data -- allow it under System "
-                    "Settings > Privacy & Security > Full Disk Access (or App Data) for "
-                    "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app")
-            return None
-        except (OSError, plistlib.InvalidFileException):
-            return None
-        try:
-            raw = d.get("kaset.saved.playbackSession")
-            ps = json.loads(raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else raw)
-            q, vid = ps.get("queue") or [], ps.get("currentVideoId")
-            cur = next((t for t in q if isinstance(t, dict) and t.get("videoId") == vid), None)
-            if cur is None:
-                i = ps.get("currentIndex", 0)
-                cur = q[i] if isinstance(i, int) and 0 <= i < len(q) else None
-            if not cur:
-                return None
-            artist = ((cur.get("artists") or [{}])[0] or {}).get("name", "")
-            return {"id": cur.get("videoId") or cur.get("title"), "title": cur.get("title", ""), "artist": artist,
-                    "thumb": cur.get("thumbnailURL") or "", "player": "Kaset"}
-        except (ValueError, TypeError, AttributeError):
-            return None
+        return {"id": f"{player}\t{title}\t{artist}", "title": title, "artist": artist, "player": player,
+                "playing": bool(s.get("playing"))}
 
+    # --- without the helper: Music and Spotify over AppleScript (blocking: runs in the executor) ---
     def scriptable(self, app):
         if not running(app):  # never `tell` an app that isn't running: that would launch it
             return None
@@ -581,33 +647,17 @@ class Music:
         parts = (out or "").split("\t")
         if len(parts) < 4:
             return None
-        return {"id": "\t".join(parts[:3]), "title": parts[0], "artist": parts[1], "player": app,
+        return {"id": "\t".join([app] + parts[:3]), "title": parts[0], "artist": parts[1], "player": app,
                 "playing": parts[3] == "playing"}
 
-    def now_playing(self):
-        """The track to show: a scriptable player that's actually playing wins; then Kaset (whose
-        saved session can outlive the music); then a paused scriptable player."""
-        found = {}
-        for p in self.d.cfg.get("players", DEFAULTS["players"]):
-            t = self.kaset() if p == "Kaset" else self.scriptable(p) if p in ("Music", "Spotify") else None
-            if t:
-                found[p] = t
-        for t in found.values():
-            if t.get("playing"):
-                return t
-        return found.get("Kaset") or next(iter(found.values()), None)
+    def scripted(self):
+        """The Music or Spotify track to show: a playing one wins over a paused one."""
+        found = [t for t in map(self.scriptable, ("Music", "Spotify")) if t]
+        return next((t for t in found if t["playing"]), found[0] if found else None)
 
-    def artwork(self, t):
-        """The cover's bytes for track `t`, trying the player's own art first."""
-        if t["player"] == "Kaset":
-            url = t.get("thumb", "")
-            if url:
-                i = url.rfind("=")
-                square = (url[:i] if i != -1 else url) + "=w544-h544-l90-rj"  # a square 544 px cover
-                data = fetch(square) or fetch(url)
-                if data:
-                    return data
-        elif t["player"] == "Music":
+    def scripted_art(self, t):
+        """The cover's bytes for track `t` from its player, else the iTunes Store's."""
+        if t["player"] == "Music":
             tmp = os.path.join(HOME, "cover.tmp")
             ok = osa(f'''tell application "Music" to set ad to data of artwork 1 of current track
                 set f to open for access POSIX file "{tmp}" with write permission
@@ -665,6 +715,25 @@ class Music:
             vivid.append(vivid[len(vivid) % len(picked)] if picked else vivid[-1])
         return buf.getvalue(), vivid
 
+    async def set_cover(self, art):
+        """Make `art` (any image's bytes) the knob's cover; False if it isn't a readable image."""
+        out = await asyncio.get_running_loop().run_in_executor(None, self.render, art)
+        if not out:
+            return False
+        if out[0] != self.cover:  # players re-send the same picture (Kaset on every play/pause)
+            self.cover, self.palette = out
+            self.need_cover = True
+        return True
+
+    async def show_cover(self, t, art, where):
+        """`art` as track `t`'s cover; a placeholder when there's none."""
+        if art and await self.set_cover(art):
+            log(f"  cover from {where}")
+        else:
+            await self.set_cover(placeholder(t["title"], t["artist"]))
+            log("  no cover anywhere: placeholder")
+        self.cover_of = t["id"]
+
     # --- to the knob ---
     async def upload_cover(self):
         data = self.cover
@@ -689,29 +758,42 @@ class Music:
                 + cstr(t["title"], 24) + cstr(t["artist"], 24))
 
     async def run(self):
+        self.np.start()
+        log("now playing: " + ("MediaRemote (system Now Playing)" if self.np.usable else
+                               f"AppleScript (Music, Spotify) -- no {NP_LIB}: run tools/mac/install.py"))
         loop = asyncio.get_running_loop()
         while True:
             await asyncio.sleep(self.POLL_S)
             if not self.d.cfg.get("music", True) or not self.d.dev.connected:
                 continue
-            t = await loop.run_in_executor(None, self.now_playing)
-            vol, audio = self.audio.state()
+            np = self.np.latest if self.np.usable else None
+            if self.np.usable:
+                t = self.from_np(np[0]) if np else None
+            else:
+                t = await loop.run_in_executor(None, self.scripted)
             now = time.monotonic()
             if t:
                 self.last_seen = now
                 if self.track is None or t["id"] != self.track["id"]:
-                    self.track, self.cover, self.palette = t, None, [0, 0, 0]
                     log(f"now playing ({t['player']}): {t['title']} -- {t['artist']}")
-                    art = await loop.run_in_executor(None, self.artwork, t)
-                    out = await loop.run_in_executor(None, self.render, art) if art else None
-                    if out:
-                        self.cover, self.palette = out
-                        self.need_cover = True
-                    else:
-                        log("  no cover found")
+                    self.since = now
+                    if np and np[1]:  # this track's artwork came along with it
+                        self.cover_of = t["id"]
+                    elif not np:      # AppleScript: one look per track
+                        await self.show_cover(t, await loop.run_in_executor(None, self.scripted_art, t), t["player"])
+                self.track = t
             elif self.track is not None and now - self.last_seen > self.GONE_S:
                 log("nothing playing")
-                self.track, self.cover = None, None
+                self.track = None
+            if np and np[0].get("art_seq") != self.art_seq:  # the player's artwork changed
+                self.art_seq = np[0].get("art_seq")
+                if np[1] and self.track and await self.set_cover(np[1]):
+                    self.cover_of = self.track["id"]
+            cur = self.track
+            if np and cur and self.cover_of != cur["id"] and now - self.since >= self.ART_WAIT_S:
+                # No artwork from the player for this track (Kaset's stand-in card has none).
+                art = await loop.run_in_executor(None, itunes_cover, cur["title"], cur["artist"])
+                await self.show_cover(cur, art, "the iTunes Store")
             if self.need_cover:
                 self.need_cover = False
                 t0 = time.monotonic()
@@ -719,9 +801,7 @@ class Music:
                 log(f"  cover {'sent' if ok else 'FAILED'}: {len(self.cover or b'')} B in {time.monotonic() - t0:.2f} s")
                 if not ok:
                     self.need_cover = True
-            # Kaset has no play state of its own: audio running on the output device stands in.
-            playing = bool(t and t.get("playing", audio))
-            report = self.track_report(vol, playing)
+            report = self.track_report(self.audio.volume(), bool(t and t["playing"]))
             if report != self.sent:
                 self.sent = report
                 self.d.dev.send(report)
