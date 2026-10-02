@@ -21,13 +21,14 @@
 #include "esp_log.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
+#include "driver/gptimer.h"
 #include <math.h>
 #include <stdbool.h>
 #include <inttypes.h>
 
 static const char *TAG = "control";
 static TaskHandle_t s_task_handle = NULL;
-static esp_timer_handle_t s_pacing_timer = NULL;
+static gptimer_handle_t s_pacing_timer = NULL;
 
 // Converts a duration in milliseconds to an iteration count at the current
 // CONTROL_LOOP_PERIOD_US, so every *_ITERS constant below keeps its real-world meaning
@@ -355,31 +356,28 @@ static uint32_t s_menu_btn_cooldown_until_iter = 0;
 #define CL_HARD_TIMEOUT_US (60 * 1000 * 1000) // 60s, above the intended ~45.3s (30 x 1.5s)
 static int64_t s_cl_start_us = 0;
 
-static void IRAM_ATTR pacing_timer_cb(void *arg) {
-    // Runs in the esp_timer service task context (default dispatch method), not a true
-    // ISR -- IRAM_ATTR still helps avoid a flash-cache-miss stall here even in task-dispatch
-    // mode, but the "nanosecond latency" benefit people associate with it really applies to
-    // ESP_TIMER_ISR dispatch, which this deliberately isn't: the actual per-tick work below
-    // (blocking SPI reads via spi_device_polling_transmit, ESP_LOGI, xQueueSend) is not safe
-    // to call from a true interrupt handler without a much larger rewrite (ISR-safe SPI,
-    // no logging in the hot path, xQueueSendFromISR) for a benefit we don't need -- our
-    // real problem was Core 0 CPU-time starvation of IDLE0, not dispatch latency, and that's
-    // fixed via CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n in sdkconfig.defaults instead.
-    xTaskNotifyGive(s_task_handle);
+static bool IRAM_ATTR pacing_timer_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *arg) {
+    // A gptimer interrupt on Core 0 that wakes the control task directly. It was an esp_timer
+    // callback: the esp_timer ISR woke the esp_timer task, which woke this one -- two context
+    // switches per tick, 10000 times a second. The per-tick work itself stays in the task
+    // (blocking SPI reads, xQueueSend), only the wake-up is in the ISR.
+    BaseType_t woken = pdFALSE;
+    vTaskNotifyGiveFromISR(s_task_handle, &woken);
+    return woken == pdTRUE;
 }
 
 // Wrap to (-pi, pi].
-static float wrap_pi(float rad) {
+static float CONTROL_HOT wrap_pi(float rad) {
     while (rad > (float)M_PI) rad -= 2.0f * (float)M_PI;
     while (rad <= -(float)M_PI) rad += 2.0f * (float)M_PI;
     return rad;
 }
 
-static float raw_to_rad(int32_t raw) {
+static float CONTROL_HOT raw_to_rad(int32_t raw) {
     return ((float)raw / 16384.0f) * 2.0f * (float)M_PI;
 }
 
-static void control_task_fn(void *arg) {
+static void CONTROL_HOT control_task_fn(void *arg) {
     ESP_LOGI(TAG, "control task started on core %d, prio %d", xPortGetCoreID(), uxTaskPriorityGet(NULL));
 
     // Deliberate delay before anything time-sensitive (button check, motor init) so there's
@@ -1199,10 +1197,22 @@ static void control_task_fn(void *arg) {
 void control_task_start(void) {
     xTaskCreatePinnedToCore(control_task_fn, "control", 4096, NULL, PRIO_CONTROL, &s_task_handle, CORE_CONTROL);
 
-    const esp_timer_create_args_t timer_args = {
-        .callback = &pacing_timer_cb,
-        .name = "control_pacing",
+    // 1 MHz count, an alarm every CONTROL_LOOP_PERIOD_US, reloading. The interrupt lands on
+    // the core that registers the callback: app_main's, Core 0 -- the control task's own.
+    const gptimer_config_t timer_cfg = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000,
     };
-    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_pacing_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(s_pacing_timer, CONTROL_LOOP_PERIOD_US));
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &s_pacing_timer));
+    const gptimer_event_callbacks_t cbs = {.on_alarm = pacing_timer_cb};
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(s_pacing_timer, &cbs, NULL));
+    const gptimer_alarm_config_t alarm = {
+        .alarm_count = CONTROL_LOOP_PERIOD_US,
+        .reload_count = 0,
+        .flags.auto_reload_on_alarm = true,
+    };
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(s_pacing_timer, &alarm));
+    ESP_ERROR_CHECK(gptimer_enable(s_pacing_timer));
+    ESP_ERROR_CHECK(gptimer_start(s_pacing_timer));
 }

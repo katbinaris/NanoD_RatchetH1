@@ -4,7 +4,10 @@
 #include "app_profiles/app_profiles.h"
 #include "sysmon.h"
 #include "host_proto.h"
+#include "tasks_common.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
@@ -593,6 +596,31 @@ static void revert_group_locked(menu_screen_id_t group) {
     settings_restore(&cur);
 }
 
+// F2's NVS commit, on Core 1. It used to run inline in menu_input_save(), i.e. inside a
+// control-loop tick on Core 0: SYS INFO showed ~11 ms of INPUT for one save. Any flash write
+// still briefly stalls both cores (the cache is off while the chip programs), but NVS's own
+// page search, hashing and bookkeeping no longer run on Core 0.
+#define SAVE_QUEUE_LEN 4
+typedef struct {
+    void (*save)(void);
+    menu_screen_id_t group;
+} save_job_t;
+static QueueHandle_t s_save_queue;
+
+static void save_task_fn(void *arg) {
+    save_job_t job;
+    while (1) {
+        xQueueReceive(s_save_queue, &job, portMAX_DELAY);
+        settings_t cur;
+        settings_capture(&cur);
+        job.save();
+        portENTER_CRITICAL(&s_state_mux);
+        settings_copy_group(&s_saved, &cur, job.group);
+        portEXIT_CRITICAL(&s_state_mux);
+        atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed);
+    }
+}
+
 void menu_init(void) {
     portENTER_CRITICAL(&s_state_mux);
     s_stack_depth = 0;
@@ -635,6 +663,9 @@ void menu_init(void) {
     if (config_store_load_bindings(&bind)) {
         atomic_store_explicit(&s_ph_host, (menu_host_t)bind.host, memory_order_relaxed);
     }
+
+    s_save_queue = xQueueCreate(SAVE_QUEUE_LEN, sizeof(save_job_t));
+    xTaskCreatePinnedToCore(save_task_fn, "menu_save", 4096, NULL, PRIO_STORE, NULL, CORE_IO);
 
     // Whatever is live now is, by definition, what's saved (or the defaults, if nothing was)
     // -- the baseline for the dirty cue.
@@ -749,19 +780,12 @@ void menu_input_save(void) {
     }
     portEXIT_CRITICAL(&s_state_mux);
 
-    // The NVS commit (a few ms of flash erase/write) runs outside the spinlock -- a portMUX
-    // critical section disables interrupts on this core for its duration. This still stalls
-    // one tick of control_task.c's loop, as the old "Save" row did; acceptable for an
-    // infrequent, user-paced press. Skipped entirely when nothing changed, so an idle F2
-    // costs no flash wear.
+    // The NVS commit (a few ms of flash erase/write) is handed to save_task_fn() on Core 1 --
+    // this runs inside a control-loop tick. Skipped entirely when nothing changed, so an idle
+    // F2 costs no flash wear. A full queue (F2 hammered) drops the press; the dirty cue stays.
     if (save != NULL) {
-        settings_t cur;
-        settings_capture(&cur);
-        save();
-        portENTER_CRITICAL(&s_state_mux);
-        settings_copy_group(&s_saved, &cur, group);
-        portEXIT_CRITICAL(&s_state_mux);
-        atomic_fetch_add_explicit(&s_save_count, 1, memory_order_relaxed);
+        save_job_t job = {save, group};
+        xQueueSend(s_save_queue, &job, 0);
     }
 }
 
@@ -796,7 +820,7 @@ bool menu_at_end(int8_t direction) {
     return end;
 }
 
-bool menu_take_recalibrate_request(void) {
+bool CONTROL_HOT menu_take_recalibrate_request(void) {
     // Cheap load first: this runs every tick of control_task.c's loop.
     if (!atomic_load_explicit(&s_recal_request, memory_order_relaxed)) return false;
     return atomic_exchange_explicit(&s_recal_request, false, memory_order_relaxed);
@@ -809,7 +833,7 @@ menu_screen_id_t menu_current_screen(void) {
     return id;
 }
 
-bool menu_is_open(void) {
+bool CONTROL_HOT menu_is_open(void) {
     portENTER_CRITICAL(&s_state_mux);
     bool open = (s_stack_depth > 0);
     portEXIT_CRITICAL(&s_state_mux);
@@ -886,19 +910,19 @@ void menu_get_render_snapshot(menu_render_snapshot_t *out) {
 // already write from Core 0's menu_input_rotate(), and format_value() already reads from
 // Core 1's menu_get_render_snapshot() -- one more atomic reader needs no new synchronization,
 // same lock-free convention this file already relies on for all three.
-uint32_t menu_get_haptic_num_detents(void) {
+uint32_t CONTROL_HOT menu_get_haptic_num_detents(void) {
     return (uint32_t)atomic_load_explicit(&s_ph_detents, memory_order_relaxed);
 }
 
-float menu_get_haptic_kp(void) {
+float CONTROL_HOT menu_get_haptic_kp(void) {
     return atomic_load_explicit(&s_ph_kp, memory_order_relaxed);
 }
 
-float menu_get_haptic_kd(void) {
+float CONTROL_HOT menu_get_haptic_kd(void) {
     return atomic_load_explicit(&s_ph_kd, memory_order_relaxed);
 }
 
-haptic_type_t menu_get_haptic_type(void) {
+haptic_type_t CONTROL_HOT menu_get_haptic_type(void) {
     return atomic_load_explicit(&s_ph_haptic_type, memory_order_relaxed);
 }
 
@@ -918,7 +942,7 @@ boot_usb_mode_t menu_get_boot_mode(void) {
     return atomic_load_explicit(&s_ph_boot_mode, memory_order_relaxed);
 }
 
-int32_t menu_get_app_profile(void) {
+int32_t CONTROL_HOT menu_get_app_profile(void) {
     return atomic_load_explicit(&s_ph_app_profile, memory_order_relaxed);
 }
 
@@ -942,7 +966,7 @@ menu_host_t menu_get_host(void) {
     return atomic_load_explicit(&s_ph_host, memory_order_relaxed);
 }
 
-menu_hid_type_t menu_get_hid_type(void) {
+menu_hid_type_t CONTROL_HOT menu_get_hid_type(void) {
     return atomic_load_explicit(&s_ph_hid_type, memory_order_relaxed);
 }
 

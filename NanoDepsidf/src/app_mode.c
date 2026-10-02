@@ -1,4 +1,5 @@
 #include "app_mode.h"
+#include "tasks_common.h"
 #include "app_profiles/app_profiles.h"
 #include "menu.h"
 #include "ui_state.h"
@@ -92,7 +93,7 @@ static _Atomic uint32_t s_pbump = 0;
 
 #define WANT(buttons, modifier, axis_y) ((uint32_t)(buttons) | ((uint32_t)(modifier) << 8) | ((axis_y) ? 1u << 16 : 0u))
 
-static const app_action_t *action(int slot) {
+static const app_action_t *CONTROL_HOT action(int slot) {
     return &s_profile->slot[slot];
 }
 
@@ -101,7 +102,7 @@ static void publish_run(uint8_t ring, uint8_t entry) {
     atomic_store(&s_run, (n << 16) | ((uint32_t)ring << 8) | entry);
 }
 
-static uint32_t tap_room(void) {
+static uint32_t CONTROL_HOT tap_room(void) {
     return APP_TAP_RING - (atomic_load(&s_tap_head) - atomic_load(&s_tap_tail));
 }
 
@@ -178,7 +179,7 @@ static void macro_start(uint8_t ref) {
     else if (s_mqueued < MACRO_QUEUE) s_mqueue[s_mqueued++] = ref;
 }
 
-static void macro_pump(void) {
+static void CONTROL_HOT macro_pump(void) {
     while (s_mrun != NULL && tap_room() > 0) {
         if (s_mstep >= s_mrun->count) {
             s_mrun = NULL;
@@ -482,7 +483,7 @@ static void begin_slot(int slot, int64_t now_us) {
     s_last_motion_us = now_us;
 }
 
-void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
+void CONTROL_HOT app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
     if (held != s_raw_held) {
         s_raw_held = held;
         s_raw_since_us = now_us;
@@ -584,7 +585,7 @@ void app_mode_update(bool active, int64_t now_us, uint8_t held, bool swallow) {
 }
 
 // The knob moved: make sure a slot is live (the knob-alone slot starts itself).
-static bool knob_slot_ready(int64_t now_us) {
+static bool CONTROL_HOT knob_slot_ready(int64_t now_us) {
     if (!s_active || s_profile == NULL) return false;
     if (s_slot < 0) {
         if (s_stable_held != 0) return false; // a key is down but owns no turn action
@@ -594,7 +595,7 @@ static bool knob_slot_ready(int64_t now_us) {
     return true;
 }
 
-void app_mode_motion(float delta_rad, int64_t now_us) {
+void CONTROL_HOT app_mode_motion(float delta_rad, int64_t now_us) {
     if (!s_active || s_profile == NULL) return;
     if (s_param) {
         for (int slot = 0; slot < APP_SLOT_COUNT; slot++) {
@@ -711,7 +712,7 @@ bool app_mode_at_end(int8_t dir) {
     return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
-void app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
+void CONTROL_HOT app_mode_haptics(haptic_type_t *type, uint32_t *detents) {
     if (s_profile == NULL) return;
     if (s_param) { // one click per step; free (number field: the 0.01 step) = fine clicks
         *type = HAPTIC_TYPE_SAW;

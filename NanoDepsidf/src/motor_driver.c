@@ -1,4 +1,5 @@
 #include "motor_driver.h"
+#include "tasks_common.h"
 #include "board_pins.h"
 #include "motor_config.h"
 #include "driver/mcpwm_prelude.h"
@@ -123,7 +124,7 @@ esp_err_t motor_driver_init(void) {
 // regardless of what voltage upstream code requests.
 #define DUTY_MARGIN 0.01f
 
-static uint32_t voltage_to_compare(float phase_volts) {
+static uint32_t CONTROL_HOT voltage_to_compare(float phase_volts) {
     // This board's driver switches each phase between 0V and the supply rail, so duty=0.5
     // means 0V average -- duty fraction is referenced to a virtual neutral at Vbus/2.
     float duty = (phase_volts / MOTOR_MAX_VOLTAGE_V) + 0.5f;
@@ -132,7 +133,7 @@ static uint32_t voltage_to_compare(float phase_volts) {
     return (uint32_t)(duty * MCPWM_PEAK_TICKS); // NOT MCPWM_PERIOD_TICKS -- see comment above
 }
 
-void motor_driver_set_phase_voltages(float ua, float ub, float uc) {
+void CONTROL_HOT motor_driver_set_phase_voltages(float ua, float ub, float uc) {
     mcpwm_comparator_set_compare_value(s_cmpr[0], voltage_to_compare(ua));
     mcpwm_comparator_set_compare_value(s_cmpr[1], voltage_to_compare(ub));
     mcpwm_comparator_set_compare_value(s_cmpr[2], voltage_to_compare(uc));

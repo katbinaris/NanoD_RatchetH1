@@ -83,3 +83,14 @@ CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 
 # LVGL settings (CONFIG_LV_*) removed with the LovyanGFX migration -- LVGL is no longer
 # in the build, so those symbols no longer exist.
+
+# Timing: the 10 kHz control loop's IDF calls run from IRAM, not through the flash cache.
+# Flash code shares the cache with Core 1, and once the companion work (LittleFS, cJSON,
+# host link) grew Core 1's footprint, cache misses on Core 0 put ~1000 iterations a second
+# over 60 us. Every tick does two context switches and a task notify (FreeRTOS -- in flash by
+# default in this IDF), an SPI transaction (the MT6701), three MCPWM compare updates and four
+# GPIO reads. ~20 KB of IRAM. Also changed directly in sdkconfig.esp32-s3-devkitm-1.
+CONFIG_FREERTOS_IN_IRAM=y
+CONFIG_SPI_MASTER_IN_IRAM=y
+CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y
+CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y

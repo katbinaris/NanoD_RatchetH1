@@ -1,4 +1,5 @@
 #include "ui_state.h"
+#include "tasks_common.h"
 #include <stdatomic.h>
 
 static _Atomic int32_t s_detent = 0;
@@ -20,7 +21,7 @@ void ui_state_init(void) {
     atomic_store_explicit(&s_screensaver, false, memory_order_relaxed);
 }
 
-void ui_state_set_detent(int32_t wrapped_index) {
+void CONTROL_HOT ui_state_set_detent(int32_t wrapped_index) {
     atomic_store_explicit(&s_detent, wrapped_index, memory_order_relaxed);
 }
 
@@ -28,7 +29,7 @@ int32_t ui_state_get_detent(void) {
     return atomic_load_explicit(&s_detent, memory_order_relaxed);
 }
 
-void ui_state_set_knob_angle(int32_t angle_1e4_rad) {
+void CONTROL_HOT ui_state_set_knob_angle(int32_t angle_1e4_rad) {
     atomic_store_explicit(&s_knob_angle, angle_1e4_rad, memory_order_relaxed);
 }
 
@@ -36,11 +37,11 @@ int32_t ui_state_get_knob_angle(void) {
     return atomic_load_explicit(&s_knob_angle, memory_order_relaxed);
 }
 
-void ui_state_set_buttons(uint8_t held_mask) {
+void CONTROL_HOT ui_state_set_buttons(uint8_t held_mask) {
     atomic_store_explicit(&s_buttons, held_mask, memory_order_relaxed);
 }
 
-uint8_t ui_state_get_buttons(void) {
+uint8_t CONTROL_HOT ui_state_get_buttons(void) {
     return atomic_load_explicit(&s_buttons, memory_order_relaxed);
 }
 
@@ -56,6 +57,6 @@ void ui_state_set_screensaver(bool active) {
     atomic_store_explicit(&s_screensaver, active, memory_order_relaxed);
 }
 
-bool ui_state_get_screensaver(void) {
+bool CONTROL_HOT ui_state_get_screensaver(void) {
     return atomic_load_explicit(&s_screensaver, memory_order_relaxed);
 }

@@ -62,12 +62,12 @@ static ctl_acc_t s_win;
 static _Atomic uint32_t s_ticks_total = 0;
 static uint32_t s_ticks_local = 0;
 
-void sysmon_control_section(sysmon_section_t sec, uint32_t cycles) {
+void CONTROL_HOT sysmon_control_section(sysmon_section_t sec, uint32_t cycles) {
     s_win.sec_sum[sec] += cycles;
     if (cycles > s_win.sec_max[sec]) s_win.sec_max[sec] = cycles;
 }
 
-void sysmon_control_tick(uint32_t work_cycles, uint32_t period_cycles, uint32_t notified, float vq) {
+void CONTROL_HOT sysmon_control_tick(uint32_t work_cycles, uint32_t period_cycles, uint32_t notified, float vq) {
     atomic_store_explicit(&s_ticks_total, ++s_ticks_local, memory_order_relaxed);
     s_win.ticks++;
     s_win.work_sum += work_cycles;
@@ -246,7 +246,8 @@ static void sysmon_task_fn(void *arg) {
         portEXIT_CRITICAL(&s_info_mux);
 
         // Once, 10 s in (every driver installed by then): which interrupt sits on which core --
-        // anything on CPU 0 besides the esp_timer and the tick competes with the control loop.
+        // anything on CPU 0 besides the pacing gptimer, the esp_timer and the tick competes
+        // with the control loop.
         if (n + 1 == 20) {
             ESP_LOGI(TAG, "interrupt allocation:");
             esp_intr_dump(NULL);

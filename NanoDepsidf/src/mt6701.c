@@ -1,4 +1,5 @@
 #include "mt6701.h"
+#include "tasks_common.h"
 #include "board_pins.h"
 #include "driver/spi_master.h"
 #include "esp_log.h"
@@ -60,7 +61,7 @@ esp_err_t mt6701_init(void) {
 }
 
 // MT6701 SSI CRC: X^6 + X + 1 over the 18 data bits (14 angle + 4 status), MSB first, init 0.
-static uint8_t crc6(uint32_t data18) {
+static uint8_t CONTROL_HOT crc6(uint32_t data18) {
     uint8_t crc = 0;
     for (int i = 17; i >= 0; i--) {
         uint8_t bit = ((data18 >> i) & 1) ^ ((crc >> 5) & 1);
@@ -74,7 +75,7 @@ uint32_t mt6701_crc_errors(void) {
     return atomic_load_explicit(&s_crc_errors, memory_order_relaxed);
 }
 
-int32_t mt6701_read_angle_raw(void) {
+int32_t CONTROL_HOT mt6701_read_angle_raw(void) {
     uint8_t rx[3] = {0};
     spi_transaction_t t = {
         .length = 24,

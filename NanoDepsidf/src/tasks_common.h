@@ -1,5 +1,14 @@
 #pragma once
 
+#include "esp_attr.h"
+
+// Code the control loop runs every tick, placed in IRAM. From flash it goes through the cache
+// Core 1 shares (display, USB, LittleFS, cJSON), and every miss there is a stall on Core 0 --
+// SYS INFO's spikes. Only the per-tick path: event-only code (a detent crossing, a key press)
+// stays in flash. The IDF side of the tick (FreeRTOS, SPI master, MCPWM, GPIO) is placed by
+// sdkconfig.defaults.
+#define CONTROL_HOT IRAM_ATTR
+
 // Core split decided in DEVELOPMENT_PLAN.md: Core 0 is exclusive to the control loop
 // (FOC + sensor + key read + mapping, once those phases land) to keep it deterministic.
 // Core 1 carries everything DMA-offloaded/tolerant: USB, I2S, display, LED.
@@ -39,6 +48,7 @@
 #define PRIO_PD      10 // one-shot USB power read at boot (pd_status.c); above the display for
                         // the same reason, and it mostly waits on I2C
 #define PRIO_SYSMON  10 // SYS INFO sampling (sysmon.c), twice a second; same reason again
+#define PRIO_STORE   10 // F2's NVS save (menu.c), off Core 0; mostly asleep, same reason again
 
 // Control loop rate. Was a 1kHz placeholder through all of Phase 2's bench-validation work.
 // RAISED to 10kHz once for haptic-feel tuning and immediately REVERTED: at the time, IDLE0

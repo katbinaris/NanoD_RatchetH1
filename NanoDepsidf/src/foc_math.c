@@ -1,7 +1,8 @@
 #include "foc_math.h"
+#include "tasks_common.h"
 #include <math.h>
 
-foc_ab_t foc_inverse_park(foc_dq_t dq, float theta_e) {
+foc_ab_t CONTROL_HOT foc_inverse_park(foc_dq_t dq, float theta_e) {
     float s = sinf(theta_e);
     float c = cosf(theta_e);
     foc_ab_t ab;
@@ -10,7 +11,7 @@ foc_ab_t foc_inverse_park(foc_dq_t dq, float theta_e) {
     return ab;
 }
 
-foc_abc_t foc_inverse_clarke(foc_ab_t ab) {
+foc_abc_t CONTROL_HOT foc_inverse_clarke(foc_ab_t ab) {
     static const float SQRT3_OVER_2 = 0.8660254f;
     foc_abc_t abc;
     abc.a = ab.alpha;
