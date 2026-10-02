@@ -63,8 +63,9 @@ int app_mode_live_slot(void);
 // n = the ring's command n-1.
 bool app_mode_wheel(int *ring, int *entry);
 
-// Volume keys sent so far: +1 per Volume Increment, -1 per Volume Decrement (any core).
-int32_t app_mode_volume_steps(void);
+// Volume keys sent so far, +1 per Volume Increment, -1 per Decrement (any core): those under
+// Shift+Option (`fine`) and the rest (`plain`).
+void app_mode_volume_steps(int32_t *fine, int32_t *plain);
 // Commands run so far (a counter that moves on every run) and which one ran last.
 uint32_t app_mode_last_run(int *ring, int *entry);
 // Slot taps fired so far (a counter) and which slot fired last -- a key's quick-press `tap`.

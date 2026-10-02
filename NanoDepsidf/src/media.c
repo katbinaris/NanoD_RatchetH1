@@ -1,5 +1,6 @@
 #include "media.h"
 #include "app_mode.h"
+#include "menu.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -60,26 +61,33 @@ bool media_get_track(media_track_t *out) {
 
 uint32_t media_version(void) { return atomic_load(&s_version); }
 
-// One Shift+Option volume key moves macOS by a quarter of its 16 steps (music.c). The host's
-// report is the truth again once the knob has rested this long (it lags the keys by a USB round
-// trip, so it isn't while they're coming).
-#define VOL_KEY_STEP (100.0f / 64)
+// What one volume key does, in %: on a Mac a quarter of its 16 steps under Shift+Option (music.c),
+// a whole one without; on a PC (the modifier is dropped) Windows' 2. The host's report is the
+// truth again once the knob has rested this long (it lags the keys by a USB round trip, so it
+// isn't while they're coming).
+#define VOL_FINE_MAC (100.0f / 64)
+#define VOL_PLAIN_MAC (100.0f / 16)
+#define VOL_STEP_PC 2.0f
 #define VOL_SETTLE_US 300000
 #define VOL_SHOW_US 1500000 // the ring stays up this long after the last key, fading in the last quarter
 static float s_vol_shown = -1;
-static int32_t s_vol_steps_seen = 0;
+static int32_t s_vol_fine_seen = 0, s_vol_plain_seen = 0;
 static int64_t s_vol_key_us = -(1LL << 40);
 
 int media_volume(int64_t now_us, float *visible) {
-    int32_t steps = app_mode_volume_steps();
+    int32_t fine, plain;
+    app_mode_volume_steps(&fine, &plain);
+    const bool mac = menu_get_host() == MENU_HOST_MAC;
     portENTER_CRITICAL(&s_mux);
     int host = s_has_track ? s_track.volume : -1;
-    int32_t d = steps - s_vol_steps_seen;
-    s_vol_steps_seen = steps;
-    if (d) s_vol_key_us = now_us;
+    int32_t df = fine - s_vol_fine_seen, dp = plain - s_vol_plain_seen;
+    s_vol_fine_seen = fine;
+    s_vol_plain_seen = plain;
+    if (df || dp) s_vol_key_us = now_us;
     int64_t since = now_us - s_vol_key_us;
+    float delta = mac ? df * VOL_FINE_MAC + dp * VOL_PLAIN_MAC : (df + dp) * VOL_STEP_PC;
     if (host >= 0 && (s_vol_shown < 0 || since > VOL_SETTLE_US)) s_vol_shown = host;
-    else if (s_vol_shown >= 0) s_vol_shown = fminf(100.0f, fmaxf(0.0f, s_vol_shown + d * VOL_KEY_STEP));
+    else if (s_vol_shown >= 0) s_vol_shown = fminf(100.0f, fmaxf(0.0f, s_vol_shown + delta));
     float v = s_vol_shown;
     portEXIT_CRITICAL(&s_mux);
     float k = 1.0f - (float)since / VOL_SHOW_US;

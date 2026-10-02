@@ -117,12 +117,14 @@ static void CONTROL_HOT push_tap(app_key_t key) {
     push_tap_wait(key, 0);
 }
 
-// Volume keys sent: +1 per Volume Increment, -1 per Decrement (media.c runs the ring ahead
-// of the host's report on these).
-static _Atomic int32_t s_volume_steps = 0;
+// Volume keys sent, +1 per Volume Increment, -1 per Decrement: under Shift+Option (a quarter
+// step on a Mac) and plain (media.c runs the ring ahead of the host's report on these).
+#define VOLUME_FINE (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_LEFTALT)
+static _Atomic int32_t s_volume_fine = 0, s_volume_plain = 0;
 
-int32_t app_mode_volume_steps(void) {
-    return atomic_load(&s_volume_steps);
+void app_mode_volume_steps(int32_t *fine, int32_t *plain) {
+    *fine = atomic_load(&s_volume_fine);
+    *plain = atomic_load(&s_volume_plain);
 }
 
 // APP_ACT_MEDIA: one Consumer-page usage, under the key's modifier (press + release sent by
@@ -132,8 +134,8 @@ static void CONTROL_HOT push_media(app_key_t key) {
     if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
     s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, 0, 1};
     atomic_store(&s_tap_head, head + 1);
-    if (key.keycode == HID_USAGE_CONSUMER_VOLUME_INCREMENT) atomic_fetch_add(&s_volume_steps, 1);
-    else if (key.keycode == HID_USAGE_CONSUMER_VOLUME_DECREMENT) atomic_fetch_sub(&s_volume_steps, 1);
+    int step = key.keycode == HID_USAGE_CONSUMER_VOLUME_INCREMENT ? 1 : key.keycode == HID_USAGE_CONSUMER_VOLUME_DECREMENT ? -1 : 0;
+    if (step) atomic_fetch_add((key.modifier & VOLUME_FINE) == VOLUME_FINE ? &s_volume_fine : &s_volume_plain, step);
 }
 
 // US key positions for printable ASCII (command-search phrases, typed values, macro text).

@@ -43,6 +43,9 @@ class Daemon:
 
 
 async def main():
+    ca = quadrad.CoreAudio()
+    ca.on_change = lambda: object()  # like call_soon_threadsafe's Handle
+    assert ca._changed(1, 1, None, None) == 0, "the CoreAudio listener answers an OSStatus"
     lookups = []
     quadrad.itunes_cover = lambda title, artist: lookups.append(title)  # finds nothing
     quadrad.Music.POLL_S, quadrad.Music.ART_WAIT_S = 0.01, 0.15

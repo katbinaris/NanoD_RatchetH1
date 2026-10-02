@@ -469,8 +469,12 @@ class CoreAudio:
         for fn in (self.ca.AudioObjectAddPropertyListener, self.ca.AudioObjectRemovePropertyListener):
             fn.argtypes = [ctypes.c_uint32, ctypes.POINTER(self.Addr), self.LISTENER, ctypes.c_void_p]
         self.on_change = lambda: None
-        self._listener = self.LISTENER(lambda *_: self.on_change() or 0)  # kept: CoreAudio holds a raw pointer
+        self._listener = self.LISTENER(self._changed)  # kept: CoreAudio holds a raw pointer
         self._dev = 0
+
+    def _changed(self, *_):
+        self.on_change()
+        return 0  # an OSStatus, whatever on_change returns (call_soon_threadsafe: a Handle)
 
     def _listen(self, obj, sel, scope, on):
         a = self.Addr(self._fcc(sel), self._fcc(scope), 0)
