@@ -20,6 +20,19 @@ import time
 
 import hid
 
+
+def share_hid():
+    """macOS hidapi opens devices exclusively by default, which would lock the daemon, this CLI
+    and the companion app out of each other. Ask for shared opens (no-op elsewhere)."""
+    try:
+        import ctypes
+        ctypes.CDLL(hid.__file__).hid_darwin_set_open_exclusive(0)
+    except (OSError, AttributeError):
+        pass
+
+
+share_hid()
+
 REPORT_SIZE = 64
 VENDOR_USAGE_PAGE, VENDOR_USAGE = 0xFF00, 0x01
 PRODUCT = "Quadra"

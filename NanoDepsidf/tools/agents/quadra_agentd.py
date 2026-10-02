@@ -22,6 +22,19 @@ import time
 
 import hid
 
+
+def share_hid():
+    """macOS hidapi opens devices exclusively by default, which would lock the daemon, this CLI
+    and the companion app out of each other. Ask for shared opens (no-op elsewhere)."""
+    try:
+        import ctypes
+        ctypes.CDLL(hid.__file__).hid_darwin_set_open_exclusive(0)
+    except (OSError, AttributeError):
+        pass
+
+
+share_hid()
+
 HOME = os.environ.get("QUADRA_HOME") or os.path.expanduser("~/.quadra")
 SOCK = os.path.join(HOME, "agentd.sock")
 CONFIG = os.path.join(HOME, "config.json")

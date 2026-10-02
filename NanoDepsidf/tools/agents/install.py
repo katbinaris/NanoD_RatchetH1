@@ -6,7 +6,8 @@
     python3 tools/agents/install.py --uninstall  take it all out again
 
 What it does:
-  * copies quadra_agentd.py + quadra_hook.py to ~/.quadra/ and writes config.json (once);
+  * copies quadra_agentd.py, quadra_hook.py and the quadra.py CLI to ~/.quadra/, writes
+    config.json (once);
   * runs the daemon as a LaunchAgent (com.quadra.agentd, log ~/Library/Logs/quadra-agentd.log);
   * adds hooks next to whatever is already there, in
       ~/.claude/settings.json   (Claude Code: PermissionRequest, Notification, Stop, ...)
@@ -192,9 +193,10 @@ def daemon(uninstall, dry):
         print("daemon stopped and removed")
         return
     os.makedirs(QDIR, mode=0o700, exist_ok=True)
-    for f in ("quadra_agentd.py", "quadra_hook.py"):
-        shutil.copy2(os.path.join(HERE, f), os.path.join(QDIR, f))
-        os.chmod(os.path.join(QDIR, f), 0o700)
+    for src in ("quadra_agentd.py", "quadra_hook.py", "../quadra.py"):
+        dst = os.path.join(QDIR, os.path.basename(src))
+        shutil.copy2(os.path.join(HERE, src), dst)
+        os.chmod(dst, 0o700)
     cfg = os.path.join(QDIR, "config.json")
     if not os.path.exists(cfg):
         sys.path.insert(0, HERE)
