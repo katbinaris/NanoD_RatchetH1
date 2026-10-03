@@ -858,9 +858,13 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // until it's released, so the press that answers can't also play or skip a
                 // track, even if it's still held once the notification is gone. Keys already
                 // down when it appeared carry on, and the knob keeps its job throughout.
+                // Only a finger on the knob approves: F1 (allow) counts from the real button
+                // alone, never the companion's (EXT_CMD_INPUT, over USB or WiFi). Its F2-F4 only
+                // deny or defer, so they still answer.
                 const uint8_t raw_keys = ui_state_get_buttons();
+                const uint8_t answer_keys = (raw_keys & ~UI_BTN_F1) | (gpio_get_level(PIN_BTN_A) == 0 ? UI_BTN_F1 : 0);
                 bool notice = notify_active() && !menu_is_open();
-                if (notice) notify_keys(raw_keys, esp_timer_get_time());
+                if (notice) notify_keys(answer_keys, esp_timer_get_time());
                 s_notice_shown = notice; // the FORCE section's nudge reads it
                 if (notice) s_notice_keys |= raw_keys & ~s_notice_raw_prev;
                 s_notice_keys &= raw_keys;

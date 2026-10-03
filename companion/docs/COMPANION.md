@@ -63,7 +63,8 @@ connected, the header shows **CONNECTED** and the firmware version.
    glows in the colours the real LEDs show. With firmware that has the extensions (v6) the
    screen is the knob's own, live, and the picture is a remote: click a key (held as long as
    the button is down), drag round the knob or scroll over it to turn it -- the knob reacts as
-   if you'd touched it (the volume follows in MUSIC, the zones step in CLOCK).
+   if you'd touched it (the volume follows in MUSIC, the zones step in CLOCK). One exception:
+   an agent's request is only approved by holding F1 on the knob itself, never from here.
 4. **The keys:** F1–F4 light up and press down while you hold them. Hover over one to see
    what it does in the current profile.
 5. **Tabs and the panel:** HAPTICS, PROFILES, LOOK, DEVICE and SYS INFO. LOOK only shows

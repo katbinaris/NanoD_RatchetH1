@@ -38,7 +38,8 @@ bool notify_take_event(uint16_t *id, uint8_t *decision); // decisions waiting to
 
 // --- control task (Core 0, every tick, CONTROL_HOT) ---
 bool notify_active(void);
-// The held-key mask (UI_BTN_*) while an item is up and the menu is closed.
+// The held-key mask (UI_BTN_*) while an item is up and the menu is closed. F1 (allow) must be
+// the physical button only: the caller leaves the companion's virtual F1 out.
 void notify_keys(uint8_t held, int64_t now_us);
 // The nudge: a voltage to add to the motor's q axis this tick (0 = none). `shown`: an item is
 // up and the menu is closed. Two soft bursts when an item that needs input appears, then
