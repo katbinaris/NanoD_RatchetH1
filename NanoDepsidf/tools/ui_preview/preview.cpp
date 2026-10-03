@@ -169,9 +169,17 @@ int main() {
     hid.screen = MENU_SCREEN_HID;
     hid.selected = 0;
     hid.rows[0] = row("PROFILES", "", "KEYBOARD", true);
-    hid.row_count = 1;
+    hid.rows[1] = row("HAPTIC", "", "COARSE", false); // KEYBOARD / MOUSE: the mode's haptic profile
+    hid.row_count = 2;
     ui::draw_hid(hid, {MENU_HID_KEYBOARD, 0, true});
     keep("hid keyboard");
+    hid.selected = 1;
+    hid.rows[0] = row("PROFILES", "", "MOUSE", false);
+    hid.rows[1] = row("HAPTIC", "", "MEDIUM", true);
+    ui::draw_hid(hid, {MENU_HID_MOUSE, 0, true});
+    keep("hid mouse, HAPTIC");
+    hid.selected = 0;
+    hid.row_count = 1;
     hid.rows[0] = row("PROFILES", "", "APP", true);
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
     keep("hid APP");

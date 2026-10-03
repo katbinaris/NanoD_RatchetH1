@@ -44,7 +44,7 @@
     <rect x="560" y="220" width="150" height="8"/><rect x="580" y="250" width="130" height="8"/><rect x="510" y="280" width="200" height="8"/><rect x="600" y="340" width="110" height="8"/>
   </g>
   <g fill="#777" font-size="10">
-    <text x="420" y="228">STEPS</text><text x="420" y="258">SNAP</text><text x="420" y="288">DAMP</text><text x="420" y="318" fill="#ffc94d">AMP</text><text x="420" y="348">PITCH</text>
+    <text x="420" y="228">SNAP</text><text x="420" y="258">DAMP</text><text x="420" y="288">SHAPE</text><text x="420" y="318" fill="#ffc94d">AMP</text><text x="420" y="348">PITCH</text>
   </g>
 
   <!-- callouts -->

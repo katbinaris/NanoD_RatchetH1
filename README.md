@@ -57,21 +57,26 @@ shows, at 2× scale.
   - **SINE:** a smooth bump.
   - **VISCOSE:** pure velocity damping, no detents.
 
-  Detent count, stiffness (Kp) and damping (Kd) are adjustable live. Lists end in a
-  **haptic wall**: the knob pushes back instead of clicking past the end.
+  Five **haptic profiles** package a feel: WIDE, COARSE, MEDIUM and FINE (8 to 36 detents
+  per turn, SAW or SINE) and SMOOTH (VISCOSE). Each keeps its own stiffness (Kp), damping
+  (Kd), SHAPE, click volume and pitch, tunable live within safe limits. Modes, app inputs
+  and parameter steps each use one. Lists end in a **haptic wall**: the knob pushes back
+  instead of clicking past the end.
 - **Audible clicks.** Every detent plays a synthesised click through an I²S amplifier and
-  transducer, with adjustable pitch and amplitude. Two timbres exist (WOOD, THUD); choosing
-  one is hidden from the menu for now, and the saved one plays. Fine-adjustment
-  clicks sound an octave higher so you can hear which mode you are in.
+  transducer, at the pitch and amplitude of the haptic profile in use, so a fine step sounds
+  different from a coarse one. Two timbres exist (WOOD, THUD); choosing one is hidden from
+  the menu for now, and the saved one plays.
 - **USB composite device:**
   - a keyboard, mouse and gamepad HID interface;
-  - a vendor HID data channel, used for icon upload;
+  - a vendor HID data channel, used by the desktop companion and for icon upload;
   - a CDC serial console.
 
-  There is no host software to install; the computer sees a keyboard and a mouse.
+  Nothing has to be installed: the computer sees a keyboard and a mouse. The optional
+  [desktop companion](#desktop-companion) edits settings and profiles.
 - **APP mode with app profiles.** Each supported application is one data file describing
   what the knob and keys send, how the knob feels while doing it, and what the screen shows.
-  Figma, Plasticity and Onshape ship today. Blender and AutoCAD are listed as empty profiles
+  Figma, Plasticity and Onshape ship today. Any profile can be edited, or a new one made,
+  from the companion; edited profiles and macros are stored on the device. Blender and AutoCAD are listed as empty profiles
   (the knob scrolls) until they are designed.
 - **Command wheel.** Hold a key, turn to pick a command, release to run it. Each command has
   a small animated illustration of what it does.
@@ -175,8 +180,11 @@ opens the menu** instead.
 
 <p>
   <img src="NanoDepsidf/docs/images/menu.png" width="180" alt="Top-level menu list">
+  <img src="NanoDepsidf/docs/images/haptics-steps.png" width="180" alt="Haptics screen choosing the haptic profile: COARSE, with its dial">
   <img src="NanoDepsidf/docs/images/haptics-feel.png" width="180" alt="Haptics screen editing FEEL">
+  <img src="NanoDepsidf/docs/images/haptics-smooth.png" width="180" alt="Haptics screen on SMOOTH: SNAP and SHAPE muted">
   <img src="NanoDepsidf/docs/images/hid-app.png" width="180" alt="PROFILES carousel on APP">
+  <img src="NanoDepsidf/docs/images/hid-mouse.png" width="180" alt="PROFILES on MOUSE: the mode's haptic profile">
   <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
   <img src="NanoDepsidf/docs/images/sysinfo-power.png" width="180" alt="SYS INFO: estimated power draw against the USB contract">
@@ -186,7 +194,7 @@ opens the menu** instead.
 
 | Screen | Settings |
 |---|---|
-| **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
+| **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With KEYBOARD or MOUSE, F1 moves to **HAPTIC**, the haptic profile the knob uses in that mode. With MIDI, F1 moves to the channel. |
 | **HAPTICS** | STEPS picks a haptic profile: WIDE, COARSE, MEDIUM or FINE (8, 12, 24 or 36 detents per turn) or SMOOTH (no steps). Each profile keeps its own FEEL (SAW or SINE; SMOOTH is always VISCOSE), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises), AMP and PITCH, within safe limits for that profile and feel. An item that doesn't apply in the current feel shows `--`. Changes are live while you tune; F2 saves; holding F2 for 1.5 s puts the shown profile back to factory. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
@@ -201,8 +209,10 @@ survive power cycles.
 APP is the default HID type. The status bar shows the active app's icon and name, and the
 keys and knob drive that application. Profiles are chosen in **PROFILES → PROFILE**.
 
-The knob's feel follows what it is doing. Smooth drags (orbit, pan, zoom) run VISCOSE.
-Stepped actions (undo history, layers, frames) click once per step.
+The knob's feel follows what it is doing: each input uses a haptic profile. Smooth drags
+(orbit, pan, zoom) use SMOOTH. Stepped actions (undo history, layers, frames, the command
+wheel) use the stepped profile nearest to their step count, so retuning that profile on the
+Haptics screen changes them too.
 
 ### Figma
 
@@ -433,8 +443,9 @@ and never go above 20% brightness.
 | Idle | The gradient drifts slowly and dims | Dimmed |
 
 The animations are deliberately calm: 30 updates a second, and a strip is only sent again
-when one of its LEDs changes. A software cap also scales everything down if the estimated
-draw would pass 250 mA.
+when one of its LEDs changes. A software cap scales everything down if the estimated draw
+would pass the LED budget: 250 mA on a USB-C port that offers 1.5 A or more, 100 mA on a
+plain 500 mA port.
 
 ---
 
@@ -506,9 +517,9 @@ mode, the scroll wheel, end stops) while the motor and haptic maths stay in sens
 coordinates.
 
 **Haptics.** Each tick reads the encoder and finds the nearest detent, with hysteresis. It
-then applies the selected law: a SAW spring with a click pulse, a SINE bump, or VISCOSE
-damping. Fast flicks coast torque-free. End stops refuse the next detent and pull back with a
-stiffer spring that starts continuously from the switch point.
+then applies the active haptic profile's law: a SAW spring with a click pulse, a SINE bump, or
+VISCOSE damping. Fast flicks coast torque-free. End stops refuse the next detent and push
+back without a jump in force.
 
 **State, not events.** The control task never queues USB press/release events. It publishes
 what the host *should* see: held buttons and modifier, pending pointer travel and wheel
@@ -518,7 +529,7 @@ report lost to a busy endpoint can never leave a key or button stuck down.
 **App profiles are data.** `src/app_profiles/` holds one C file per application. A profile
 declares:
 - the slots (knob, F1–F4), each with an action (drag, wheel, keys, tap or command wheel), a
-  feel and a detent count;
+  feel and a detent count, which pick the haptic profile it uses;
 - a quick-tap action per key;
 - the command rings and their commands;
 - each command's card, as scene data;
@@ -592,10 +603,13 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 `companion/` is a macOS app (Tauri, about 4 MB) that reads the knob live and changes its
 settings from the computer, in the device's own pixel style:
 
-- **The glass:** a live mirror of the device. It shows the LED ring with the knob's spot, the
-  detents, the active app or mode, and F1–F4.
-- **HAPTICS:** the haptic profiles (STEPS), and each one's FEEL and SNAP, DAMP, SHAPE, AMP and PITCH sliders.
-- **PROFILES:** the mode and the built-in app profiles, with their icons.
+- **The device:** a render of the knob, live: its screen, the LED ring in the colours the
+  LEDs show, and the keys as you press them.
+- **HAPTICS:** the haptic profiles (STEPS), and each one's FEEL and SNAP, DAMP, SHAPE, AMP
+  and PITCH sliders, with a reset to factory.
+- **PROFILES:** the mode, and the app profiles with their icons. Any profile can be edited:
+  key labels, icon, what the knob and keys send, the command wheel and macros. New profiles
+  can be made from scratch or by duplicating one.
 - **DEVICE:** BINDINGS, rotation, boot mode and the firmware version.
 - **SYS INFO:** power, heat, CPU and system, with a minute of history.
 
@@ -646,6 +660,9 @@ notarizing are covered in [`companion/README.md`](companion/README.md).
    },
    ```
 
+   `.feel` and `.detents` choose the input's haptic profile: VISCOSE uses SMOOTH, and a count
+   uses the nearest of WIDE (8), COARSE (12), MEDIUM (24) and FINE (36).
+
 4. **Optional: a command wheel.** Set a slot to `APP_ACT_COMMANDS` and define `rings`. Each
    command is a shortcut, or a phrase typed into the app's search (`.search`). It has a
    `scene` for its card: a list of keyframes, each a handful of elements such as
@@ -689,6 +706,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
 │   ├── menu.c, config_store.c               settings menu + NVS persistence
+│   ├── haptic_params.h        the haptic profiles: factory values and limits
 │   ├── profile_store.c        stored profiles (LittleFS)
 │   ├── display_task.cpp       view state, transitions, frame pacing
 │   ├── ui_gfx.cpp             pixel primitives, font, sprites
@@ -699,6 +717,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 ├── tools/                     host tools (see above)
 └── docs/
     ├── FIRMWARE.md            technical documentation: how the firmware works
+    ├── PIXEL_ART.md           how every screen, sprite, icon and card is drawn (read before UI work)
     └── images/                README screens (rendered by tools/ui_preview)
 
 companion/                     the desktop app (Tauri + TypeScript; see companion/README.md)
@@ -709,40 +728,39 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 ## Status and roadmap
 
 **Working and confirmed on hardware:**
-- FOC and haptics, with end stops.
+- FOC and haptics, with end stops, and the five haptic profiles.
 - Audio clicks.
 - The USB composite device.
-- The settings menu with persistence, and display rotation.
+- The settings menu with persistence, display rotation, DEVICE → RECALIBRATE and
+  DEVICE → BINDINGS (MAC / PC).
 - APP mode with the Figma, Plasticity and Onshape profiles, their command wheels, and
   parameter mode (Plasticity's handle, Onshape's number field).
 - The idle screen, icon upload, and the pixel UI.
-- The LED ring and key LEDs.
-- Knob direction, menu order, click amplitude (AMP), and the Jump / Boom idle routines.
-- The USB power reading (5 V 3 A over USB-C PD from a Mac) and DEVICE → SYS INFO.
+- The LED ring and key LEDs, with the power budget taken from the USB port.
+- The USB power reading and DEVICE → SYS INFO.
 - A fast, steady control loop: 10.00 kHz, about 26 µs per iteration on average and 42 µs at
   worst of a 100 µs budget, 5 µs of jitter, no missed ticks and no spikes.
+- The desktop companion for macOS: the live device view, settings, haptic profiles, SYS
+  INFO, profile editing and upload, and macros stored on the device.
 
-**Milestone 1 (in progress):**
-- DEVICE → RECALIBRATE (built, not yet confirmed on hardware).
-- DEVICE → BINDINGS, MAC / PC: Cmd sent as Ctrl on a PC (built, not yet confirmed on a
-  Windows PC).
-- LED power budget scaled from the USB power reading.
-- KEYBOARD, MOUSE and MIDI modes.
-- Desktop companion for macOS: live mirror, settings, SYS INFO (built, not yet confirmed
-  against the knob). Next: profile editing and upload, automatic profile switching, the Figma
-  bridge, Windows.
-- Integration tests: first pass done with SYS INFO, and the loop spikes it found are fixed
-  (the loop's code now runs from IRAM). Left: the loop's worst case during a save to flash is
-  not measured yet, and rare audio gaps.
-- Final clean-up.
+**Next:**
+- Safe SNAP and DAMP limits for each haptic profile and feel (today they are the full
+  ranges), and tuned values for each profile's second feel.
+- A haptic-profile choice per app input in the companion's profile editor (today it follows
+  the input's feel and step count).
+- F4 quick tap in APP mode, and KEYBOARD / MOUSE as built-in profiles.
+- Integration tests: the cross-core load test, and the loop's worst case during a save to
+  flash.
+- Real MIDI output (the MIDI mode stores a channel only).
 
-**Milestone 2:**
-- Uploadable profiles stored on the device.
+**Later:**
 - Automatic profile switching from the frontmost app.
 - A Figma plugin for direct value control over HID.
+- The companion on Windows.
 
 **Known assumptions:**
 - Shortcuts are written for **macOS**; on Windows set DEVICE → BINDINGS to PC (Cmd is sent
   as Ctrl). They assume a **US keyboard layout**: HID sends key positions, so other layouts
   can type different characters.
-- Uploaded icons are held in RAM and cleared on restart.
+- Uploaded icons (`send_icon.py`) are held in RAM and cleared on restart; icons imported
+  into a profile in the companion are stored with the profile.

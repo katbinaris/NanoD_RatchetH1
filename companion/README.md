@@ -11,8 +11,8 @@ computer, in the same pixel style as the device's own screens.
 - **HAPTICS:** the haptic profiles (STEPS: WIDE / COARSE / MEDIUM / FINE / SMOOTH) and, for the
   chosen one, its FEEL (SAW / SINE / VISCOSE) and the tuning sliders SNAP, DAMP, SHAPE, AMP
   and PITCH. **RESET TO FACTORY** puts that profile back. Drag, scroll or use the arrow keys; the knob changes as you go.
-- **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI) and, in APP, the app profiles with the icons
-  the device draws. **EDIT** opens any profile, built-ins included: name, icon (import any
+- **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI); in MOUSE and KEYS, the haptic profile the
+  knob uses; in APP, the app profiles with the icons the device draws. **EDIT** opens any profile, built-ins included: name, icon (import any
   image), key labels, what the knob and F1–F4 send, and the command wheel. Edits go to the knob
   a moment after you make them; **SAVE TO KNOB** stores them. A changed built-in keeps its
   original in the firmware, and **RESET TO DEFAULT** brings that back. **DUPLICATE** and
@@ -36,7 +36,8 @@ interface the icon upload uses. No driver is needed on any OS, and on macOS ther
 Monitoring prompt. The wire format is
 [`NanoDepsidf/src/host_proto.h`](../NanoDepsidf/src/host_proto.h), mirrored in
 [`src/proto.ts`](src/proto.ts); change both together. The knob must run firmware with that
-protocol and be in **HID** boot mode.
+protocol (version 3: haptic profiles) and be in **HID** boot mode. With older firmware the
+settings still work, but the HAPTICS tab can't show the profiles' own limits.
 
 The protocol and the whole UI are TypeScript, and only the USB connection differs:
 

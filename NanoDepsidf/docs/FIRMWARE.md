@@ -185,7 +185,7 @@ Each tick:
    sensor noise at a midpoint would flip the choice back and forth.
 2. **Velocity.** The angle difference from the last tick, low-pass filtered with a 6.7 ms time
    constant.
-3. **The law.** The FEEL setting (or the active profile slot) selects one:
+3. **The law.** The active haptic profile's feel (below) selects one:
    - **SAW:** `vq = kp × gain × error − kd × velocity`, a spring toward the detent plus damping.
      `gain = 1 − shape + shape × u²`, where `u` runs from 0 at the detent to 1 at the midpoint
      to the next one. With SHAPE at 0 the gain is 1 (a straight line). Higher values soften
@@ -226,13 +226,18 @@ and feel.
 - the **click pulse** (SAW only): a 4 ms, 100 Hz burst driven above the voltage cap so it
   clips, then a 20 ms decaying tail. It is added on top of the spring and is not slew-limited.
   It does not fire while coasting, because kicks during a free spin would add energy to it.
-- the **audio click** (SAW and SINE): one call to `audio_trigger_click()`.
+- the **audio click**: one call to `audio_trigger_click()`, at the active profile's AMP and
+  PITCH. VISCOSE clicks too, on its virtual steps, but its AMP is 0 by default and at most
+  20%.
 - the **meaning** of the step: a menu move if the menu is open, an APP-mode step in APP mode,
   otherwise one mouse-wheel step queued for the USB task.
 
 **End stops.** When the next detent would run past the end of a list or a value range, the
 loop refuses the crossing and keeps the old detent. It then adds a stiffer spring that starts
-at the switch point, so the wall comes in without a jump. The LEDs flash once per push.
+at the switch point, so the wall comes in without a jump. SINE needs more care, because its
+force is a wave that would push on towards the next step past the midpoint: towards an end,
+the wave is followed only up to its peak (a quarter step out), and from there the push back
+holds that peak and stiffens. The LEDs flash once per push.
 
 **Direction.** `KNOB_DIRECTION` in `control_task.c` decides which way counts as forward for
 everything a turn means. The motor and haptic maths stay in sensor coordinates.
@@ -309,7 +314,7 @@ word, written on one side and read on the other.
 
 | Data | Mechanism | Writer → reader |
 |---|---|---|
-| Settings (detents, kp, kd, feel, sound, mode, profile, ...) | Atomics in `menu.c` | menu, companion → control, i2s, display |
+| Settings, haptic profiles (feel and tuning per profile and feel), the active profile | Atomics in `menu.c` | menu, companion, control → control, i2s, display |
 | Menu navigation state | Small struct under a spinlock (`s_state_mux`) | control → display |
 | Knob angle, detent, held keys, click and wall counters, screensaver | Atomics in `ui_state.c` | control ↔ display, led, companion |
 | Audio clicks | Counter plus a small ring (`audio_trigger.c`) | control → i2s |
@@ -342,9 +347,17 @@ Every setting has three copies:
 - the **undo** value, captured when an edit starts, so F3 can cancel.
 
 F2 hands the save to the `menu_save` task. `config_store.c` writes one blob per settings group,
-each in its own NVS namespace: `haptic_cfg`, `hid_cfg`, `boot_cfg`, `disp_cfg`, `bind_cfg`. On
-load, a blob with the wrong size or an out-of-range value is rejected and the compiled-in
-default is kept. The active profile is stored by its id string, not its index, so adding or
+each in its own NVS namespace: `hprof_cfg` (the haptic profiles: each one's feel and its
+tuning per feel, versioned), `hmode_cfg` (the haptic profile per HID type), `hid_cfg`,
+`boot_cfg`, `disp_cfg`, `bind_cfg`. On load, a blob with the wrong size or an out-of-range
+value is rejected and the compiled-in default is kept; haptic values are also clamped into
+their profile's limits. (`haptic_cfg`, the single global tuning from before haptic
+profiles, is no longer read.)
+
+On the Haptics screen a row that doesn't apply in the profile's current feel is **muted**:
+it shows `--`, the knob skips it and it can't be edited (SNAP in VISCOSE, SHAPE outside
+SAW, FEEL in SMOOTH). F2 there saves on release; held for 1.5 s it puts the shown profile
+back to its factory values (live, unsaved) and the screen shows FACTORY. The active profile is stored by its id string, not its index, so adding or
 reordering profiles does not change what a saved setting points at.
 
 ## 8. APP mode and profiles
@@ -365,7 +378,8 @@ Each slot has an action:
 | TAP | Nothing on a turn; the key press itself sends a shortcut or runs a macro |
 | COMMANDS | Opens the command wheel; a turn picks an entry, releasing the key runs it |
 
-Each slot also sets the feel and the detent count while it is live. A key can carry a quick-tap
+Each slot also names the haptic profile while it is live, through its feel and detent count
+(VISCOSE: SMOOTH; a count: the nearest stepped profile; neither: the HID type's profile). A key can carry a quick-tap
 action as well: pressed and released within 400 ms without turning, it sends a shortcut.
 Holding F4 for 0.7 s without turning opens the menu.
 
@@ -374,7 +388,8 @@ moves more than sensor noise and lets go after 250 ms at rest.
 
 **Parameter mode** is entered by a command that has a parameter spec. The knob then steps a
 value, the keys choose an axis or a step size, and the engine sends the keystrokes that put
-the application into value entry.
+the application into value entry. Each step size has its own haptic profile, finest first
+(section 4.5).
 
 **Macros** are lists of key, text and wait steps. The engine feeds them into the tap ring a
 little each tick as room allows, so a macro can be longer than the ring.
@@ -445,10 +460,17 @@ device) or the reply tag (device to host). Fields are little-endian.
 | Group | Commands |
 |---|---|
 | Handshake | `HELLO` returns the protocol version, profile count, boot mode and firmware version |
-| Settings | `GET_SETTINGS`, `SET` (applied live, clamped like the menu), `SAVE`, `REVERT` |
+| Settings | `GET_SETTINGS`, `SET` (applied live, clamped like the menu), `SAVE`, `REVERT`, `HAPTIC_RESET` |
 | Live state | `STREAM` at up to 50 Hz: knob angle, detent, keys, menu screen; SYS INFO twice a second; LED colours about 15 times a second |
 | Profiles | `PROFILE` (summary), `PROFILE_ICON`, `PROFILE_READ` (the JSON, in 60-byte pieces), `UPLOAD_BEGIN` / `DATA` / `END`, `PROFILE_OP` (save, revert, remove) |
 | Other | `RESET_PEAKS` |
+
+The protocol version is **3**. The haptic values in `SETTINGS` (KP, KD, SHAPE, FEEL, AMP,
+PITCH) are those of one haptic profile, the one the Haptics screen shows, in its current
+feel; the reply also carries that profile's id, the feels it allows and its limits, and the
+HID type's own haptic profile. `SET HAPTIC_PROFILE` chooses which profile the values are of,
+`SET MODE_HAPTIC` sets the current HID type's profile, and `HAPTIC_RESET` puts the shown
+profile back to factory. `SET DETENTS`, from older apps, shows the nearest stepped profile.
 
 Whole profiles travel as JSON text with a CRC-32 over the complete text. Uploads must arrive
 in order; anything else fails the transfer rather than applying a damaged profile.
@@ -467,8 +489,7 @@ held in RAM and lost on restart.
 44.1 kHz to a MAX98357A amplifier and checks for a new click on every sample.
 
 - **Detent click:** one of two timbres (a short pitched "wood" tock, or a tick with a low
-  thud), scaled by the PITCH and AMP settings.
-- **Fine click:** the same click an octave higher, used for fine steps in parameter mode.
+  thud), at the active haptic profile's PITCH and AMP.
 - **Button thump** and the **startup chime**.
 
 Oscillators read a 256-entry sine table rather than calling `sinf`. SYS INFO counts **audio
@@ -490,7 +511,8 @@ Otherwise the task polls every 30 ms. The idle screen starts after 5 seconds wit
 the first key press only wakes the screen and is not passed on.
 
 The same UI code compiles on the host: `tools/ui_preview/run.sh` renders every screen to a PNG
-without hardware.
+without hardware. How the pixel art is drawn, and the rules for changing it, are in
+[PIXEL_ART.md](PIXEL_ART.md).
 
 ## 13. LEDs
 
@@ -503,7 +525,9 @@ the keys. Colours follow the active profile (`app_colors.c`).
 - End stop: a short white flash.
 
 Brightness is capped at 20%, and the whole frame is scaled so the estimated draw stays under
-250 mA. A strip is sent only when its data changed.
+the LED budget: what the USB port offers (`pd_status`) less 400 mA for the board and the motor,
+between 60 and 250 mA. That is 100 mA on a plain 500 mA port and 250 mA from 1.5 A up. A strip
+is sent only when its data changed.
 
 ## 14. SYS INFO
 

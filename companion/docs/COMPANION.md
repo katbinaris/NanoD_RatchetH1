@@ -136,6 +136,8 @@ change it is live at once and stored when you press **SAVE**. On the knob, holdi
 
 In **MOUSE** and **KEYS**, **HAPTIC** picks which haptic profile the knob uses in that mode.
 
+<img src="app-profiles-mouse.png" width="720" alt="PROFILES in MOUSE mode: the HAPTIC profile cards">
+
 In **APP** mode, **APP PROFILE** lists the profiles on the knob with the icons the device
 draws. Click one to use it. Under each name is where it comes from:
 
@@ -197,7 +199,9 @@ There are five inputs: the **KNOB** turned by itself, and the knob turned while 
 | **WHEEL MENU** | Opens the command wheel (F1–F3) | Steps |
 
 - **NAME ON SCREEN** is what the knob's screen shows while that input is in use.
-- **FEEL** and **STEPS** together choose a haptic profile for that input: VISCOSE uses SMOOTH, and a step count uses the nearest of WIDE, COARSE, MEDIUM and FINE. The feel and tuning then come from that haptic profile.
+- **FEEL** and **STEPS** together choose a haptic profile for that input: VISCOSE uses SMOOTH,
+  and a step count uses the nearest of WIDE, COARSE, MEDIUM and FINE. The feel and tuning then
+  come from that haptic profile.
 - **QUICK TAP** (F1–F3) is a key or macro sent when you press and let go without turning.
   It works alongside the turning action of the same key.
 - **F4** has no press actions: holding it still opens the knob's menu.
