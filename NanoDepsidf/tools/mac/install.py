@@ -19,7 +19,8 @@ What it does:
     quadra_hook.py are ever touched, so re-running updates them in place and --uninstall removes
     exactly those. Codex's single `notify` setting is left alone.
 
-The daemon needs `hidapi` for this Python (python3 -m pip install --user hidapi). The hook
+The daemon needs `hidapi` and `Pillow` for this Python (python3 -m pip install --user hidapi
+Pillow). The hook
 script only needs the standard library.
 """
 import argparse
@@ -248,10 +249,11 @@ def main():
     ap.add_argument("--only", default="claude,codex,cursor", help="comma list of agents to (un)hook")
     args = ap.parse_args()
     if not args.uninstall:
-        try:
-            import hid  # noqa: F401
-        except ImportError:
-            raise SystemExit(f"the daemon needs hidapi for {PY}: {PY} -m pip install --user hidapi")
+        for mod, pkg in (("hid", "hidapi"), ("PIL", "Pillow")):  # Pillow: MUSIC's cover
+            try:
+                __import__(mod)
+            except ImportError:
+                raise SystemExit(f"the daemon needs {pkg} for {PY}: {PY} -m pip install --user {pkg}")
     only = set(args.only.split(","))
     daemon(args.uninstall, args.dry_run)
     configure(args.uninstall, args.dry_run, only)

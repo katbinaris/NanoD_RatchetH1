@@ -447,7 +447,7 @@ playing, the AGENTS requests and dashboard, and CLOCK's local time. It talks to 
 over USB.
 
 ```sh
-python3 -m pip install --user hidapi
+python3 -m pip install --user hidapi Pillow
 python3 NanoDepsidf/tools/mac/install.py             # install or update
 python3 NanoDepsidf/tools/mac/install.py --dry-run   # show what would change
 python3 NanoDepsidf/tools/mac/install.py --uninstall # take it all out again
