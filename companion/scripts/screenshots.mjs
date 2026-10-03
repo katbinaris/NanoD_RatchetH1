@@ -30,7 +30,7 @@ const shot = async (name) => {
 const click = (sel, text) => pg.locator(sel, text ? { hasText: text } : {}).first().click();
 
 await pg.goto(`${BASE}/?demo#/mode`);
-await pg.waitForTimeout(3000);
+await pg.waitForTimeout(6000); // every profile and its icon
 await document_fonts();
 
 await shot("app-mode");

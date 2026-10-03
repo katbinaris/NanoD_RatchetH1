@@ -93,7 +93,9 @@ function Icon(p: { d: string; circle?: boolean; small?: boolean }) {
   );
 }
 
-export const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s/-])\S/g, (c) => c.toUpperCase());
+// Names the knob shows in capitals, as their makers write them.
+const NAMES: Record<string, string> = { AUTOCAD: "AutoCAD" };
+export const titleCase = (s: string) => NAMES[s] ?? s.toLowerCase().replace(/(^|[\s/-])\S/g, (c) => c.toUpperCase());
 
 // The knob: its render, and on its glass what its main screen shows (drawn here from what the
 // knob reports -- not streamed).

@@ -70,7 +70,9 @@ pnpm dev                # just the page: open http://localhost:1420 in Chrome fo
 
 **Demo mode:** add `?demo` to the page's URL, for example `http://localhost:1420/?demo`. A
 simulated knob answers the protocol (and the extensions up to v5: Look, Wi-Fi status, the
-clock), so the UI can be worked on without the hardware. Every page has an address:
+clock), so the UI can be worked on without the hardware. Its built-in profiles are the
+firmware's, icons included, from `src/demo_builtins.json`; after a built-in profile or icon
+changes, rerun `scripts/gen_demo_builtins.sh` (it uses `tools/profile_json_test`). Every page has an address:
 `#/mode`, `#/haptics`, `#/profile/figma/general` (or `keys/f1`, `wheel`, `macros`),
 `#/look/lights` (`screen`, `clock`), `#/device/general` (`wifi`), `#/sys` — for example
 `http://localhost:1420/?demo#/profile/figma/keys/f1`.
@@ -132,14 +134,15 @@ src/transport.ts    Tauri pipe | WebHID, one interface
 src/device.ts       connection, settings, profiles + icons, SYS history; changes by topic
 src/store.ts        the views' state: a signal per device topic, the #route, save / revert
 src/profiles.ts     new profile, duplicate
-src/mock.ts         ?demo: a simulated knob
+src/mock.ts         ?demo: a simulated knob (its built-ins: src/demo_builtins.json)
 src/main.tsx        the pages by route
 src/pages/          Mode, Haptics, Look, Device, System info; profile/ (the editor's tabs,
                     its session with the knob, an input's haptic profile)
 src/ui/             the shell (sidebar, top bar), controls, the knob's screen drawn from data
 src/style.css       the look: tokens, layout, controls
 src/assets/         device.png, the top-down render (the sidebar's picture)
-scripts/            screenshots.mjs (the user guide's), gen_tzdata.py (the clock's cities)
+scripts/            screenshots.mjs (the user guide's), gen_demo_builtins.sh (the demo knob's
+                    profiles), gen_tzdata.py (the clock's cities)
 src-tauri/          the Rust side: HID list / open / write / close, reports as events; Wi-Fi
 ```
 

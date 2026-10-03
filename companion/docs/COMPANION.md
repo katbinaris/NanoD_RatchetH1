@@ -5,8 +5,8 @@ profiles from the computer. This guide is for someone using the app. For buildin
 [companion README](../README.md); for the protocol and the firmware side, see
 [FIRMWARE.md](../../NanoDepsidf/docs/FIRMWARE.md) §10.
 
-The screenshots here are taken in demo mode (a simulated knob), so some values differ from a
-real device.
+The screenshots here are taken in demo mode, a simulated knob that has the firmware's own
+built-in profiles and icons. Settings such as Wi-Fi, the clock and System info are made up.
 
 ## Contents
 
@@ -97,7 +97,7 @@ music cover style, the clock, and Wi-Fi. Their pages say so.
 
 ## 4. Mode
 
-<img src="app-mode.png" width="720" alt="Mode: App, Mouse, Keys and MIDI; the profile in use; Edit and Duplicate">
+<img src="app-mode.png" width="720" alt="Mode: App, Mouse, Keys and MIDI; the eight built-in profiles, Plasticity in use; Edit and Duplicate">
 
 **Mode** is what the knob sends to the computer:
 
@@ -234,7 +234,7 @@ for shortcuts the system keeps to itself (⌘Q, ⌘Tab); × clears it.
 
 ## 8. Command wheel
 
-<img src="app-editor-wheel.png" width="720" alt="Command wheel: the ring LAYOUT with three commands, and the command search settings">
+<img src="app-editor-wheel.png" width="720" alt="Command wheel: Figma's four rings, STRUCTURE open with its four commands and their shortcuts">
 
 The command wheel appears on the knob while you hold a key set to **Wheel menu**: turn to pick
 a command, let go to run it. The tab says which key opens it.

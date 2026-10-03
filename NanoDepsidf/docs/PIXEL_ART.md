@@ -243,7 +243,10 @@ sizes. The pixel rules above apply only where it shows **the knob itself**.
   `companion/`, `node scripts/screenshots.mjs` (Playwright: WebKit, the Mac app's engine, at
   1280×800 and a device scale of 2; Chromium for the not-connected page). They live in
   `companion/docs/`. Each page has an address for a single shot, e.g.
-  `http://localhost:1420/?demo#/profile/figma/keys/f1`.
+  `http://localhost:1420/?demo#/profile/figma/keys/f1`. The demo knob has the firmware's
+  built-in profiles and icons (`companion/scripts/gen_demo_builtins.sh`), so the shots show
+  what a real knob shows; rerun it before retaking them after a built-in profile or icon
+  changes.
 - **Illustrations** in the companion's docs (`companion/docs/fig-*.svg`) are hand-written SVG
   in the companion's style: its colours on `#0b0c0d`, Geist (with system fallbacks), sentence
   case.

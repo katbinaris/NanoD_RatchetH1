@@ -2,46 +2,12 @@
 // the protocol like host_link.c does and streams a slowly turning knob.
 
 import { CLOCK_SLOTS, ClockOp, Cmd, EXT_CLOCK_VERSION, ExtCmd, ExtTag, ICON_BYTES, NetOp, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
-import { b64ToBytes, bytesToB64, blankProfile, ID_RE, type ProfileJson } from "./profile";
+import { b64ToBytes, ID_RE, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
+import builtins from "./demo_builtins.json";
 
-// Built-ins like the firmware's (trimmed: Figma has a small command wheel to edit).
-const BUILTINS: { json: ProfileJson; color: number[] }[] = [
-  {
-    color: [0xff, 0x8a, 0x3d],
-    json: {
-      ...blankProfile("plasticity", "PLASTICITY"),
-      legend: ["ZOOM", "ORBIT", "WHEEL", "PAN"],
-      slots: {
-        knob: { kind: "drag", label: "ZOOM", buttons: 4, modifier: 1, axis_y: true, px_per_rad: 120, sign: -1, feel: "viscose", fx: "zoom" },
-        f2: { kind: "drag", label: "ORBIT", buttons: 4, px_per_rad: 120, sign: 1, feel: "viscose", fx: "orbit" },
-        f3: { kind: "commands", label: "UNDO", tap: [8, 29], detents: 12, fx: "flash" },
-        f4: { kind: "drag", label: "PAN", buttons: 2, px_per_rad: 120, sign: 1, feel: "viscose", fx: "pan" },
-      },
-      rings: [
-        { name: "SOLID", tab: "SOLID", slot: "f1", cmds: [{ name: "EXTRUDE", key: [0, 8], scene: { frames: [{ ms: 600, el: [[10, 3, 32, 40, 16, 16, 0, 0, 2]] }] }, param: { label: "DISTANCE", steps: [0.05, 0.1, 1], min: -8, max: 10, decimals: 2 } }, { name: "FILLET", key: [0, 5] }] },
-        { name: "VIEW", tab: "VIEW", slot: "f4", cmds: [{ name: "FRONT", key: [0, 89] }, { name: "TOP", key: [0, 95] }] },
-      ],
-      search: { open: [0, 9], open_wait: 20, result_wait: 30 },
-    },
-  },
-  {
-    color: [0xa2, 0x59, 0xff],
-    json: {
-      ...blankProfile("figma", "FIGMA"),
-      legend: ["UNDO", "DEPTH", "CMDS", "FRAME"],
-      slots: {
-        knob: { kind: "wheel", label: "ZOOM", modifier: 8, sign: 1, detents: 24 },
-        f1: { kind: "keys", label: "UNDO", cw: [10, 29], ccw: [8, 29], tap: [8, 29], detents: 12 },
-        f3: { kind: "commands", label: "COMMANDS", detents: 12 },
-        f4: { kind: "keys", label: "FRAME", cw: [0, 17], ccw: [2, 17], detents: 12 },
-      },
-      rings: [{ name: "LAYOUT", tab: "LAYOUT", slot: "f1", cmds: [{ name: "ADD AUTO LAYOUT", key: [2, 4] }, { name: "WRAP IN FRAME", key: [12, 10] }, { name: "CREATE COMPONENT", kind: "actions", phrase: "create component" }] }],
-      search: { open: [8, 14], open_wait: 20, result_wait: 30 },
-    },
-  },
-  { color: [0x2f, 0x9b, 0xff], json: { ...blankProfile("onshape", "ONSHAPE"), legend: ["ZOOM", "ORBIT", "WHEEL", "PAN"] } },
-];
+// The firmware's built-ins, icons included (scripts/gen_demo_builtins.sh writes the file).
+const BUILTINS = builtins as ProfileJson[];
 
 // One registry entry, as app_profiles.c keeps it.
 interface Entry {
@@ -57,14 +23,9 @@ export class MockTransport implements Transport {
   onReport: (r: Uint8Array) => void = () => {};
   onClosed: () => void = () => {};
 
-  private reg: Entry[] = BUILTINS.map((b) => {
-    const json = structuredClone(b.json);
-    json.icon48 = bytesToB64(this.badge(b.color, 48));
-    json.icon24 = bytesToB64(this.badge(b.color, 24));
-    return { builtin: json, stored: null, live: null };
-  });
+  private reg: Entry[] = BUILTINS.map((p) => ({ builtin: structuredClone(p), stored: null, live: null }));
   private upload: { buf: Uint8Array; crc: number; got: number; flags: number } | null = null;
-  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 1, rotation: 0, host: 0, shape: 0 };
+  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 3, boot: 1, rotation: 0, host: 0, shape: 0 };
   private saved = { ...this.live };
   // ext_proto.h: LIGHTS (saved by SAVE like the rest) and the idle word (stored at once).
   private lights = { src: 0, fx: 0, hue: 200, sat: 80, speed: 5, level: 100 };
@@ -124,14 +85,14 @@ export class MockTransport implements Transport {
     const out = new Uint8Array(REPORT_SIZE);
     const v = new DataView(out.buffer);
     const inV = new DataView(r.buffer, r.byteOffset);
-    const reply = (): void => void setTimeout(() => this.onReport(out), 5);
+    const reply = (): void => void setTimeout(() => this.onReport(out), 1);
     switch (r[0]) {
       case Cmd.HELLO: {
         out[0] = Tag.HELLO;
         out[1] = 1;
         out[1] = 3;
         out[2] = this.reg.length;
-        out.set(new TextEncoder().encode("DEMO 7142FDA"), 4);
+        out.set(new TextEncoder().encode("v2.0.0"), 4);
         out.set(new TextEncoder().encode("SEP 30 2026"), 36);
         return reply();
       }
@@ -436,28 +397,10 @@ export class MockTransport implements Transport {
     v.setFloat32(56, lim.pitchMax, true);
   }
 
-  // A pixel badge in the profile's colour: rounded square + white initial bar.
-  private badge([r, g, b]: number[], size: number): Uint8Array {
-    const px = new Uint8Array(size * size * 2);
-    const k = size / 48;
-    const c565 = (r: number, g: number, b: number) => ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++) {
-        const X = x / k, Y = y / k;
-        const inside = X >= 6 && X < 42 && Y >= 6 && Y < 42 && !((X < 9 || X >= 39) && (Y < 9 || Y >= 39));
-        const mark = X >= 18 && X < 30 && Y >= 16 && Y < 32 && !(X >= 21 && X < 27 && Y >= 19 && Y < 29);
-        const c = inside ? (mark ? c565(255, 255, 255) : c565(r, g, b)) : 0;
-        px[(y * size + x) * 2] = c >> 8;
-        px[(y * size + x) * 2 + 1] = c & 0xff;
-      }
-    return px;
-  }
-
-  // Like led_task.c: a dim gradient of the profile's colour round the ring, a bright spot at
+  // Like led_task.c: a dim gradient round the ring, a bright spot at
   // the knob, keys dim (a held one bright). Values as the strips get them: at most ~51.
   private ledFrame(angle: number, held: number) {
-    const e = this.reg[this.live.profile];
-    const color = (e && BUILTINS.find((b) => b.json.id === view(e).id)?.color) ?? [255, 201, 77];
+    const color = [255, 201, 77];
     const rgb = new Uint8Array(LED_COUNT * 3);
     const pos = (((angle / (2 * Math.PI)) * 60) % 60 + 60) % 60;
     for (let i = 0; i < 60; i++) {
