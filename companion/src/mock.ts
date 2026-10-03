@@ -1,7 +1,7 @@
 // A pretend knob for working on the UI without hardware: open the page with ?demo. Answers
 // the protocol like host_link.c does and streams a slowly turning knob.
 
-import { Cmd, ExtCmd, ExtTag, ICON_BYTES, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
+import { CLOCK_SLOTS, ClockOp, Cmd, EXT_CLOCK_VERSION, ExtCmd, ExtTag, ICON_BYTES, NetOp, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
 import { b64ToBytes, bytesToB64, blankProfile, ID_RE, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -70,6 +70,17 @@ export class MockTransport implements Transport {
   private lights = { src: 0, fx: 0, hue: 200, sat: 80, speed: 5, level: 100 };
   private lightsSaved = { ...this.lights };
   private idleText = "";
+  // ext_proto.h: WiFi (EXT_CMD_NET, v4) and the CLOCK app (EXT_CMD_CLOCK, v5). The demo knob is
+  // on a network already; the screen stream (v6) and the WiFi link (v7) it doesn't speak.
+  private net = { state: 2, rssi: -52, ip: [192, 168, 1, 42], on: 1, ssid: "STUDIO", host: "quadra-7142" };
+  private clockFlags = 0x07; // 24 h, seconds, date
+  private zones = [
+    { label: "LOCAL", rule: "CET-1CEST,M3.5.0,M10.5.0/3", off: 120 },
+    { label: "TOKYO", rule: "JST-9", off: 540 },
+    { label: "NEW YORK", rule: "EST5EDT,M3.2.0,M11.1.0", off: -240 },
+    { label: "", rule: "", off: 0 },
+    { label: "", rule: "", off: 0 },
+  ];
   // Haptic profiles, like menu.c: a feel per profile and one set of values per profile and
   // feel, with the firmware's placeholder factory values and limits.
   private hp = MockTransport.hpFactory();
@@ -163,8 +174,32 @@ export class MockTransport implements Transport {
         return reply();
       case ExtCmd.HELLO:
         out[0] = ExtTag.HELLO;
-        out[1] = 3;
+        out[1] = EXT_CLOCK_VERSION;
         return reply();
+      case ExtCmd.NET:
+        if (r[1] === NetOp.SSID) this.net.ssid = new TextDecoder().decode(r.subarray(2, 34)).replace(/\0.*$/s, "");
+        if (r[1] === NetOp.APPLY) this.net = { ...this.net, on: r[2] === 1 ? 1 : 0, state: r[2] === 1 ? 2 : 0 };
+        if (r[1] !== NetOp.STATUS && r[1] !== NetOp.APPLY) return; // the rest answer at APPLY
+        this.netStatus(out);
+        return reply();
+      case ExtCmd.CLOCK: {
+        let slot = 0;
+        if (r[1] === ClockOp.FORMAT) this.clockFlags = r[2];
+        else if (r[1] === ClockOp.ZONE && r[2] >= 1 && r[2] < CLOCK_SLOTS) {
+          slot = r[2];
+          const s = (a: number, b: number) => new TextDecoder().decode(r.subarray(a, b)).replace(/\0.*$/s, "");
+          this.zones[slot] = { label: s(3, 15), rule: s(15, 61), off: 0 };
+        } else if (r[1] === ClockOp.GET && r[2] < CLOCK_SLOTS) slot = r[2];
+        const z = this.zones[slot];
+        out[0] = ExtTag.CLOCK;
+        out[1] = this.clockFlags;
+        out[2] = 1;
+        out[3] = slot;
+        v.setInt16(4, z.off, true);
+        out.set(new TextEncoder().encode(z.label), 6);
+        out.set(new TextEncoder().encode(z.rule), 18);
+        return reply();
+      }
       case ExtCmd.LIGHTS: {
         const l = this.lights;
         if (r[2] !== 0xff) l.src = r[2];
@@ -307,6 +342,18 @@ export class MockTransport implements Transport {
     v.setUint16(7, l.level, true);
     out[9] = JSON.stringify(l) !== JSON.stringify(this.lightsSaved) ? 1 : 0;
     out.set(new TextEncoder().encode(this.idleText), 16);
+  }
+
+  private netStatus(out: Uint8Array) {
+    const n = this.net, on = n.state === 2;
+    out[0] = ExtTag.NET;
+    out[1] = n.state;
+    out[2] = on ? n.rssi & 0xff : 0;
+    if (on) out.set(n.ip, 3);
+    out[7] = on ? 1 : 0;
+    out[8] = n.on;
+    out.set(new TextEncoder().encode(n.ssid), 9);
+    out.set(new TextEncoder().encode(n.host), 41);
   }
 
   private saveEntry(e: Entry) {

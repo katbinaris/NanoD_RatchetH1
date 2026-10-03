@@ -1,3 +1,4 @@
 pillow
 hidapi
 cryptography
+esptool

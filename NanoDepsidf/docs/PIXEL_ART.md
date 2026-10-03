@@ -31,13 +31,14 @@ Paths below are relative to `NanoDepsidf/` unless they start with `companion/`.
    anti-aliasing, no blending, no sub-pixel positions, no smoothed lines or curves. A curve or
    a circle is a run of whole pixels.
 2. **Black background, four colours.** White, grey, dark and amber (section 2). App icons are
-   the only full-colour artwork. A new colour needs a reason good enough to change this
-   document.
+   the only full-colour artwork, apart from the fixed exceptions listed in section 2. A new
+   colour needs a reason good enough to change this document.
 3. **Drawn from descriptions, not stored as pictures.** Screens, sprites, command cards and
    animations are code or data that describe shapes (a box here, a row there, a keyframe
    time), drawn at runtime. Do not add pre-rendered frames, sprite sheets or bitmaps for UI
-   art. The two exceptions are the app icons (section 7) and the font (section 5), and both
-   are generated from source files by tools in the repo.
+   art. The exceptions are the app icons (section 7) and the font (section 5), both generated
+   from source files by tools in the repo, and MUSIC's album cover, a picture the computer
+   sends (section 2).
 4. **Scale by whole numbers.** 2×, 3× and 4× repeat each pixel. A 1.5× version of a sprite is
    a separate hand-drawn sprite (the `_M` sprites), never a resample.
 5. **Pixels are shared by firmware and host.** All device drawing goes through `ui_gfx.cpp`,
@@ -64,6 +65,19 @@ The keycap sprite has its own shading (`KEY_FACE`, `KEY_SIDE`, `KEY_OFF_FACE`,
 Each app also has three **accent colours**, used by the idle screen and the LEDs: the
 profile's `plasma_heat`, or failing that the three most common colours of its 48×48 icon
 (`src/app_colors.c`). Accents never appear in menus or general UI.
+
+**Fixed exceptions** (`src/ui_extras.cpp`). These came in with MUSIC, AGENTS and LIGHTS, and
+each is limited to its own screen:
+- **Agent requests:** the agent's colour (badge, rim, ring arcs); `ALLOW_GREEN` for the F1
+  hold arc and the ALLOW label; `DENY_RED` for the DENY label; a near-black `PANEL` behind the
+  command.
+- **MUSIC now playing:** the album cover, a 240×240 picture decoded on the device. It is drawn
+  full screen and darkened under the title, which is the only place the screen shows
+  something that isn't drawn from shapes. The volume ring takes the cover's colours.
+- **LIGHTS:** the colour swatch, and the rim that mirrors the LED ring, in the LEDs' own
+  colours.
+
+Everything else on those screens stays in the palette and in whole pixels.
 
 ## 3. The canvas
 
@@ -221,7 +235,8 @@ The companion (`companion/`) uses the same visual language on a desktop.
 
 Before committing anything visual:
 
-- [ ] Only the five palette colours (plus an app's own icon and accents where they belong).
+- [ ] Only the five palette colours (plus an app's own icon and accents, and the fixed
+      exceptions in section 2, where they belong).
 - [ ] No anti-aliasing, blending, gradients, sub-pixel positions or smooth scaling.
 - [ ] Drawn from code or scene data; no new bitmaps except hand-drawn app icons.
 - [ ] Sprites and icons drawn at the size they are shown; 1.5× versions hand-drawn.

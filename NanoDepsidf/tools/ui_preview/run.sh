@@ -39,10 +39,33 @@ from PIL import Image
 open(sys.argv[3], 'wb').write(to_rgb565_be(fit_icon(Image.open(sys.argv[2]))))" \
     "$HERE/.." "$HERE/../icons/figma_pixel_48.png" "$BUILD/icon.raw"
 
+# A made-up cover for the MUSIC tiles (no real artwork): a dusk gradient, a striped sun and
+# hills, its lower part darkened as display_task.cpp does under the title.
+"$HERE/../.venv/bin/python" -c "
+import sys
+from PIL import Image, ImageDraw
+im = Image.new('RGB', (240, 240)); d = ImageDraw.Draw(im)
+for y in range(240):
+    t = y / 239
+    d.line((0, y, 239, y), fill=(int(40 + 200 * t), int(20 + 70 * t), int(90 - 40 * t)))
+d.ellipse((60, 50, 180, 170), fill=(255, 190, 70))
+for i, y in enumerate(range(118, 170, 9)):
+    d.rectangle((0, y, 239, y + 2 + i), fill=(int(40 + 200 * y / 239), int(20 + 70 * y / 239), int(90 - 40 * y / 239)))
+d.polygon([(0, 240), (0, 160), (70, 128), (140, 168), (200, 140), (240, 158), (240, 240)], fill=(30, 16, 50))
+out = bytearray()
+for y in range(240):
+    t = 0 if y < 148 else 1 if y >= 188 else (y - 148) / 40
+    k = 1 - 0.76 * t * t * (3 - 2 * t)
+    for x in range(240):
+        r, g, b = im.getpixel((x, y))
+        v = (int((r >> 3) * k) << 11) | (int((g >> 2) * k) << 5) | int((b >> 3) * k)
+        out += bytes((v >> 8, v & 255))
+open(sys.argv[1], 'wb').write(out)" "$BUILD/cover.raw"
+
 c++ -std=c++17 -O2 -I"$BUILD" -o "$BUILD/preview" "$HERE/preview.cpp" \
     "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_extras.cpp "$BUILD"/ui_fx.cpp "$BUILD"/ui_shape.cpp "$BUILD"/ui_cards.cpp "$BUILD"/fonts/*.cpp "$BUILD/figma.o" "$BUILD/plasticity.o" "$BUILD/onshape.o" "$BUILD/agents.o" "$BUILD/app_colors.o" \
     -x c++ "$BUILD"/icons/*.c
-ICON_RAW="$BUILD/icon.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
+ICON_RAW="$BUILD/icon.raw" COVER_RAW="$BUILD/cover.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
 "$HERE/../.venv/bin/python" -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" \
     "$BUILD/preview.ppm" "$OUT"
 echo "wrote $OUT"

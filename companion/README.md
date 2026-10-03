@@ -7,7 +7,9 @@ computer, in the same pixel style as the device's own screens.
   detents, the active app or mode with its feel, F1–F4); the LED ring glows round it in the
   colours the LEDs show right now, and the keys light up and press down while held. Hover a key
   to see what it does. (Firmware from before the LED stream: the ring is made up from the
-  knob's angle.)
+  knob's angle.) With firmware that streams its screen (extensions v6), the picture is the
+  knob's own screen and works as a remote: click a key, drag or scroll over the knob to turn
+  it.
 - **HAPTICS:** the haptic profiles (STEPS: WIDE / COARSE / MEDIUM / FINE / SMOOTH) and, for the
   chosen one, its FEEL (SAW / SINE / VISCOSE) and the tuning sliders SNAP, DAMP, SHAPE, AMP
   and PITCH. **RESET TO FACTORY** puts that profile back. Drag, scroll or use the arrow keys; the knob changes as you go.
@@ -19,7 +21,10 @@ computer, in the same pixel style as the device's own screens.
   **+ NEW PROFILE** make profiles of your own. **MACROS** are key presses, text and pauses the
   knob types by itself (no software needed once saved): build them step by step or **RECORD**
   them, then give one to a key (TAP, or its quick tap) or to a command-wheel entry.
-- **DEVICE:** BINDINGS (MAC / PC), screen rotation, boot mode, and the firmware version.
+- **LOOK:** the idle word, LIGHTS (APP or CUSTOM colour, effect, speed, brightness) and the
+  CLOCK app's format and zones.
+- **DEVICE:** BINDINGS (MAC / PC), screen rotation, boot mode, WiFi and pairing this app, and
+  the firmware version.
 - **SYS INFO:** power (an estimate), heat, CPU and system, with a minute of history and RESET
   PEAKS.
 
@@ -39,13 +44,23 @@ Monitoring prompt. The wire format is
 protocol (version 3: haptic profiles) and be in **HID** boot mode. With older firmware the
 settings still work, but the HAPTICS tab can't show the profiles' own limits.
 
+LOOK, WiFi, CLOCK and the remote use the protocol's extensions:
+[`NanoDepsidf/src/ext_proto.h`](../NanoDepsidf/src/ext_proto.h) (commands 0x20–0x2F),
+mirrored in `src/proto.ts` too. Each feature shows only when the knob's extensions version
+has it.
+
+**Over WiFi** the app uses the same reports. They go over a TCP connection to the knob (port
+3333, found as `quadra-xxxx.local`), after a handshake on the key the app got over USB, and are
+encrypted with AES-256-GCM. The Rust side (`src-tauri/src/lib.rs`) does the networking and the
+encryption; the web page has no WiFi.
+
 The protocol and the whole UI are TypeScript, and only the USB connection differs:
 
 | | Desktop app (Tauri) | Web page (WebHID) |
 |---|---|---|
 | USB access | Rust, `hidapi` (`src-tauri/src/lib.rs`), a thin pipe | The browser's WebHID |
 | Browsers | – | Chrome or Edge (not Safari or Firefox) |
-| Connecting | Automatic, and reconnects on replug | CONNECT once (the browser asks), then automatic |
+| Connecting | Automatic, and reconnects on replug; over WiFi once paired | CONNECT once (the browser asks), then automatic |
 
 ## Running it
 
@@ -58,8 +73,9 @@ pnpm dev                # just the page: open http://localhost:1420 in Chrome fo
 ```
 
 **Demo mode:** add `?demo` to the page's URL, for example `http://localhost:1420/?demo`. A
-simulated knob answers the protocol, so the UI can be worked on without the hardware.
-`&tab=SYS_INFO` (or `PROFILES`, `DEVICE`) opens on that tab, and `&tab=PROFILES&edit=1` opens
+simulated knob answers the protocol (and the extensions up to v5: LOOK, WiFi status,
+CLOCK), so the UI can be worked on without the hardware.
+`&tab=SYS_INFO` (or `PROFILES`, `LOOK`, `DEVICE`) opens on that tab, and `&tab=PROFILES&edit=1` opens
 the editor on profile 1.
 
 The WiFi link with the cable in (the cable is what powers the knob): pair the app over USB,
@@ -119,3 +135,9 @@ src/ui/             the device view (render + LEDs + screen mirror), the four pa
 src/assets/         device.png, the top-down render (geometry in deviceView.ts)
 src-tauri/          the Rust side: HID list / open / write / close, reports as events
 ```
+
+---
+
+LOOK, WiFi, the MEDIA input and the live remote screen were contributed by
+[@Dviros](https://github.com/Dviros) in
+[pull request #17](https://github.com/katbinaris/NanoD_RatchetH1/pull/17).

@@ -98,6 +98,8 @@ Priorities and core assignments are in `src/tasks_common.h`.
 | `pd` | 1 | 10 | `pd_status.c` | Reads the USB-C power contract once at boot, then exits |
 | `i2s` | 1 | 9 | `i2s_task.c` | Click and chime synthesis |
 | `display` | 1 | 9 | `display_task.cpp` | Draws frames and pushes them to the LCD |
+| `net_link` | 1 | 10 | `net_link.c` | The companion over WiFi: socket, handshake, AES-GCM (section 10.2) |
+| `net` | 1 | 5 | `net.c` | WiFi: connecting, reconnecting with a growing pause, RSSI; starts SNTP and mDNS |
 
 Why the priorities are what they are:
 
@@ -106,8 +108,15 @@ Why the priorities are what they are:
 - TinyUSB sits above the display. The display yields between frames during animations, and a
   yield only hands over to equal or higher priority, so a lower TinyUSB task would not run
   until the animation ended.
-- `led`, `sysmon`, `menu_save` and `pd` sit above the display for the same reason. They sleep
-  most of the time, so they starve nothing.
+- `led`, `sysmon`, `menu_save`, `pd` and `net_link` sit above the display for the same
+  reason. They sleep most of the time, so they starve nothing.
+- WiFi stays off Core 0. The radio's task, lwIP and mDNS are pinned to Core 1, and
+  `esp_wifi_init()` runs from a Core 1 task so the radio's interrupt lands there. ESP-IDF's
+  event task is fixed on Core 0 at the control task's priority, so the WiFi event handlers
+  only note the event and wake `net`.
+- The esp_timer task and interrupt run on Core 1 (`CONFIG_ESP_TIMER_TASK_AFFINITY_CPU1`,
+  `..._ISR_AFFINITY_CPU1`). In modem sleep the WiFi driver uses esp_timer at every beacon; on
+  Core 0 that cost the control loop 36 missed ticks in 20 s.
 
 The idle task on Core 0 is not watched by the task watchdog
 (`CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=n`), because the control task is meant to keep that
@@ -377,6 +386,7 @@ Each slot has an action:
 | KEYS | Sends one shortcut per detent, one for each direction |
 | TAP | Nothing on a turn; the key press itself sends a shortcut or runs a macro |
 | COMMANDS | Opens the command wheel; a turn picks an entry, releasing the key runs it |
+| MEDIA | Sends one HID Consumer usage per detent (volume, play / pause, next, previous, mute), or one on a key press. MUSIC's volume knob uses it with Shift + Option, a quarter step on a Mac |
 
 Each slot also names the haptic profile while it is live, through its feel and detent count
 (VISCOSE: SMOOTH; a count: the nearest stepped profile; neither: the HID type's profile). A key can carry a quick-tap
@@ -429,7 +439,7 @@ survives a round trip unchanged and that bad input is refused with a reason.
 | Interface | Endpoints | Purpose |
 |---|---|---|
 | CDC-ACM | EP1 IN, EP2 IN/OUT | Serial console, and the 1200-baud reset the uploader uses |
-| HID | EP3 IN | Keyboard, mouse and gamepad as three report IDs; polled every 10 ms |
+| HID | EP3 IN | Keyboard, mouse, gamepad and Consumer (media keys) as four report IDs; polled every 10 ms |
 | Vendor HID | EP4 IN/OUT | 64-byte raw reports for the companion and icon upload |
 
 The vendor interface is separate from the keyboard interface so host tools can open it without
@@ -483,6 +493,48 @@ download is the exception: each piece is sent from TinyUSB's "report sent" callb
 Icon upload (`icon_store.c`, commands 0x01 to 0x04) shares the interface. Uploaded icons are
 held in RAM and lost on restart.
 
+### 10.1 Extensions
+
+`ext_proto.h` and `ext_link.c` add commands 0x20 to 0x2F (replies and events 0xC0 to 0xCF),
+mirrored in `proto.ts` as `ExtCmd` / `ExtTag`. `EXT_CMD_HELLO` returns the extensions version,
+and the companion shows a feature only from the version that has it:
+
+| Version | Adds |
+|---|---|
+| 1–3 | `REBOOT` (also into SERIAL, for buttonless flashing), `TEXT` (the idle word), `LIGHTS`, `PREFS`, `NOTIFY` (agent requests and their answers), `COVER` (a 240×240 JPEG, USB only), `TRACK` (title, artist, colours, volume), `AGENTS` (the dashboard). The companion's LOOK tab needs any of these |
+| 4 | `NET`: WiFi setup and status |
+| 5 | `TIME` (from the Mac service), `CLOCK` (format and zones) |
+| 6 | `SCREEN` (the live screen: changed 16×16 tiles, RLE when shorter) and `INPUT` (keys and turns from the companion) |
+| 7 | `NET KEY`: the WiFi pairing key |
+
+Work that touches NVS or decodes images runs in the usb task (`ext_link_poll`), not in
+TinyUSB's callback. Keys from `INPUT` are OR-ed into the real ones in the control loop and let
+go 600 ms after the last refresh, so a lost link can't leave one held. The one exception is
+approving an agent request (`notify.c`): only the physical F1 counts there.
+
+### 10.2 Over WiFi
+
+`net_link.c` serves the same 64-byte reports over TCP port 3333 (mDNS `_quadra._tcp`) to one
+client at a time; a newly authenticated one takes over.
+
+- **Pairing** is over USB only. The knob makes a random 256-bit key (`NET KEY`) and the
+  companion keeps it.
+- **Handshake:** both sides prove the key with HMAC-SHA256 over two fresh nonces. Every report
+  after that is AES-256-GCM with a per-direction counter, and a frame that doesn't verify
+  ends the connection. The format is in `net_link.h`.
+- **Strangers:** handshakes run side by side, one slot per peer address, with a 2 s
+  deadline. A peer that stalls or floods never holds up the companion that's in
+  (`net_pend.h`, `tools/net_pend_test`).
+- **USB only:** the WiFi network and password, the key, SERIAL boot, and cover and icon
+  uploads.
+
+`host_link.c` serves both links side by side: replies go back on the link that asked, ahead
+of the streams.
+
+The extensions, WiFi, MUSIC, AGENTS, CLOCK, LIGHTS and the idle word were contributed by
+[@Dviros](https://github.com/Dviros) in
+[pull request #17](https://github.com/katbinaris/NanoD_RatchetH1/pull/17).
+
 ## 11. Audio
 
 `i2s_task.c` synthesises every sound; there are no audio files. It writes 64-sample chunks at
@@ -524,10 +576,14 @@ the keys. Colours follow the active profile (`app_colors.c`).
 - Command wheel open: one segment per entry.
 - End stop: a short white flash.
 
-Brightness is capped at 20%, and the whole frame is scaled so the estimated draw stays under
-the LED budget: what the USB port offers (`pd_status`) less 400 mA for the board and the motor,
-between 60 and 250 mA. That is 100 mA on a plain 500 mA port and 250 mA from 1.5 A up. A strip
-is sent only when its data changed.
+Brightness is 20% at the standard level; LIGHTS → LEVEL scales it from 10% to 200% of that
+(`user_prefs.c`, which also holds the colour and the effect at rest). The whole frame is then
+scaled so the estimated draw stays under the LED budget: what the USB port offers (`pd_status`) less 400 mA for the board and the motor,
+between 60 and 250 mA. That is 100 mA on a plain 500 mA port and 250 mA from 1.5 A up. With
+WiFi on, the radio's ~100 mA comes off it. A strip is sent only when its data changed.
+
+Other ring states: an agent request breathes in the agent's colour, with one arc per waiting
+agent; MUSIC shows the volume as an arc while the knob turns; CLOCK can sweep the seconds.
 
 ## 14. SYS INFO
 
@@ -557,17 +613,23 @@ did the same things.
 |---|---|---|
 | `nvs` | 20 KB | Settings and motor calibration |
 | `otadata` | 8 KB | OTA slot selection |
-| `app0`, `app1` | 1.25 MB each | Firmware (two OTA slots) |
-| `spiffs` | 1.4 MB | LittleFS: stored profiles |
+| `app0`, `app1` | 1.625 MiB each | Firmware (two OTA slots) |
+| `spiffs` | 640 KiB | LittleFS: stored profiles |
 | `coredump` | 64 KB | Crash dumps |
 
-The firmware image is about 630 KB.
+The firmware image is about 1.29 MB (76% of a slot), most of the growth being WiFi. NVS also
+holds the namespaces `user_prefs` (idle word, LIGHTS), `clock` and `net` (WiFi network,
+password and pairing key, in plain text: flash encryption is off).
+
+The slots grew from 1.25 MB, and the profile store moved and shrank from 1.4 MB, when WiFi
+came in. A device flashed before then needs the new table; `tools/quadra.py flash
+--partitions` writes it and blanks the new profile store.
 
 ## 16. Building, and things that bite
 
 ```sh
 cd NanoDepsidf
-pio run                                   # build
+pio run                                   # build (platform pinned: platformio/espressif32@7.1.3)
 pio run -t upload --upload-port <port>    # flash
 tools/profile_json_test/run.sh            # host test for profile JSON
 tools/ui_preview/run.sh out.png           # render every screen on the host

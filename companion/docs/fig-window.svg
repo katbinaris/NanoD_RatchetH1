@@ -30,9 +30,10 @@
   <!-- tabs + panel -->
   <text x="420" y="108" fill="#fff" font-size="10">HAPTICS</text>
   <rect x="420" y="114" width="50" height="2" fill="#ffc94d"/>
-  <text x="486" y="108" fill="#777" font-size="10">PROFILES</text>
-  <text x="560" y="108" fill="#777" font-size="10">DEVICE</text>
-  <text x="620" y="108" fill="#777" font-size="10">SYS INFO</text>
+  <text x="482" y="108" fill="#777" font-size="10">PROFILES</text>
+  <text x="552" y="108" fill="#777" font-size="10">LOOK</text>
+  <text x="592" y="108" fill="#777" font-size="10">DEVICE</text>
+  <text x="648" y="108" fill="#777" font-size="10">SYS INFO</text>
   <line x1="404" y1="120" x2="730" y2="120" stroke="#333"/>
   <rect x="420" y="140" width="44" height="50" fill="none" stroke="#ffc94d" stroke-width="2"/>
   <rect x="470" y="140" width="44" height="50" fill="none" stroke="#444"/>

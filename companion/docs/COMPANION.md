@@ -269,6 +269,8 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 
 ## 8. LOOK
 
+<img src="app-look.png" width="720" alt="LOOK: the IDLE WORD field, COLOR (APP or CUSTOM), HUE, SAT, the EFFECT cards, SPEED and LEVEL">
+
 | Section | What it sets |
 |---|---|
 | **IDLE WORD** | The word on the loading and idle screens, up to 12 characters (lowercase draws as small capitals). Empty = **QUADRA**. Stored on the knob as soon as you press **SET** |
@@ -278,7 +280,9 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 LIGHTS are live on the knob while you change them and kept by **SAVE**, like the other settings
 (or F2 on the knob's own LIGHTS screen). Changes made on the knob show up here within a second.
 
-**CLOCK** (the CLOCK app): what it shows -- **24 HOUR**, **SECONDS**, **DATE**, and **LED
+<img src="app-look-clock.png" width="720" alt="LOOK → CLOCK: 24 HOUR, SECONDS and DATE on; LOCAL plus TOKYO and NEW YORK">
+
+**CLOCK** (the CLOCK app, firmware with extensions v5 or later): what it shows -- **24 HOUR**, **SECONDS**, **DATE**, and **LED
 SECONDS** (the ring sweeps the seconds) -- and up to four zones besides **LOCAL**, which is this
 Mac's (the Mac service sends the time and the zone; with WiFi on, the knob also sets its clock
 from the internet). Each zone follows its own daylight-saving rules. In the app, turning the
@@ -289,12 +293,14 @@ the knob as you change them.
 
 <img src="app-device.png" width="720" alt="DEVICE: BINDINGS, DISPLAY rotation, BOOT MODE and the FIRMWARE details">
 
+<img src="app-device-wifi.png" width="720" alt="DEVICE → WIFI: connected to STUDIO, the knob's address, signal and name; NETWORK, PASSWORD, CONNECT and TURN OFF">
+
 | Section | What it sets |
 |---|---|
 | **BINDINGS** | The computer on the other end. On **PC**, shortcuts written with Cmd are sent with Ctrl |
 | **DISPLAY** | Screen rotation: 0, 90, 180 or 270 degrees |
 | **BOOT MODE** | **HID** for normal use, **SERIAL** for flashing. Applies after a restart |
-| **WIFI** | The network the knob joins (over USB; the password stays on the knob), its address, and **THIS APP**: **PAIR THIS APP** (see [Connecting](#1-connecting)), **NEW KEY** (press twice: every other paired app has to pair again) and **FORGET** |
+| **WIFI** | The network the knob joins (over USB; the password stays on the knob), its address, and **THIS APP** (in the app only, not the web page): **PAIR THIS APP** (see [Connecting](#1-connecting)), **NEW KEY** (press twice: every other paired app has to pair again) and **FORGET**. Shows with firmware that has WiFi (extensions v4 or later) |
 | **FIRMWARE** | Version, build date, protocol version, number of profiles, and the link in use (**USB**, **WIFI** or **WEBHID**) |
 
 **Take care with BOOT MODE:** once the knob restarts in SERIAL mode, the companion can't
@@ -326,3 +332,9 @@ that should be zero and aren't.
 | A setting came back after a restart | It wasn't saved. Change it again and press **SAVE** |
 | An edit is refused, with a message under the profile name | The message says which field: for example a name that's too long, or text that isn't plain ASCII |
 | The profile buttons are greyed out | The knob already holds 16 profiles. Delete one |
+
+---
+
+The LOOK tab, WiFi and pairing, the MEDIA input and the live remote screen were contributed by
+[@Dviros](https://github.com/Dviros) in
+[pull request #17](https://github.com/katbinaris/NanoD_RatchetH1/pull/17).

@@ -131,9 +131,10 @@ int main() {
     root.rows[0] = row("PROFILES", "", "", true);
     root.rows[1] = row("HAPTICS", "", "", false);
     root.rows[2] = row("DISPLAY", "", "", false);
-    root.rows[3] = row("BOOT MODE", "", "", false);
-    root.rows[4] = row("DEVICE", "", "", false);
-    root.row_count = 5;
+    root.rows[3] = row("LIGHTS", "", "", false);
+    root.rows[4] = row("BOOT MODE", "", "", false);
+    root.rows[5] = row("DEVICE", "", "", false);
+    root.row_count = 6;
     ui::draw_menu_list(root, 0);
     keep("menu");
 
@@ -186,7 +187,11 @@ int main() {
     ui::draw_hid(hid, {MENU_HID_APP, 0, true, "FIGMA", app_icon_figma_24});
     keep("hid APP");
 
-    static const ui::ProfileItem profiles[5] = {
+    // The built-ins in the firmware's order (app_profiles.c).
+    static const ui::ProfileItem profiles[8] = {
+        {"MUSIC", app_icon_music_24, app_icon_music_48, {"PLAY", "PREV", "NEXT", "MENU"}},
+        {"AGENTS", app_icon_agents_24, app_icon_agents_48, {"ENTER", "ESC", "MODE", "MENU"}},
+        {"CLOCK", app_icon_clock_24, app_icon_clock_48, {"12/24", "SEC", "DATE", "MENU"}},
         {"PLASTICITY", app_icon_plasticity_24, app_icon_plasticity_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
         {"FIGMA", app_icon_figma_24, app_icon_figma_48, {"UNDO", "DEPTH", "WHEEL", "FRAME"}},
         {"ONSHAPE", app_icon_onshape_24, app_icon_onshape_48, {"ZOOM", "ORBIT", "WHEEL", "PAN"}},
@@ -198,20 +203,24 @@ int main() {
     prof.screen = MENU_SCREEN_APP_PROFILE;
     prof.rows[0] = row("PROFILE", "", "FIGMA", true);
     prof.row_count = 1;
-    ui::draw_app_profile(prof, {profiles, 5, 0, 0, true});
+    ui::draw_app_profile(prof, {profiles, 8, 3, 0, true});
     keep("profile PLASTICITY, saved");
     prof.dirty = true;
-    ui::draw_app_profile(prof, {profiles, 5, 1, 0, true});
+    ui::draw_app_profile(prof, {profiles, 8, 4, 0, true});
     keep("profile FIGMA, unsaved");
-    ui::draw_app_profile(prof, {profiles, 5, 2, 0, true});
+    ui::draw_app_profile(prof, {profiles, 8, 5, 0, true});
     keep("profile ONSHAPE, unsaved");
-    ui::draw_app_profile(prof, {profiles, 5, 3, 0, true});
+    ui::draw_app_profile(prof, {profiles, 8, 6, 0, true});
     keep("profile BLENDER (empty template), unsaved");
     ui::AppView empty = {"BLENDER", app_icon_blender_24, {"-", "-", "-", "MENU"}, "SCROLL", "KNOB"};
     ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &empty});
     keep("main APP blender (empty template)");
-    ui::draw_app_profile(prof, {profiles, 5, 4, 0, true});
+    ui::draw_app_profile(prof, {profiles, 8, 7, 0, true});
     keep("profile AUTOCAD (empty template), unsaved");
+    prof.dirty = false;
+    prof.rows[0] = row("PROFILE", "", "MUSIC", true);
+    ui::draw_app_profile(prof, {profiles, 8, 0, 0, true});
+    keep("profile MUSIC, saved");
     hid.selected = 1;
     hid.dirty = true;
     hid.rows[0] = row("PROFILES", "", "MIDI", false);
@@ -547,6 +556,11 @@ int main() {
         }
         ui::draw_now_playing({"NO COVER YET", "ARTIST", false, app_icon_music_48, 0xFF8C3C, true, -1, 0, 0, 0});
         keep("np: no cover");
+        // CLOCK: a zone besides LOCAL, 24 h with seconds and the date; then LOCAL, 12 h, plain.
+        ui::draw_clock({true, 14, 7, 42, 6, 3, 9, true, true, true, "TOKYO", 9 * 60, 2, 4, 0xFFB030});
+        keep("clock: zone, 24h");
+        ui::draw_clock({true, 9, 41, 0, 6, 3, 9, false, false, false, "LOCAL", 2 * 60, 0, 4, 0xFFB030});
+        keep("clock: local, 12h");
         // AGENTS dashboard over the APP main screen (middle cleared).
         const app_profile_t &ap = app_profile_agents;
         ui::AppView av = {ap.name, ap.icon24, {ap.legend[0], ap.legend[1], ap.legend[2], ap.legend[3]}, "", "", "KNOB"};

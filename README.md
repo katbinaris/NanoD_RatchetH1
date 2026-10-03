@@ -7,7 +7,9 @@ Quadra is a desktop controller built around one motorised knob, four keys and a 
 sine bump, syrup-like drag, or a hard wall at the end of a list. The firmware uses that to
 drive applications directly. In Figma the knob zooms, walks the layer tree and runs a wheel
 of auto-layout and component commands. In Plasticity and Onshape it orbits, pans and zooms
-the viewport, and it dials fillets, extrusions and rotations to exact values.
+the viewport, and it dials fillets, extrusions and rotations to exact values. It is also a
+volume dial with the album cover on screen, a desk clock, and a console for AI coding agents
+that shows their requests and lets you approve one by holding a key.
 
 <p align="center">
   <img src="NanoDepsidf/docs/images/main-figma.png" width="200" alt="Main screen in Figma mode: app icon, live action ZOOM, key legend">
@@ -34,10 +36,14 @@ shows, at 2× scale.
   - [Plasticity](#plasticity)
   - [Onshape](#onshape)
   - [Blender and AutoCAD](#blender-and-autocad)
+  - [MUSIC](#music)
+  - [AGENTS](#agents)
+  - [CLOCK](#clock)
   - [The command wheel](#the-command-wheel)
   - [Parameter mode](#parameter-mode)
   - [Idle screen](#idle-screen)
   - [LEDs](#leds)
+  - [WiFi](#wifi)
 - [Hardware](#hardware)
 - [Firmware architecture](#firmware-architecture)
 - [Building and flashing](#building-and-flashing)
@@ -46,6 +52,7 @@ shows, at 2× scale.
 - [Writing an app profile](#writing-an-app-profile)
 - [Repository layout](#repository-layout)
 - [Status and roadmap](#status-and-roadmap)
+- [Credits](#credits)
 
 ---
 
@@ -67,7 +74,7 @@ shows, at 2× scale.
   different from a coarse one. Two timbres exist (WOOD, THUD); choosing one is hidden from
   the menu for now, and the saved one plays.
 - **USB composite device:**
-  - a keyboard, mouse and gamepad HID interface;
+  - a keyboard, mouse, gamepad and media-key HID interface;
   - a vendor HID data channel, used by the desktop companion and for icon upload;
   - a CDC serial console.
 
@@ -75,9 +82,19 @@ shows, at 2× scale.
   [desktop companion](#desktop-companion) edits settings and profiles.
 - **APP mode with app profiles.** Each supported application is one data file describing
   what the knob and keys send, how the knob feels while doing it, and what the screen shows.
-  Figma, Plasticity and Onshape ship today. Any profile can be edited, or a new one made,
-  from the companion; edited profiles and macros are stored on the device. Blender and AutoCAD are listed as empty profiles
-  (the knob scrolls) until they are designed.
+  MUSIC, AGENTS, CLOCK, Figma, Plasticity and Onshape ship today. Any profile can be edited,
+  or a new one made, from the companion; edited profiles and macros are stored on the device.
+  Blender and AutoCAD are listed as empty profiles (the knob scrolls) until they are designed.
+- **MUSIC.** The knob is the computer's volume and the keys play, pause and skip, as media
+  keys the system handles itself. With the optional Mac service running, the screen shows
+  the album cover, title and artist, and a volume ring that moves with the knob.
+- **AGENTS.** Claude Code, Codex and Cursor can show their permission requests on the knob,
+  through the optional Mac service and its hooks. Hold F1 to allow, F3 to deny. A dashboard
+  shows which sessions are working or waiting, and a command wheel types their commands.
+- **CLOCK.** The time in up to five zones, with daylight saving, set from the Mac or from
+  the internet over WiFi.
+- **WiFi.** The knob can join a network and talk to the companion app without a cable, over
+  an encrypted link that is paired over USB.
 - **Command wheel.** Hold a key, turn to pick a command, release to run it. Each command has
   a small animated illustration of what it does.
 - **Parameter mode.** After a modelling command starts, the knob sets its value: fine clicks,
@@ -87,12 +104,13 @@ shows, at 2× scale.
 - **Pixel UI.** A console-style interface on a round display: crisp whole-pixel graphics, a
   pixel font, and animated transitions. Screen rotation is selectable for holding the device
   in any orientation.
-- **Idle screen.** Arcade attract mode: the active app's icon (or the QUADRA wordmark)
-  jumps around or explodes onto the screen with squash and stretch, dust, debris and
-  sparkles, in that app's colours. A routine is picked at random each time.
+- **Idle screen.** Arcade attract mode: the active app's icon (or the QUADRA wordmark, or a
+  word of your own) jumps around or explodes onto the screen with squash and stretch, dust,
+  debris and sparkles, in that app's colours. A routine is picked at random each time.
 - **LEDs in the app's colours.** A 60-LED ring around the knob and two LEDs under each key:
   a dim gradient at rest, a spot that follows the knob and pulses on every detent, the
-  command wheel's segments, a flash at an end stop. Never above 20% brightness.
+  command wheel's segments, a flash at an end stop. The colour, effect and brightness can
+  be changed in LIGHTS.
 - **Icon upload.** Send any 48×48 image over USB to show on the main screen (RAM only).
 
 ---
@@ -187,6 +205,7 @@ opens the menu** instead.
   <img src="NanoDepsidf/docs/images/hid-mouse.png" width="180" alt="PROFILES on MOUSE: the mode's haptic profile">
   <img src="NanoDepsidf/docs/images/profile-figma.png" width="180" alt="App profile carousel on FIGMA">
   <img src="NanoDepsidf/docs/images/display-rotation.png" width="180" alt="Display rotation at 90 degrees">
+  <img src="NanoDepsidf/docs/images/lights.png" width="180" alt="LIGHTS: a custom blue, editing EFFECT (SPIN); the rim mirrors the LED ring">
   <img src="NanoDepsidf/docs/images/sysinfo-power.png" width="180" alt="SYS INFO: estimated power draw against the USB contract">
   <img src="NanoDepsidf/docs/images/sysinfo-cpu.png" width="180" alt="SYS INFO: core load and control-loop timing">
   <img src="NanoDepsidf/docs/images/bindings-pc.png" width="180" alt="BINDINGS: MAC or PC">
@@ -197,17 +216,20 @@ opens the menu** instead.
 | **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With KEYBOARD or MOUSE, F1 moves to **HAPTIC**, the haptic profile the knob uses in that mode. With MIDI, F1 moves to the channel. |
 | **HAPTICS** | STEPS picks a haptic profile: WIDE, COARSE, MEDIUM or FINE (8, 12, 24 or 36 detents per turn) or SMOOTH (no steps). Each profile keeps its own FEEL (SAW or SINE; SMOOTH is always VISCOSE), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises), AMP and PITCH, within safe limits for that profile and feel. An item that doesn't apply in the current feel shows `--`. Changes are live while you tune; F2 saves; holding F2 for 1.5 s puts the shown profile back to factory. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
+| **LIGHTS** | The LED look. COLOR: APP (the profile's colours, or the album cover's while music plays) or CUSTOM, with HUE and SAT. EFFECT at rest: GRADIENT, SOLID, BREATHE, SPIN, RAINBOW or OFF, with SPEED for the moving ones. LEVEL: brightness, 10–200% of the standard level. The screen's rim mirrors the ring while you tune. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
 | **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **BINDINGS**: MAC or PC. Profiles are written with Mac shortcuts; on PC every Cmd is sent as Ctrl (Option is Alt on both). Switches as you turn, F2 saves. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
 
 Screens with a single choice (PROFILES, DISPLAY, BOOT MODE, BINDINGS) change the value directly as you
-turn. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
+turn. LIGHTS, like HAPTICS, is live while you tune and kept by F2. Leaving without F2 puts the saved value back. Saved settings live in NVS flash and
 survive power cycles.
 
 ### APP mode and profiles
 
 APP is the default HID type. The status bar shows the active app's icon and name, and the
-keys and knob drive that application. Profiles are chosen in **PROFILES → PROFILE**.
+keys and knob drive that application. Profiles are chosen in **PROFILES → PROFILE**, in this
+order: MUSIC, AGENTS, CLOCK, Plasticity, Figma, Onshape, Blender, AutoCAD. A new or erased
+device starts on MUSIC.
 
 The knob's feel follows what it is doing: each input uses a haptic profile. Smooth drags
 (orbit, pan, zoom) use SMOOTH. Stepped actions (undo history, layers, frames, the command
@@ -317,6 +339,134 @@ template**. The knob scrolls as it does outside APP mode, F1–F3 do nothing, an
 opens the menu. Their own controls will come in later profiles; both work differently from
 the Plasticity / Onshape pair.
 
+### MUSIC
+
+<p>
+  <img src="NanoDepsidf/docs/images/profile-music.png" width="200" alt="App profile carousel on MUSIC, the first of eight">
+  <img src="NanoDepsidf/docs/images/music-playing.png" width="200" alt="MUSIC now playing: the album cover full screen, title and artist">
+  <img src="NanoDepsidf/docs/images/music-volume.png" width="200" alt="MUSIC: turning the knob, a volume ring and the number 42 over the cover">
+</p>
+
+The knob is the computer's volume, and the keys are the player's. Everything is sent as media
+keys, which the system handles itself: no app needs focus, and nothing has to be installed.
+
+| Input | Does |
+|---|---|
+| Knob | Volume, one step per click on the FINE haptic profile. On a Mac each click is a quarter step (Shift + Option + volume), 64 steps from silent to full |
+| F1 | Play / pause |
+| F2 | Previous track |
+| F3 | Next track |
+| F4 | Long press: menu |
+
+With **BINDINGS** on PC the knob sends plain volume keys.
+
+**Now playing** needs the optional [Mac service](#the-mac-service). It reads what the Mac is
+playing (any player that shows in Control Center: Music, Spotify, a browser tab, Kaset) and
+sends it to the knob:
+- **Cover:** shown full screen, darkened under the title and artist. A track with no
+  artwork gets the iTunes Store's cover if the title and artist match, otherwise a generated
+  placeholder.
+- **Volume ring:** while you turn, a ring and the number show the volume, on the screen and on
+  the LED ring at once. The ring moves on the click, before the Mac answers.
+- **Player glyph and colours:** a key press shows a play, pause or skip glyph, and **PAUSED**
+  marks a stopped track. The LEDs take the cover's colours, unless LIGHTS is set to CUSTOM.
+
+While music plays, the cover stays up instead of the idle animation. Without the service,
+the keys and knob work the same and the screen shows the MUSIC icon.
+
+### AGENTS
+
+<p>
+  <img src="NanoDepsidf/docs/images/notify-agents.png" width="200" alt="Claude Code asks to RUN a command; three agents waiting, one arc each round the rim">
+  <img src="NanoDepsidf/docs/images/notify-hold.png" width="200" alt="Holding F1 to allow an EDIT: a green arc fills the rim">
+  <img src="NanoDepsidf/docs/images/agents-board.png" width="200" alt="AGENTS dashboard: three sessions, WORKING, YOUR TURN and ASKING">
+  <img src="NanoDepsidf/docs/images/agents-wheel-clear.png" width="200" alt="AGENTS command wheel: CLEAR, drawn as a terminal typing /clear">
+</p>
+
+A console for AI coding agents: Claude Code, Codex and Cursor.
+
+| Input | Tap | Hold + turn |
+|---|---|---|
+| Knob alone | — | Scroll |
+| F1 | Enter | **Command wheel**: rings for Claude Code, Codex and Cursor (slash commands and shortcuts; F1, F2 and F3 jump between the rings) |
+| F2 | Esc | Prompt history (↑ / ↓) |
+| F3 | Shift + Tab (the agent's mode) | — |
+| F4 | Long press: menu | — |
+
+Commands that type text never press Enter, so you check a command before sending it.
+
+**Requests on the knob.** With the [Mac service](#the-mac-service) installed, an agent's
+permission request appears on the knob in any profile, with the menu closed:
+- **The card:** the agent's badge and colour, and what it wants to do (the command, or the
+  file it wants to edit). The ring breathes in the agent's colour.
+- **Several agents waiting:** the ring and the screen's rim split into one arc per agent, up
+  to four.
+- **Nudge:** while a request waits, the knob gives a gentle double tap every 5 s.
+
+| Key | Answer |
+|---|---|
+| Hold **F1** for 0.7 s | **Allow** (a green arc fills the rim) |
+| **F3** | **Deny** |
+| **F2** or **F4** | **Later**: answer in the agent's own window |
+
+Only the knob's own F1 allows. A key pressed from the companion app can deny or defer, but
+never allow. If the knob doesn't answer within 30 s, or isn't there, the agent asks in its
+own window as usual; the service never decides on its own. "Your turn" and "needs input"
+notices also show, and any key dismisses them. The knob and the keys keep their normal jobs
+while a request is up; only the key you answer with is held back from the app.
+
+**Dashboard.** In the AGENTS profile the main screen lists the running agent sessions by
+project folder, with their state: WORKING, YOUR TURN, ASKING or IDLE.
+
+### CLOCK
+
+<p>
+  <img src="NanoDepsidf/docs/images/clock.png" width="200" alt="CLOCK: TOKYO UTC+9, 14:07 with seconds, the date, a dot per zone and a seconds ring">
+</p>
+
+The time in up to five zones: **LOCAL** (the computer's) and four more of your choice, each
+with its own daylight-saving rules.
+
+| Input | Does |
+|---|---|
+| Knob | Next / previous zone |
+| F1 | 12 / 24 hours |
+| F2 | Seconds on / off |
+| F3 | Date on / off |
+| F4 | Long press: menu |
+
+The knob learns the time from the [Mac service](#the-mac-service), which sends the time and
+the local zone every few minutes, or from the internet when [WiFi](#wifi) is on. Zones and
+the format are set in the companion app (**LOOK → CLOCK**) or with `quadra.py clock`. LED
+SECONDS turns the ring into a seconds hand. The clock never goes to the idle screen.
+
+### The Mac service
+
+`NanoDepsidf/tools/mac/` is an optional background service for macOS. It powers MUSIC's now
+playing, the AGENTS requests and dashboard, and CLOCK's local time. It talks to the knob
+over USB.
+
+```sh
+python3 -m pip install --user hidapi
+python3 NanoDepsidf/tools/mac/install.py             # install or update
+python3 NanoDepsidf/tools/mac/install.py --dry-run   # show what would change
+python3 NanoDepsidf/tools/mac/install.py --uninstall # take it all out again
+```
+
+The installer:
+- copies the service to `~/.quadra/` and runs it as a LaunchAgent (`com.quadra.daemon`,
+  log in `~/Library/Logs/quadrad.log`);
+- builds a small Now Playing helper (needs the Xcode Command Line Tools; without it, Music and
+  Spotify are read over AppleScript);
+- adds hooks next to your existing ones in `~/.claude/settings.json`, `~/.codex/hooks.json`
+  and `~/.cursor/hooks.json`. Each file is backed up first, and `--uninstall` removes exactly
+  those hooks.
+
+The hooks reach the service over a socket only your user can open. The service's only
+internet traffic is for covers: it downloads artwork from the link the player gives, and when
+a track has none, sends the artist and title to the iTunes Store's search. Settings are in
+`~/.quadra/config.json`.
+
 ### The command wheel
 
 Hold the wheel key (F3) and the screen turns into a carousel of commands:
@@ -406,7 +556,8 @@ with Figma, JUMP with the QUADRA wordmark), at 20 fps; the device runs them at i
 rate.
 
 After 5 s without input the screen goes into an arcade-style attract mode: the active app's
-48×48 icon, or the QUADRA wordmark outside APP mode, performs a routine. The first is picked
+48×48 icon, or the QUADRA wordmark outside APP mode, performs a routine. While music plays
+(MUSIC) or the clock is up (CLOCK), those stay on screen instead. The first is picked
 at random every time the device goes idle, and when it finishes, a different one follows.
 
 - **Jump.** Never leaves the screen: two small hops, a crouch and a big jump with
@@ -426,11 +577,20 @@ green, Onshape's teal, green and lime, and for other profiles the three most com
 of the icon. QUADRA uses amber. Any input wakes the device, and the waking key press is
 swallowed.
 
+<p>
+  <img src="NanoDepsidf/docs/images/idle-word.png" width="200" alt="The loading screen with the idle word HELLO in place of QUADRA">
+</p>
+
+**Your own word.** An idle word of up to 12 characters, set from the companion app (**LOOK →
+IDLE WORD**) or with `quadra.py text`, replaces QUADRA on the loading screen and in the idle
+animation. With an app icon up, the word and the icon take turns, one routine each.
+
 ### LEDs
 
 A ring of 60 LEDs sits around the knob and two LEDs sit under each key. They take the same
-three colours as the idle screen (the app's accents, amber outside APP mode and in the menu)
-and never go above 20% brightness.
+three colours as the idle screen (the app's accents, amber outside APP mode and in the menu).
+The standard level is 20% of full brightness; **LIGHTS → LEVEL** scales it from 10% to 200%
+of that, and **LIGHTS** also sets a custom colour and a different effect at rest.
 
 | When | Ring around the knob | Key LEDs |
 |---|---|---|
@@ -441,11 +601,41 @@ and never go above 20% brightness.
 | End stop | A short white flash of the whole ring | — |
 | Menu | Amber | Amber |
 | Idle | The gradient drifts slowly and dims | Dimmed |
+| An agent's request | Breathes in the agent's colour; one arc per waiting agent; fills green while F1 is held | — |
+| MUSIC, turning the knob | The volume, as an arc in the cover's colour | — |
+| CLOCK with LED SECONDS | A seconds hand | — |
 
 The animations are deliberately calm: 30 updates a second, and a strip is only sent again
 when one of its LEDs changes. A software cap scales everything down if the estimated draw
 would pass the LED budget: 250 mA on a USB-C port that offers 1.5 A or more, 100 mA on a
-plain 500 mA port.
+plain 500 mA port. With WiFi on, the radio's ~100 mA comes off that budget.
+
+### WiFi
+
+<p>
+  <img src="companion/docs/app-device-wifi.png" width="440" alt="Companion app, DEVICE → WIFI: connected to STUDIO, the knob's address and quadra-7142.local">
+</p>
+
+WiFi is optional and off until you set it up, over USB: in the companion app (**DEVICE →
+WIFI**) or with `quadra.py wifi --ssid NAME` (it asks for the password). The network name
+and password are stored on the knob and never sent back out. Open, WPA2 and WPA3 networks
+work.
+
+Once connected:
+- **Name:** the knob is `quadra-xxxx.local` on the network (mDNS).
+- **Time:** it sets its clock from `pool.ntp.org`. This is the only connection it makes
+  outside your network.
+- **Companion:** the app reaches it without a cable. Pair it once over USB (**DEVICE →
+  WIFI → PAIR THIS APP**): the knob gives the app a random 256-bit key.
+
+**The encrypted link.** It runs on TCP port 3333:
+- Each connection proves both sides hold the key, and every message is encrypted, so
+  nothing else on the network can read, fake or replay it (HMAC-SHA256 handshake,
+  AES-256-GCM).
+- The network settings, the key, SERIAL boot and image uploads only change over USB.
+- **NEW KEY** cuts off every paired app.
+
+All of WiFi runs on Core 1, so the control loop keeps its timing.
 
 ---
 
@@ -462,6 +652,7 @@ plain 500 mA port.
 | LEDs | WS2811: a 60-LED ring around the knob (RGB order) and 8 under the keys, two per key (GRB order), driven over RMT |
 | USB power | Asks the host for 500 mA, the USB 2.0 maximum; an STUSB4500 (I2C 0x28 on GPIO 12 / 13) negotiates USB-C / PD power on its own. The firmware only reads it, once at boot, and shows the result under DEVICE → SYS INFO |
 | USB | USB-C, native USB OTG (TinyUSB) |
+| WiFi | The ESP32-S3's 2.4 GHz radio, station only, at 11 dBm (full power upset the LED timing) |
 
 <details>
 <summary>Pin map (<code>NanoDepsidf/src/board_pins.h</code>)</summary>
@@ -502,10 +693,17 @@ input mapping. Core 1 runs everything that can tolerate latency:
 | `pd` | 1 | 10 | One-shot at boot: reads the STUSB4500's contract over I2C (read-only), then exits |
 | `sysmon` | 1 | 10 | SYS INFO: samples load, loop timing, temperature and the power estimate twice a second; logs a line every 5 s |
 | `menu_save` | 1 | 10 | Runs F2's save to flash, so it never happens inside a control-loop tick |
+| `net_link` | 1 | 10 | The companion over WiFi: its socket, handshake and encryption |
+| `net` | 1 | 5 | WiFi housekeeping: connecting, reconnecting, signal strength. The radio, lwIP and mDNS also run on Core 1 |
+
+The ESP-IDF timer task and its interrupt are moved to Core 1 too (`sdkconfig.defaults`).
+With WiFi in modem sleep they fire at every beacon, and on Core 0 they cost the control loop
+missed ticks.
 
 **Timing.** A hardware timer interrupt wakes the control task every 100 µs. One iteration takes
 about 26 µs on average and 42 µs at worst, with 5 µs of jitter and no missed ticks (measured
-on hardware through DEVICE → SYS INFO). To get there, everything the loop runs sits in
+on hardware through DEVICE → SYS INFO, WiFi off). With WiFi connected, the contributor
+measured 49 µs at worst, 50 µs of worst-case jitter and no missed ticks. To get there, everything the loop runs sits in
 internal RAM (IRAM) instead of flash: the loop's own functions, the FreeRTOS, SPI, PWM and GPIO
 code it calls, and the C library's `sinf` / `cosf`. From flash, that code shared a cache with
 Core 1 and stalled whenever Core 1 was busy. A write to flash (saving settings or a profile)
@@ -566,10 +764,20 @@ the CDC port's 1200-baud reset. If an upload can't find the device:
   stays in the ESP32-S3's plain USB serial/JTAG mode, which the uploader can always reach.
   This takes priority over every saved setting.
 - Or set **BOOT MODE → USB MODE → SERIAL** in the menu and restart.
+- Or let `quadra.py flash` do it: it asks the knob over USB to restart in SERIAL mode,
+  flashes, and waits for it to come back. No keys needed.
 
 The board definition is `NanoDepsidf/boards/nanofoc_d.json`, and the partition table
-`boards/nano_partitions.csv` has two OTA slots of 1.25 MB each, NVS and a 1.4 MB data
-partition that holds stored profiles. Motor calibration runs on first boot and is cached in NVS; see
+`boards/nano_partitions.csv` has two OTA slots of 1.625 MiB each, NVS and a 640 KiB data
+partition that holds stored profiles.
+
+> ⚠️ **Updating from firmware before WiFi.** The partition table changed: the app slots
+> grew and the profile store moved and shrank. Flash the new table along with the firmware.
+> The clean way is `quadra.py flash --partitions .pio/build/esp32-s3-devkitm-1/partitions.bin`
+> (see [Tools](#tools)), which also blanks the new profile store. `pio run -t upload` writes the table too, and the
+> store formats itself on the first boot. App profiles stored or uploaded from the companion
+> are lost, so export any you made first. Settings, calibration and haptic profiles live in
+> NVS, which didn't move, and are kept. Motor calibration runs on first boot and is cached in NVS; see
 [First calibration](#first-calibration) before the first use of a new or erased board.
 
 ---
@@ -581,6 +789,7 @@ All Python tools use one virtualenv:
 ```sh
 python3 -m venv NanoDepsidf/tools/.venv
 NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
+NanoDepsidf/tools/.venv/bin/python NanoDepsidf/tools/quadra.py hello   # for example
 ```
 
 | Tool | What it does |
@@ -590,6 +799,9 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 | `tools/send_icon.py` | Uploads a 48×48 image to the device over the vendor HID interface (`icon.png`, `--test-pattern`, `--clear`, `--list`, `--dry-run --preview out.png`). |
 | `tools/gen_icon_c.py` | Converts a PNG into an RGB565 C array for a profile icon (24×24 status bar, 48×48 profile screen and idle screen). |
 | `tools/gen_silkscreen_font.py` | Regenerates the pixel fonts in `src/fonts/` from Silkscreen. |
+| `tools/quadra.py` | The knob from the command line, over USB: `hello`, `profile [name]`, `text WORD` (idle word), `lights`, `clock`, `wifi`, `cover image.png`, `notify` (a test request), `reboot [--serial]`, `flash [firmware.bin] [--partitions table.bin]` (no keys needed), `loop` (the control loop's health) and `wifi-check` (tests the WiFi link's security against this knob). |
+| `tools/mac/` | The optional [Mac service](#the-mac-service): now playing, agent requests, the local time. |
+| `tools/tz_test/`, `tools/net_pend_test/` | Host checks for CLOCK's time-zone rules (against Python's zoneinfo) and for how the WiFi link queues handshakes. |
 
 ---
 
@@ -603,19 +815,23 @@ NanoDepsidf/tools/.venv/bin/pip install -r NanoDepsidf/tools/requirements.txt
 `companion/` is a macOS app (Tauri, about 4 MB) that reads the knob live and changes its
 settings from the computer, in the device's own pixel style:
 
-- **The device:** a render of the knob, live: its screen, the LED ring in the colours the
-  LEDs show, and the keys as you press them.
+- **The device:** a render of the knob, live: its own screen, the LED ring in the colours the
+  LEDs show, and the keys as you press them. It is also a remote: click a key, or drag or
+  scroll over the knob to turn it.
 - **HAPTICS:** the haptic profiles (STEPS), and each one's FEEL and SNAP, DAMP, SHAPE, AMP
   and PITCH sliders, with a reset to factory.
 - **PROFILES:** the mode, and the app profiles with their icons. Any profile can be edited:
   key labels, icon, what the knob and keys send, the command wheel and macros. New profiles
   can be made from scratch or by duplicating one.
-- **DEVICE:** BINDINGS, rotation, boot mode and the firmware version.
+- **LOOK:** the idle word, LIGHTS (colour, effect, brightness), and the CLOCK app's zones
+  and format.
+- **DEVICE:** BINDINGS, rotation, boot mode, WiFi and pairing, and the firmware version.
 - **SYS INFO:** power, heat, CPU and system, with a minute of history.
 
 Changes are live on the knob; **SAVE** stores them, just as F2 does. The same UI also runs as
 a web page in Chrome or Edge over WebHID. It talks to the vendor HID interface with the small
-protocol in `src/host_proto.h`, so it needs no driver.
+protocol in `src/host_proto.h` and its extensions in `src/ext_proto.h`, so it needs no driver.
+Once paired, the app also reaches the knob over [WiFi](#wifi).
 
 ```sh
 cd companion && pnpm install
@@ -703,6 +919,13 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── usb_task.c             TinyUSB composite device, HID state sync
 │   ├── icon_store.c           vendor-HID icon upload protocol
 │   ├── host_link.c, host_proto.h            the desktop companion's protocol (same interface)
+│   ├── ext_link.c, ext_proto.h              its extensions: LOOK, WiFi setup, CLOCK, the remote
+│   ├── net.c, net_link.c      WiFi (station, SNTP, mDNS) and the encrypted companion link
+│   ├── notify.c, agent_board.c              agent requests and the AGENTS dashboard
+│   ├── media.c                MUSIC's now playing: cover, track, volume
+│   ├── clock.c, tzrule.c      CLOCK: zones and their daylight-saving rules
+│   ├── screen_stream.c        the live screen for the companion (changed tiles only)
+│   ├── user_prefs.c           the idle word and LIGHTS
 │   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
 │   ├── menu.c, config_store.c               settings menu + NVS persistence
@@ -711,10 +934,11 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── display_task.cpp       view state, transitions, frame pacing
 │   ├── ui_gfx.cpp             pixel primitives, font, sprites
 │   ├── ui_screens.cpp         every screen's layout
+│   ├── ui_extras.cpp          LIGHTS, agent requests, now playing, CLOCK, the dashboard
 │   ├── ui_cards.cpp           command cards, wheel, parameter dials (scene renderer)
 │   ├── ui_shape.cpp           the CAD profiles' isometric micro-interaction
 │   └── ui_fx.cpp              boot animation, idle screen (arcade attract mode)
-├── tools/                     host tools (see above)
+├── tools/                     host tools (see above); tools/mac/ is the Mac service
 └── docs/
     ├── FIRMWARE.md            technical documentation: how the firmware works
     ├── PIXEL_ART.md           how every screen, sprite, icon and card is drawn (read before UI work)
@@ -743,6 +967,12 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 - The desktop companion for macOS: the live device view, settings, haptic profiles, SYS
   INFO, profile editing and upload, and macros stored on the device.
 
+**Contributed and tested on the contributor's hardware, not yet confirmed on ours:**
+- MUSIC with now playing, AGENTS with requests and the dashboard, CLOCK.
+- WiFi and the companion over WiFi.
+- LIGHTS, the idle word, and the companion's LOOK tab and remote.
+- The Mac service, and flashing with `quadra.py flash`.
+
 **Next:**
 - Safe SNAP and DAMP limits for each haptic profile and feel (today they are the full
   ranges), and tuned values for each profile's second feel.
@@ -764,3 +994,22 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
   can type different characters.
 - Uploaded icons (`send_icon.py`) are held in RAM and cleared on restart; icons imported
   into a profile in the companion are stored with the profile.
+
+---
+
+## Credits
+
+Quadra's firmware and companion are by Kafi Devices.
+
+[**@Dviros**](https://github.com/Dviros) contributed, in
+[pull request #17](https://github.com/katbinaris/NanoD_RatchetH1/pull/17):
+- **MUSIC:** media keys, the now-playing cover and the volume ring.
+- **AGENTS:** agent requests on the knob, the dashboard, the command wheel, and the hooks for
+  Claude Code, Codex and Cursor.
+- **CLOCK:** time zones with daylight saving, checked against Python's zoneinfo.
+- **WiFi:** SNTP, mDNS, and the encrypted, USB-paired companion link.
+- **LIGHTS and the idle word:** the LED look, and a word of your own on the idle screen.
+- **The Mac service:** now playing, agent requests and the local time.
+- **The companion:** the LOOK tab, WiFi, the MEDIA input, and the live screen as a remote.
+- **Tools and fixes:** `quadra.py`, buttonless flashing, moving the timer work off Core 0 so
+  WiFi costs the control loop no ticks, and the LED ring's rotation fix.
