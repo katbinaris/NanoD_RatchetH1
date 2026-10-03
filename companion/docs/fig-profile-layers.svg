@@ -1,40 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" shape-rendering="crispEdges">
-  <rect width="880" height="330" fill="#000"/>
-  <defs>
-    <marker id="pa" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffc94d"/></marker>
-    <marker id="pg" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker>
-  </defs>
-
-  <text x="40" y="36" fill="#fff" font-size="14" font-weight="bold">ONE PROFILE, UP TO THREE LAYERS</text>
-  <text x="40" y="56" fill="#777" font-size="10">THE KNOB USES THE TOP ONE THAT EXISTS</text>
-
-  <!-- layers, top first -->
-  <rect x="40" y="84" width="420" height="60" fill="none" stroke="#ffc94d" stroke-width="2"/>
-  <text x="56" y="108" fill="#ffc94d" font-weight="bold">LIVE EDIT</text>
-  <text x="56" y="130" fill="#aaa" font-size="10">WHAT THE EDITOR SENT LAST. IN MEMORY ONLY.</text>
-  <text x="376" y="108" fill="#ffc94d" font-size="10">NOT SAVED</text>
-
-  <rect x="40" y="160" width="420" height="60" fill="none" stroke="#fff" stroke-width="2"/>
-  <text x="56" y="184" fill="#fff" font-weight="bold">STORED COPY</text>
-  <text x="56" y="206" fill="#aaa" font-size="10">A FILE IN THE KNOB'S FLASH. SURVIVES POWER-OFF.</text>
-
-  <rect x="40" y="236" width="420" height="60" fill="none" stroke="#666" stroke-width="2"/>
-  <text x="56" y="260" fill="#aaa" font-weight="bold">BUILT-IN</text>
-  <text x="56" y="282" fill="#777" font-size="10">PART OF THE FIRMWARE. NEVER CHANGES.</text>
-
-  <!-- actions -->
-  <polyline points="460,114 520,114 520,186 466,186" fill="none" stroke="#ffc94d" stroke-width="2" marker-end="url(#pa)"/>
-  <text x="534" y="146" fill="#ffc94d" font-weight="bold">SAVE TO KNOB</text>
-  <text x="534" y="162" fill="#777" font-size="10">LIVE EDIT BECOMES THE STORED COPY</text>
-
-  <polyline points="460,98 500,98 500,74" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#pg)"/>
-  <text x="514" y="84" fill="#aaa" font-weight="bold">REVERT</text>
-  <text x="514" y="100" fill="#777" font-size="10">DROPS THE LIVE EDIT</text>
-
-  <polyline points="460,204 500,204 500,250" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#pg)"/>
-  <text x="514" y="226" fill="#aaa" font-weight="bold">RESET TO DEFAULT</text>
-  <text x="514" y="242" fill="#777" font-size="10">DELETES IT: THE BUILT-IN SHOWS AGAIN</text>
-
-  <text x="514" y="282" fill="#777" font-size="10">YOUR OWN PROFILES HAVE NO BUILT-IN LAYER:</text>
-  <text x="514" y="298" fill="#777" font-size="10">THERE THE BUTTON IS DELETE PROFILE.</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="320" viewBox="0 0 880 320" font-family="Geist, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <title>A profile's layers</title>
+  <desc>A live edit over a stored copy over the built-in; the knob uses the top one there is. Save to knob makes the live edit the stored copy, Revert drops the live edit, Reset to default deletes the stored copy.</desc>
+  <rect width="880" height="320" rx="14" fill="#0b0c0d"/>
+  <text x="32" y="44" fill="#ececec" font-size="16" font-weight="600">One profile, up to three layers</text>
+  <text x="32" y="66" fill="#9a9ca3">The knob uses the top one there is</text>
+  <rect x="32" y="90" width="430" height="58" rx="10" fill="#121315" stroke="#ffc94d"/>
+  <text x="50" y="114" fill="#ececec" font-weight="600">Live edit</text><text x="50" y="134" fill="#9a9ca3">What the app sent last. In memory only.</text>
+  <rect x="368" y="106" width="80" height="22" rx="11" fill="#2c2716"/><text x="408" y="121" fill="#ffc94d" text-anchor="middle" font-size="11">Not saved</text>
+  <rect x="32" y="158" width="430" height="58" rx="10" fill="#121315" stroke="#2a2c30"/>
+  <text x="50" y="182" fill="#ececec" font-weight="600">Stored copy</text><text x="50" y="202" fill="#9a9ca3">A file in the knob's flash. Survives power-off.</text>
+  <rect x="32" y="226" width="430" height="58" rx="10" fill="#121315" stroke="#2a2c30" stroke-dasharray="4 4"/>
+  <text x="50" y="250" fill="#ececec" font-weight="600">Built-in</text><text x="50" y="270" fill="#9a9ca3">Part of the firmware. Never changes.</text>
+  <g font-size="13">
+    <rect x="500" y="96" width="96" height="24" rx="6" fill="#ffc94d"/><text x="548" y="112" fill="#15120a" text-anchor="middle" font-size="12" font-weight="500">Save to knob</text>
+    <text x="610" y="113" fill="#9a9ca3">the live edit becomes the stored copy</text>
+    <rect x="500" y="134" width="96" height="24" rx="6" fill="#1a1b1e" stroke="#2a2c30"/><text x="548" y="150" fill="#ececec" text-anchor="middle" font-size="12" font-weight="500">Revert</text>
+    <text x="610" y="151" fill="#9a9ca3">drops the live edit</text>
+    <rect x="500" y="172" width="120" height="24" rx="6" fill="none" stroke="#4a2a28"/><text x="560" y="188" fill="#ff6b5a" text-anchor="middle" font-size="12" font-weight="500">Reset to default</text>
+    <text x="634" y="189" fill="#9a9ca3">deletes it: the built-in shows again</text>
+    <text x="500" y="236" fill="#9a9ca3">Save to knob and Revert are in the top bar;</text>
+    <text x="500" y="254" fill="#9a9ca3">Reset to default is on the profile's General tab.</text>
+    <text x="500" y="282" fill="#9a9ca3">Your own profiles have no built-in layer:</text>
+    <text x="500" y="300" fill="#9a9ca3">there the button is Delete profile.</text>
+  </g>
 </svg>

@@ -1,38 +1,34 @@
 # Quadra companion
 
-The desktop app for the Quadra knob. It reads the knob live and changes its settings from the
-computer, in the same pixel style as the device's own screens.
+The desktop app for the Quadra knob. It changes the knob's settings and app profiles from the
+computer: a sidebar with the knob and its pages, one Save for everything, and pixel art only
+where the app shows the knob itself.
 
-- **The device:** a render of the knob as it is, live. Its screen shows inside the knob (the
-  detents, the active app or mode with its feel, F1–F4); the LED ring glows round it in the
-  colours the LEDs show right now, and the keys light up and press down while held. Hover a key
-  to see what it does. (Firmware from before the LED stream: the ring is made up from the
-  knob's angle.) With firmware that streams its screen (extensions v6), the picture is the
-  knob's own screen and works as a remote: click a key, drag or scroll over the knob to turn
-  it.
-- **HAPTICS:** the haptic profiles (STEPS: WIDE / COARSE / MEDIUM / FINE / SMOOTH) and, for the
-  chosen one, its FEEL (SAW / SINE / VISCOSE) and the tuning sliders SNAP, DAMP, SHAPE, AMP
-  and PITCH. **RESET TO FACTORY** puts that profile back. Drag, scroll or use the arrow keys; the knob changes as you go.
-- **PROFILES:** the mode (APP, MOUSE, KEYS, MIDI); in MOUSE and KEYS, the haptic profile the
-  knob uses; in APP, the app profiles with the icons the device draws. **EDIT** opens any profile, built-ins included: name, icon (import any
-  image), key labels, what the knob and F1–F4 send, and the command wheel. Edits go to the knob
-  a moment after you make them; **SAVE TO KNOB** stores them. A changed built-in keeps its
-  original in the firmware, and **RESET TO DEFAULT** brings that back. **DUPLICATE** and
-  **+ NEW PROFILE** make profiles of your own. **MACROS** are key presses, text and pauses the
-  knob types by itself (no software needed once saved): build them step by step or **RECORD**
-  them, then give one to a key (TAP, or its quick tap) or to a command-wheel entry.
-- **LOOK:** the idle word, LIGHTS (APP or CUSTOM colour, effect, speed, brightness) and the
-  CLOCK app's format and zones.
-- **DEVICE:** BINDINGS (MAC / PC), screen rotation, boot mode, WiFi and pairing this app, and
-  the firmware version.
-- **SYS INFO:** power (an estimate), heat, CPU and system, with a minute of history and RESET
-  PEAKS.
+- **Mode:** what the knob sends (App, Mouse, Keys, MIDI); in App, the profile in use; in Mouse
+  and Keys, the haptic profile that mode uses.
+- **Haptics:** the five haptic profiles (Wide / Coarse / Medium / Fine / Smooth) and, for the
+  one picked, its feel (Saw / Sine / Viscose) and the sliders Snap, Damp, Shape, Click volume
+  and Click pitch. **Reset to factory** puts that profile back.
+- **App profiles:** one page per profile, built-ins included, with four tabs. **General:** name,
+  icon (import any picture), key labels, the main screen, and a preview drawn the way the knob
+  draws it. **Knob & keys:** what the knob and F1–F4 send, and the one haptic profile each uses
+  (feel and strength come from that haptic profile, nothing per input). **Command wheel:** rings
+  and commands (shortcut, search, macro). **Macros:** key presses, text and pauses the knob types
+  itself, built step by step or recorded. A changed built-in keeps its original in the firmware;
+  **Reset to default** brings it back. **New profile** and **Duplicate** make your own.
+- **Look:** the lights (colour, effect, speed, brightness); the idle word, the music cover style
+  and screen rotation; the Clock app's format and zones.
+- **Device:** Mac or PC, HID or serial at start, the firmware, and Wi-Fi with pairing this app.
+- **System info:** power (an estimate), heat, CPU and system, with a minute of history.
 
-Changes are live on the knob but not saved. Values that differ from what's stored show in
-amber, and **SAVE** writes them to the knob; F2 on the device does the same. **REVERT** goes
-back to what's stored.
+Changes are live on the knob at once. The top bar counts what isn't stored yet (settings,
+lights, profiles) and lists it on a click, each with its own Revert; **Save to knob** stores it
+all. F2 on the device stores the settings and lights too.
 
-The [user guide](docs/COMPANION.md) covers every screen, with screenshots.
+The app doesn't show the knob's screen or LEDs live (the knob does), and only asks for the live
+stream while System info is open.
+
+The [user guide](docs/COMPANION.md) covers every page, with screenshots.
 
 ## How it talks to the knob
 
@@ -42,9 +38,9 @@ Monitoring prompt. The wire format is
 [`NanoDepsidf/src/host_proto.h`](../NanoDepsidf/src/host_proto.h), mirrored in
 [`src/proto.ts`](src/proto.ts); change both together. The knob must run firmware with that
 protocol (version 3: haptic profiles) and be in **HID** boot mode. With older firmware the
-settings still work, but the HAPTICS tab can't show the profiles' own limits.
+settings still work, but Haptics can't show the profiles' own limits.
 
-LOOK, WiFi, CLOCK and the remote use the protocol's extensions:
+Look, Wi-Fi and the clock use the protocol's extensions:
 [`NanoDepsidf/src/ext_proto.h`](../NanoDepsidf/src/ext_proto.h) (commands 0x20–0x2F),
 mirrored in `src/proto.ts` too. Each feature shows only when the knob's extensions version
 has it.
@@ -73,10 +69,15 @@ pnpm dev                # just the page: open http://localhost:1420 in Chrome fo
 ```
 
 **Demo mode:** add `?demo` to the page's URL, for example `http://localhost:1420/?demo`. A
-simulated knob answers the protocol (and the extensions up to v5: LOOK, WiFi status,
-CLOCK), so the UI can be worked on without the hardware.
-`&tab=SYS_INFO` (or `PROFILES`, `LOOK`, `DEVICE`) opens on that tab, and `&tab=PROFILES&edit=1` opens
-the editor on profile 1.
+simulated knob answers the protocol (and the extensions up to v5: Look, Wi-Fi status, the
+clock), so the UI can be worked on without the hardware. Every page has an address:
+`#/mode`, `#/haptics`, `#/profile/figma/general` (or `keys/f1`, `wheel`, `macros`),
+`#/look/lights` (`screen`, `clock`), `#/device/general` (`wifi`), `#/sys` — for example
+`http://localhost:1420/?demo#/profile/figma/keys/f1`.
+
+**Screenshots** for the user guide come from demo mode, all in one go: with `pnpm dev` running,
+`npx playwright install webkit chromium` (once), then `node scripts/screenshots.mjs`. Retake
+them after a UI change.
 
 The WiFi link with the cable in (the cable is what powers the knob): pair the app over USB,
 then start it with USB hidden, `QUADRA_NO_USB=1 Quadra.app/Contents/MacOS/quadra-companion`.
@@ -84,7 +85,7 @@ then start it with USB hidden, `QUADRA_NO_USB=1 Quadra.app/Contents/MacOS/quadra
 ## Building
 
 ```sh
-pnpm tauri build        # -> src-tauri/target/release/bundle/macos/Quadra.app (~4 MB)
+pnpm tauri build        # -> src-tauri/target/release/bundle/macos/Quadra.app (~5 MB)
 ```
 
 Local builds are signed ad-hoc, which needs no Apple account. Ad-hoc signing is fine on your
@@ -128,16 +129,26 @@ variables work as GitHub Actions secrets with `tauri-action`.
 src/proto.ts        the protocol (mirror of host_proto.h)
 src/profile.ts      profiles as JSON (mirror of profile_json.h), key names, icon conversion
 src/transport.ts    Tauri pipe | WebHID, one interface
-src/device.ts       connection, state, profiles + icons, history
+src/device.ts       connection, settings, profiles + icons, SYS history; changes by topic
+src/store.ts        the views' state: a signal per device topic, the #route, save / revert
+src/profiles.ts     new profile, duplicate
 src/mock.ts         ?demo: a simulated knob
-src/ui/             the device view (render + LEDs + screen mirror), the four panels, the editor,
-                    the shared kit (blocks, cards, pixel drawing)
-src/assets/         device.png, the top-down render (geometry in deviceView.ts)
-src-tauri/          the Rust side: HID list / open / write / close, reports as events
+src/main.tsx        the pages by route
+src/pages/          Mode, Haptics, Look, Device, System info; profile/ (the editor's tabs,
+                    its session with the knob, an input's haptic profile)
+src/ui/             the shell (sidebar, top bar), controls, the knob's screen drawn from data
+src/style.css       the look: tokens, layout, controls
+src/assets/         device.png, the top-down render (the sidebar's picture)
+scripts/            screenshots.mjs (the user guide's), gen_tzdata.py (the clock's cities)
+src-tauri/          the Rust side: HID list / open / write / close, reports as events; Wi-Fi
 ```
+
+The views are [Preact](https://preactjs.com) components with
+[signals](https://preactjs.com/guide/v10/signals): a page reads the device topics it shows
+(`use("settings")`), and re-renders only when one of them changes.
 
 ---
 
-LOOK, WiFi, the MEDIA input and the live remote screen were contributed by
+Look, Wi-Fi and the Media input were contributed by
 [@Dviros](https://github.com/Dviros) in
 [pull request #17](https://github.com/katbinaris/NanoD_RatchetH1/pull/17).

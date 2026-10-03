@@ -1,42 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 300" width="880" height="300" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" letter-spacing="1.5" shape-rendering="crispEdges">
-  <rect width="880" height="300" fill="#000"/>
-  <defs>
-    <marker id="aw" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#fff"/></marker>
-    <marker id="aa" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#ffc94d"/></marker>
-    <marker id="ag" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker>
-  </defs>
-
-  <!-- boxes -->
-  <rect x="40" y="90" width="200" height="110" fill="none" stroke="#fff" stroke-width="2"/>
-  <text x="56" y="116" fill="#fff" font-weight="bold">YOU CHANGE</text>
-  <text x="56" y="140" fill="#aaa" font-size="11">A SLIDER, A CARD,</text>
-  <text x="56" y="158" fill="#aaa" font-size="11">A PROFILE FIELD</text>
-  <text x="56" y="184" fill="#777" font-size="10">IN THE APP</text>
-
-  <rect x="340" y="90" width="200" height="110" fill="none" stroke="#ffc94d" stroke-width="2"/>
-  <text x="356" y="116" fill="#ffc94d" font-weight="bold">LIVE ON THE KNOB</text>
-  <text x="356" y="140" fill="#aaa" font-size="11">YOU FEEL IT AT ONCE.</text>
-  <text x="356" y="158" fill="#aaa" font-size="11">SHOWN IN AMBER.</text>
-  <text x="356" y="184" fill="#777" font-size="10">LOST AT POWER-OFF</text>
-
-  <rect x="640" y="90" width="200" height="110" fill="#fff"/>
-  <text x="656" y="116" fill="#000" font-weight="bold">STORED</text>
-  <text x="656" y="140" fill="#333" font-size="11">IN THE KNOB'S FLASH.</text>
-  <text x="656" y="158" fill="#333" font-size="11">KEPT AFTER A RESTART,</text>
-  <text x="656" y="176" fill="#333" font-size="11">WITH NO APP RUNNING.</text>
-
-  <!-- arrows -->
-  <line x1="240" y1="145" x2="336" y2="145" stroke="#fff" stroke-width="2" marker-end="url(#aw)"/>
-  <text x="258" y="134" fill="#fff" font-size="10">AT ONCE</text>
-  <line x1="540" y1="145" x2="636" y2="145" stroke="#ffc94d" stroke-width="2" marker-end="url(#aa)"/>
-  <text x="566" y="134" fill="#ffc94d" font-size="10">SAVE</text>
-  <text x="552" y="166" fill="#777" font-size="10">OR F2 ON</text>
-  <text x="552" y="180" fill="#777" font-size="10">THE KNOB</text>
-
-  <!-- revert -->
-  <polyline points="740,200 740,250 440,250 440,204" fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ag)"/>
-  <text x="520" y="272" fill="#aaa" font-size="10">REVERT: BACK TO WHAT'S STORED</text>
-
-  <text x="40" y="44" fill="#fff" font-size="14" font-weight="bold">CHANGES ARE LIVE FIRST, STORED WHEN YOU SAVE</text>
-  <text x="40" y="64" fill="#777" font-size="10">THE SAME RULE FOR SETTINGS (SAVE, TOP RIGHT) AND PROFILES (SAVE TO KNOB, IN THE EDITOR)</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" font-family="Geist, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13">
+  <title>Live first, stored when you save</title>
+  <desc>A change goes live on the knob at once; Save to knob stores it; Revert goes back to what is stored. The same for settings, lights and app profiles.</desc>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9a9ca3"/></marker><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#ffc94d"/></marker></defs>
+  <rect width="880" height="300" rx="14" fill="#0b0c0d"/>
+  <text x="32" y="44" fill="#ececec" font-size="16" font-weight="600">Changes are live first, and stored when you save</text>
+  <text x="32" y="66" fill="#9a9ca3">The same for every setting, the lights and app profiles</text>
+  <rect x="32" y="96" width="220" height="116" rx="12" fill="#121315" stroke="#2a2c30"/>
+  <text x="50" y="124" fill="#ececec" font-weight="600">You change something</text>
+  <text x="50" y="148" fill="#9a9ca3">A slider, a card, a profile's</text>
+  <text x="50" y="166" fill="#9a9ca3">field, in the app</text>
+  <rect x="330" y="96" width="220" height="116" rx="12" fill="#121315" stroke="#ffc94d"/>
+  <text x="348" y="124" fill="#ececec" font-weight="600">Live on the knob</text>
+  <text x="348" y="148" fill="#9a9ca3">You feel it at once.</text>
+  <text x="348" y="166" fill="#9a9ca3">Listed as unsaved, amber.</text>
+  <text x="348" y="192" fill="#ffc94d">Lost at power-off</text>
+  <rect x="628" y="96" width="220" height="116" rx="12" fill="#121315" stroke="#2a2c30"/>
+  <text x="646" y="124" fill="#ececec" font-weight="600">Stored</text>
+  <text x="646" y="148" fill="#9a9ca3">In the knob's flash. Kept after</text>
+  <text x="646" y="166" fill="#9a9ca3">a restart, with no app running</text>
+  <line x1="256" y1="154" x2="324" y2="154" stroke="#9a9ca3" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="290" y="144" fill="#9a9ca3" text-anchor="middle" font-size="11">at once</text>
+  <line x1="554" y1="140" x2="622" y2="140" stroke="#ffc94d" stroke-width="1.5" marker-end="url(#b)"/>
+  <rect x="548" y="100" width="80" height="22" rx="5" fill="#ffc94d"/><text x="588" y="115" fill="#15120a" text-anchor="middle" font-size="11" font-weight="500">Save to knob</text>
+  <text x="588" y="164" fill="#9a9ca3" text-anchor="middle" font-size="11">or F2 on</text><text x="588" y="178" fill="#9a9ca3" text-anchor="middle" font-size="11">the knob</text>
+  <path d="M738 216 C738 262 440 262 440 220" fill="none" stroke="#9a9ca3" stroke-width="1.5" marker-end="url(#a)"/>
+  <text x="589" y="276" fill="#9a9ca3" text-anchor="middle">Revert: back to what's stored</text>
 </svg>

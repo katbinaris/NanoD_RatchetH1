@@ -6,4 +6,6 @@ export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true },
   build: { target: "safari16", outDir: "dist" },
+  // Preact's JSX (the views are .tsx).
+  oxc: { jsx: { runtime: "automatic", importSource: "preact" } },
 });

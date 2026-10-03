@@ -302,7 +302,7 @@ matter which core started the write. The motor keeps its last PWM duty.
 
 Flash is written by:
 
-- an F2 save or a companion SAVE (NVS);
+- an F2 save or the companion's Save to knob (NVS);
 - a companion profile save (LittleFS);
 - calibration (once, or on RECALIBRATE).
 
@@ -501,10 +501,10 @@ and the companion shows a feature only from the version that has it:
 
 | Version | Adds |
 |---|---|
-| 1–3 | `REBOOT` (also into SERIAL, for buttonless flashing), `TEXT` (the idle word), `LIGHTS`, `PREFS`, `NOTIFY` (agent requests and their answers), `COVER` (a 240×240 JPEG, USB only), `TRACK` (title, artist, colours, volume), `AGENTS` (the dashboard). The companion's LOOK tab needs any of these |
+| 1–3 | `REBOOT` (also into SERIAL, for buttonless flashing), `TEXT` (the idle word), `LIGHTS`, `PREFS`, `NOTIFY` (agent requests and their answers), `COVER` (a 240×240 JPEG, USB only), `TRACK` (title, artist, colours, volume), `AGENTS` (the dashboard). The companion's Look page needs any of these |
 | 4 | `NET`: WiFi setup and status |
 | 5 | `TIME` (from the Mac service), `CLOCK` (format and zones) |
-| 6 | `SCREEN` (the live screen: changed 16×16 tiles, RLE when shorter) and `INPUT` (keys and turns from the companion) |
+| 6 | `SCREEN` (the live screen: changed 16×16 tiles, RLE when shorter) and `INPUT` (keys and turns from a host). The companion used them as a live remote until its redesign (2026-10); it asks for neither now |
 | 7 | `NET KEY`: the WiFi pairing key |
 | 8 | `MUSIC`: the now-playing cover style (`PREFS` reports it, and how many styles there are) |
 
@@ -572,7 +572,7 @@ cover once per cover. A frame expands the cache, redraws only the pixels the lig
 nearest neighbour by stepping through it in fixed point along each row. PSRAM is quad SPI with
 a 32 KB cache, so it is read only in order. While the record moves, it is drawn every third
 10 ms tick (about 33 fps; a pace between tick multiples would alternate 30 and 40 ms frames),
-the volume ring and key glyphs included, and the companion's live screen gets 5 of those
+the volume ring and key glyphs included, and a host's live screen (`SCREEN`) gets 5 of those
 frames a second. Once the record has stopped, the screen is drawn only on a change. The console
 shows the frame rate and the draw and push times every 2 s while it moves. The
 motion is a function of the time since the last play or pause, like every other animation. A
@@ -605,7 +605,7 @@ agent; MUSIC shows the volume as an arc while the knob turns; CLOCK can sweep th
 
 ## 14. SYS INFO
 
-`sysmon.c` collects the numbers behind DEVICE → SYS INFO and the companion's SYS INFO tab.
+`sysmon.c` collects the numbers behind DEVICE → SYS INFO and the companion's System info page.
 
 - **Loop timing.** The control task adds each iteration's cycle counts to plain statics and
   hands the sums over every 1000 ticks. Reported: rate, average and maximum work, jitter,

@@ -1,3 +1,27 @@
+# Companion 0.2.0
+
+**Companion 0.2.0 (macOS) · works with firmware 2.0.0**
+
+A new interface for the companion, built for how much it now does. The firmware is unchanged.
+
+- **A calmer, clearer look.** A sidebar with every page, a top bar that shows where you are,
+  and sentence-case text in Geist. Pixel art stays where it belongs: the knob's screen, the
+  profile icons and the idle word. Icons sit on the page with no black box behind them.
+- **One save for everything.** Settings, lights and profiles are saved together with **Save
+  to knob**. An amber label lists what isn't saved yet, each with its own **Revert**.
+- **Edit profile opens on the first click.** Before, it sometimes needed several clicks.
+- **Each input picks a haptic profile.** The knob and F1 to F4 each choose one of WIDE,
+  COARSE, MEDIUM, FINE or SMOOTH. A profile's feel and steps are tuned in one place, under
+  **Haptics**.
+- **Lighter on the knob.** The live view of the knob is gone. The sidebar shows a small
+  picture of the knob with its main screen, drawn from data. System info streams only while
+  it is open. The remote (pressing keys and turning the knob from the app) went with the live
+  view.
+
+The full guide is in [companion/docs/COMPANION.md](companion/docs/COMPANION.md).
+
+---
+
 # Quadra 2.0.0
 
 **Firmware 2.0.0 · Companion 0.1.0 (macOS) · Mac service**

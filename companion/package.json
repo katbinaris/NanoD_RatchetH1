@@ -1,7 +1,7 @@
 {
   "name": "quadra-companion",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
@@ -10,12 +10,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.12.0"
+    "@preact/signals": "^2.11.3",
+    "@tauri-apps/api": "^2.12.0",
+    "preact": "^11.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.0",
+    "@types/w3c-web-hid": "^1.0.6",
+    "playwright": "1.55.1",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1",
-    "@types/w3c-web-hid": "^1.0.6"
+    "vite": "^8.3.1"
   }
 }

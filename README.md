@@ -1,7 +1,7 @@
 # Quadra
 
 [![Firmware 2.0.0](https://img.shields.io/badge/firmware-2.0.0-f5a623)](RELEASE_NOTES.md#firmware-200)
-[![Companion 0.1.0](https://img.shields.io/badge/companion-0.1.0-f5a623)](RELEASE_NOTES.md#companion-010)
+[![Companion 0.2.0](https://img.shields.io/badge/companion-0.2.0-f5a623)](RELEASE_NOTES.md#companion-020)
 [![Release notes](https://img.shields.io/badge/release%20notes-2.0.0-555555)](RELEASE_NOTES.md)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
 <br>
@@ -442,8 +442,8 @@ permission request appears on the knob in any profile, with the menu closed:
 | **F3** | **Deny** |
 | **F2** or **F4** | **Later**: answer in the agent's own window |
 
-Only the knob's own F1 allows. A key pressed from the companion app can deny or defer, but
-never allow. If the knob doesn't answer within 30 s, or isn't there, the agent asks in its
+Only the knob's own F1 allows. A key pressed remotely (the protocol's input command) can deny
+or defer, but never allow. If the knob doesn't answer within 30 s, or isn't there, the agent asks in its
 own window as usual; the service never decides on its own. "Your turn" and "needs input"
 notices also show, and any key dismisses them. The knob and the keys keep their normal jobs
 while a request is up; only the key you answer with is held back from the app.
@@ -470,7 +470,7 @@ with its own daylight-saving rules.
 
 The knob learns the time from the [Mac service](#the-mac-service), which sends the time and
 the local zone every few minutes, or from the internet when [WiFi](#wifi) is on. Zones and
-the format are set in the companion app (**LOOK → CLOCK**) or with `quadra.py clock`. LED
+the format are set in the companion app (**Look › Clock**) or with `quadra.py clock`. LED
 SECONDS turns the ring into a seconds hand. The clock never goes to the idle screen.
 
 ### The Mac service
@@ -614,8 +614,8 @@ swallowed.
   <img src="NanoDepsidf/docs/images/idle-word.png" width="200" alt="The loading screen with the idle word HELLO in place of QUADRA">
 </p>
 
-**Your own word.** An idle word of up to 12 characters, set from the companion app (**LOOK →
-IDLE WORD**) or with `quadra.py text`, replaces QUADRA on the loading screen and in the idle
+**Your own word.** An idle word of up to 12 characters, set from the companion app (**Look ›
+Screen & music**) or with `quadra.py text`, replaces QUADRA on the loading screen and in the idle
 animation. With an app icon up, the word and the icon take turns, one routine each.
 
 ### LEDs
@@ -646,11 +646,11 @@ plain 500 mA port. With WiFi on, the radio's ~100 mA comes off that budget.
 ### WiFi
 
 <p>
-  <img src="companion/docs/app-device-wifi.png" width="440" alt="Companion app, DEVICE → WIFI: connected to STUDIO, the knob's address and quadra-7142.local">
+  <img src="companion/docs/app-device-wifi.png" width="440" alt="Companion app, Device › Wi-Fi: connected to STUDIO, the knob's address and quadra-7142.local">
 </p>
 
-WiFi is optional and off until you set it up, over USB: in the companion app (**DEVICE →
-WIFI**) or with `quadra.py wifi --ssid NAME` (it asks for the password). The network name
+WiFi is optional and off until you set it up, over USB: in the companion app (**Device ›
+Wi-Fi**) or with `quadra.py wifi --ssid NAME` (it asks for the password). The network name
 and password are stored on the knob and never sent back out. Open, WPA2 and WPA3 networks
 work.
 
@@ -658,8 +658,8 @@ Once connected:
 - **Name:** the knob is `quadra-xxxx.local` on the network (mDNS).
 - **Time:** it sets its clock from `pool.ntp.org`. This is the only connection it makes
   outside your network.
-- **Companion:** the app reaches it without a cable. Pair it once over USB (**DEVICE →
-  WIFI → PAIR THIS APP**): the knob gives the app a random 256-bit key.
+- **Companion:** the app reaches it without a cable. Pair it once over USB (**Device ›
+  Wi-Fi › Pair this app**): the knob gives the app a random 256-bit key.
 
 **The encrypted link.** It runs on TCP port 3333:
 - Each connection proves both sides hold the key, and every message is encrypted, so
@@ -841,30 +841,31 @@ NanoDepsidf/tools/.venv/bin/python NanoDepsidf/tools/quadra.py hello   # for exa
 ## Desktop companion
 
 <p>
-  <img src="companion/docs/app-haptics.png" width="440" alt="Companion app: the live device and the HAPTICS panel">
-  <img src="companion/docs/app-sys-info.png" width="440" alt="Companion app: SYS INFO with power and heat">
+  <img src="companion/docs/app-mode.png" width="440" alt="Companion app: Mode, with App, Mouse, Keys and MIDI, and the profile in use">
+  <img src="companion/docs/app-editor-keys.png" width="440" alt="Companion app: a profile's Knob & keys tab, F1 set to Keys with the Coarse haptic profile">
+  <img src="companion/docs/app-haptics.png" width="440" alt="Companion app: Haptics, with the five haptic profiles, the feel and the tuning sliders">
+  <img src="companion/docs/app-sys-info.png" width="440" alt="Companion app: System info, with power, heat, CPU and system tiles and the last minute">
 </p>
 
-`companion/` is a macOS app (Tauri, about 4 MB) that reads the knob live and changes its
-settings from the computer, in the device's own pixel style:
+`companion/` is a macOS app (Tauri, about 5 MB) that changes the knob's settings and app
+profiles from the computer:
 
-- **The device:** a render of the knob, live: its own screen, the LED ring in the colours the
-  LEDs show, and the keys as you press them. It is also a remote: click a key, or drag or
-  scroll over the knob to turn it.
-- **HAPTICS:** the haptic profiles (STEPS), and each one's FEEL and SNAP, DAMP, SHAPE, AMP
-  and PITCH sliders, with a reset to factory.
-- **PROFILES:** the mode, and the app profiles with their icons. Any profile can be edited:
-  key labels, icon, what the knob and keys send, the command wheel and macros. New profiles
+- **Mode:** what the knob sends (App, Mouse, Keys, MIDI), and the profile in use.
+- **Haptics:** the five haptic profiles, and each one's feel and Snap, Damp, Shape, Click
+  volume and Click pitch, with a reset to factory.
+- **App profiles:** one page each, built-ins included: name, icon, key labels, what the knob
+  and keys send and which haptic profile each uses, the command wheel and macros. New profiles
   can be made from scratch or by duplicating one.
-- **LOOK:** the idle word, LIGHTS (colour, effect, brightness), and the CLOCK app's zones
-  and format.
-- **DEVICE:** BINDINGS, rotation, boot mode, WiFi and pairing, and the firmware version.
-- **SYS INFO:** power, heat, CPU and system, with a minute of history.
+- **Look:** the lights, the idle word, the music cover style, screen rotation, and the Clock
+  app's zones and format.
+- **Device:** Mac or PC, the start mode, Wi-Fi and pairing, and the firmware version.
+- **System info:** power, heat, CPU and system, with a minute of history.
 
-Changes are live on the knob; **SAVE** stores them, just as F2 does. The same UI also runs as
-a web page in Chrome or Edge over WebHID. It talks to the vendor HID interface with the small
-protocol in `src/host_proto.h` and its extensions in `src/ext_proto.h`, so it needs no driver.
-Once paired, the app also reaches the knob over [WiFi](#wifi).
+Changes are live on the knob; **Save to knob** stores them all (settings, lights and profiles),
+just as F2 stores the settings. The same UI also runs as a web page in Chrome or Edge over
+WebHID. It talks to the vendor HID interface with the small protocol in `src/host_proto.h` and
+its extensions in `src/ext_proto.h`, so it needs no driver. Once paired, the app also reaches
+the knob over [WiFi](#wifi).
 
 ```sh
 cd companion && pnpm install
@@ -957,7 +958,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── notify.c, agent_board.c              agent requests and the AGENTS dashboard
 │   ├── media.c                MUSIC's now playing: cover, track, volume
 │   ├── clock.c, tzrule.c      CLOCK: zones and their daylight-saving rules
-│   ├── screen_stream.c        the live screen for the companion (changed tiles only)
+│   ├── screen_stream.c        the live screen for a host (changed tiles only)
 │   ├── user_prefs.c           the idle word, LIGHTS and MUSIC's cover style
 │   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
@@ -998,19 +999,17 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 - The USB power reading and DEVICE → SYS INFO.
 - A fast, steady control loop: 10.00 kHz, about 26 µs per iteration on average and 42 µs at
   worst of a 100 µs budget, 5 µs of jitter, no missed ticks and no spikes.
-- The desktop companion for macOS: the live device view, settings, haptic profiles, SYS
-  INFO, profile editing and upload, and macros stored on the device.
+- The desktop companion for macOS: settings, haptic profiles, system info, profile editing
+  with a haptic profile per input, and macros stored on the device.
 - MUSIC with now playing and its cover styles (FLAT, RECORD, SLIDE, BLEED), AGENTS with
   requests and the dashboard, CLOCK.
 - WiFi and the companion over WiFi.
-- LIGHTS, the idle word, and the companion's LOOK tab and remote.
+- LIGHTS, the idle word, and the companion's Look page.
 - The Mac service, and flashing with `quadra.py flash`.
 
 **Next:**
 - Safe SNAP and DAMP limits for each haptic profile and feel (today they are the full
   ranges), and tuned values for each profile's second feel.
-- A haptic-profile choice per app input in the companion's profile editor (today it follows
-  the input's feel and step count).
 - F4 quick tap in APP mode, and KEYBOARD / MOUSE as built-in profiles.
 - Integration tests: the cross-core load test, and the loop's worst case during a save to
   flash.
@@ -1022,7 +1021,7 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
 - The companion on Windows.
 
 **Known assumptions:**
-- Shortcuts are written for **macOS**; on Windows set DEVICE → BINDINGS to PC (Cmd is sent
+- Shortcuts are written for **macOS**; on Windows set the companion's Device › Computer (or the knob's BINDINGS) to PC (Cmd is sent
   as Ctrl). They assume a **US keyboard layout**: HID sends key positions, so other layouts
   can type different characters.
 - Uploaded icons (`send_icon.py`) are held in RAM and cleared on restart; icons imported
@@ -1043,7 +1042,8 @@ Quadra's firmware and companion are by Kafi Devices.
 - **WiFi:** SNTP, mDNS, and the encrypted, USB-paired companion link.
 - **LIGHTS and the idle word:** the LED look, and a word of your own on the idle screen.
 - **The Mac service:** now playing, agent requests and the local time.
-- **The companion:** the LOOK tab, WiFi, the MEDIA input, and the live screen as a remote.
+- **The companion:** the Look page, WiFi, the MEDIA input, and the live screen as a remote
+  (since left out of the companion's redesign).
 - **Tools and fixes:** `quadra.py`, buttonless flashing, moving the timer work off Core 0 so
   WiFi costs the control loop no ticks, and the LED ring's rotation fix.
 

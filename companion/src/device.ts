@@ -1,11 +1,16 @@
 // One knob, as the UI sees it: connection, the latest settings / state / SYS INFO, the app
 // profiles with their icons, and a short history for the charts. Views subscribe and redraw.
 
-import { CLOCK_SLOTS, Cmd, EXT_CLOCK_VERSION, EXT_WIFI_LINK_VERSION, EXT_NET_VERSION, EXT_SCREEN_VERSION, SCREEN_SIZE, ExtCmd, ExtStatus, ExtTag, NetOp, LED_COUNT, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type ClockSlot, type Lights, type ScreenChunk, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
+import { CLOCK_SLOTS, Cmd, EXT_CLOCK_VERSION, EXT_WIFI_LINK_VERSION, EXT_NET_VERSION, ExtCmd, ExtStatus, ExtTag, NetOp, Res, RES_TEXT, TEXT_CHUNK, Tag, crc32, decode, encode, ICON_BYTES, UploadFlag, type Hello, type ClockSlot, type Lights, type Net, type Prefs, type Profile, type Result, type SetId, type Settings, type State, type SysA, type SysB } from "./proto";
 import { rgb565ToImage, tidy, type ProfileJson } from "./profile";
 import { loadPairing, savePairing, type Pairing, type Transport } from "./transport";
 
 export type Status = "searching" | "needs-permission" | "connected" | "unsupported";
+
+// What changed, so a view redraws only for what it shows: "state" arrives 30 times a second
+// while streaming, the rest when something really changes.
+export const TOPICS = ["conn", "settings", "state", "profiles", "sys", "prefs", "net", "clock"] as const;
+export type Topic = (typeof TOPICS)[number];
 
 export interface ProfileEntry extends Profile {
   icon: ImageData | null; // 48x48, decoded from the device's RGB565
@@ -24,7 +29,6 @@ const SEARCH_MS = 1000;
 const TRANSFER_MS = 8000;
 const PREFS_MS = 1000; // LIGHTS and the idle word can change on the knob too (its menu)
 const LIGHTS_RETRY_MS = 60; // the knob takes one LIGHTS at a time
-const SCREEN_FPS = 15;
 const LIST_RETRY_MS = 2000; // a step of the profile list unanswered this long is asked again
 
 export class DeviceError extends Error {}
@@ -38,10 +42,6 @@ export class Device {
   sysB: SysB | null = null;
   profiles: ProfileEntry[] = [];
   history: History = { totalMa: [], chipC: [], load0: [], load1: [] };
-  // What the LEDs show (RGB, as sent to the strips), and when that last arrived -- firmware
-  // before the LED stream never sends it, and the view makes it up instead.
-  leds = new Uint8Array(LED_COUNT * 3);
-  ledsAt = 0;
   // ext_proto.h: its version (0 = firmware without the extensions, null = not known yet), and
   // LIGHTS + the idle word.
   ext: number | null = null;
@@ -50,17 +50,10 @@ export class Device {
   paired: Pairing | null = loadPairing(); // this app over WiFi, from extensions v7
   private keyAsked = false; // every HID client sees the knob's key reply: only take one asked for
   clockSlots: (ClockSlot | null)[] = []; // the CLOCK app, from extensions v5: slot 0 has the format too
-  // The screen as the knob shows it (extensions v6), RGBA; `screenLive` once a whole one came, and
-  // `screenVersion` bumps with each frame.
-  screen = new ImageData(SCREEN_SIZE, SCREEN_SIZE);
-  screenLive = false;
-  screenVersion = 0;
-  private screenBuf = new Uint8Array(120 * 1024);
-  private screenLen = -1; // -1: waiting for a frame's first report
-  private screenSeq = 0;
   error: string | null = null;
 
-  private listeners = new Set<() => void>();
+  private listeners = new Set<(t: Topic) => void>();
+  private streamWanted = false; // the live stream (STATE, SYS, LEDs): only while a view needs it
   private iconBuf = new Map<number, Uint8Array>();
   // On a list reload, icons are fetched again only for these (all when null).
   private staleIcons: globalThis.Set<number> | null = null;
@@ -92,13 +85,23 @@ export class Device {
     return this.transport?.kind ?? null;
   }
 
-  subscribe(fn: () => void): () => void {
+  subscribe(fn: (t: Topic) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
 
-  private changed() {
-    for (const fn of this.listeners) fn();
+  // No topic: everything (a connect or a disconnect).
+  private changed(...topics: Topic[]) {
+    for (const t of topics.length ? topics : TOPICS) for (const fn of this.listeners) fn(t);
+  }
+
+  // The live stream: STATE at 30 Hz, SYS twice a second and the LEDs (host_link.c). The knob
+  // works for every report it sends, so it runs only while a view shows some of it. (The LEDs
+  // and the knob's own screen, EXT_CMD_SCREEN, aren't shown any more: no live preview.)
+  setStreaming(on: boolean) {
+    if (on === this.streamWanted) return;
+    this.streamWanted = on;
+    if (this.status === "connected") void this.send(encode.stream(on ? STREAM_HZ : 0));
   }
 
   // --- connection ---
@@ -112,7 +115,7 @@ export class Device {
         if (ok) return this.start();
         if (this.transport!.needsGesture && this.status !== "needs-permission") {
           this.status = "needs-permission";
-          this.changed();
+          this.changed("conn");
         }
         this.searchTimer = window.setTimeout(() => this.search(), SEARCH_MS);
       })
@@ -142,7 +145,7 @@ export class Device {
     this.changed();
     this.ask(encode.hello(), "hello");
     await this.send(encode.getSettings());
-    await this.send(encode.stream(STREAM_HZ));
+    if (this.streamWanted) await this.send(encode.stream(STREAM_HZ));
     await this.send(encode.extHello());
   }
 
@@ -151,8 +154,6 @@ export class Device {
     this.hello = this.settings = this.state = this.sysA = this.sysB = null;
     this.ext = this.prefs = this.net = null;
     this.clockSlots = [];
-    this.screenLive = false;
-    this.screenLen = -1;
     window.clearInterval(this.prefsTimer);
     window.clearInterval(this.listTimer);
     window.clearTimeout(this.listReload);
@@ -166,7 +167,7 @@ export class Device {
       await this.transport?.send(r);
     } catch (e) {
       this.error = String(e);
-      this.changed();
+      this.changed("conn");
     }
   }
 
@@ -212,7 +213,7 @@ export class Device {
   }
   forgetWifi() {
     savePairing((this.paired = null));
-    this.changed();
+    this.changed("net");
   }
   // The CLOCK app: its format (ClockFlag), and zone `slot` (1-4; label "" = none). Both stored at once.
   setClockFlags(flags: number) {
@@ -246,7 +247,7 @@ export class Device {
       const t = window.setTimeout(() => {
         this.download = null;
         this.waitResult = null;
-        reject(new DeviceError(`${what}: NO ANSWER FROM THE KNOB`));
+        reject(new DeviceError(`${what}: no answer from the knob`));
       }, TRANSFER_MS);
       p.then(
         (v) => (window.clearTimeout(t), resolve(v)),
@@ -263,7 +264,7 @@ export class Device {
           this.download = { index, buf: null, crc: 0, got: 0, done, fail };
           this.send(encode.profileRead(index));
         }),
-        "READING THE PROFILE",
+        "Reading the profile",
       ).then((text) => JSON.parse(text) as ProfileJson),
     );
   }
@@ -276,7 +277,7 @@ export class Device {
       }),
       what,
     ).then((r) => {
-      if (r.res !== Res.OK) throw new DeviceError(r.why ? `${RES_TEXT[r.res] ?? "FAILED"}: ${r.why.toUpperCase()}` : (RES_TEXT[r.res] ?? "FAILED"));
+      if (r.res !== Res.OK) throw new DeviceError(r.why ? `${RES_TEXT[r.res] ?? "Failed"}: ${r.why}` : (RES_TEXT[r.res] ?? "Failed"));
       this.reloadProfiles(r.removed ? undefined : r.index);
       return r;
     });
@@ -293,13 +294,13 @@ export class Device {
           for (let off = 0; off < bytes.length; off += TEXT_CHUNK) await this.send(encode.uploadData(off, bytes.subarray(off, off + TEXT_CHUNK)));
           await this.send(encode.uploadEnd());
         },
-        "SENDING THE PROFILE",
+        "Sending the profile",
       );
     });
   }
 
   profileOp(index: number, op: number): Promise<Result> {
-    return this.serial(() => this.result(Cmd.PROFILE_OP, () => this.send(encode.profileOp(index, op)), "PROFILE"));
+    return this.serial(() => this.result(Cmd.PROFILE_OP, () => this.send(encode.profileOp(index, op)), "The profile"));
   }
 
   // The list again (names, flags), after a change -- icons only for `changed` (all if not given:
@@ -314,6 +315,7 @@ export class Device {
 
   private onReport(r: Uint8Array) {
     const m = decode(r);
+    let topic: Topic = "conn";
     switch (m.tag) {
       case Tag.HELLO:
         if ("hello" in m) {
@@ -323,9 +325,11 @@ export class Device {
           if (m.hello.profileCount > 0) this.ask(encode.profile(0), "p0");
           else this.want = null;
         }
+        this.changed("profiles");
         break;
       case Tag.SETTINGS:
         if ("settings" in m) this.settings = m.settings;
+        topic = "settings";
         break;
       case Tag.PROFILE:
         if ("profile" in m) this.onProfile(m.profile);
@@ -335,12 +339,7 @@ export class Device {
         return;
       case Tag.STATE:
         if ("state" in m) this.state = m.state;
-        break;
-      case Tag.LEDS:
-        if ("rgb" in m && m.first * 3 + m.rgb.length <= this.leds.length) {
-          this.leds.set(m.rgb, m.first * 3);
-          this.ledsAt = performance.now();
-        }
+        topic = "state";
         break;
       case Tag.SYS_A:
         if ("sys" in m) {
@@ -348,6 +347,7 @@ export class Device {
           this.push("totalMa", this.sysA.totalMa);
           this.push("chipC", this.sysA.chipC);
         }
+        topic = "sys";
         break;
       case Tag.SYS_B:
         if ("sys" in m) {
@@ -355,6 +355,7 @@ export class Device {
           this.push("load0", this.sysB.load[0]);
           this.push("load1", this.sysB.load[1]);
         }
+        topic = "sys";
         break;
       case Tag.PROFILE_BEGIN:
         if ("length" in m && this.download && m.index === this.download.index) {
@@ -369,7 +370,7 @@ export class Device {
           const d = this.download, buf = d.buf!;
           if (m.offset !== d.got) {
             this.download = null;
-            d.fail(new DeviceError("PROFILE ARRIVED OUT OF ORDER"));
+            d.fail(new DeviceError("The profile arrived out of order"));
             return;
           }
           const n = Math.min(TEXT_CHUNK, buf.length - m.offset);
@@ -400,11 +401,11 @@ export class Device {
           this.prefsTimer = window.setInterval(poll, PREFS_MS);
           poll();
           if (m.ext >= EXT_CLOCK_VERSION) for (let s = 1; s < CLOCK_SLOTS; s++) void this.send(encode.clockGet(s));
-          if (m.ext >= EXT_SCREEN_VERSION) void this.send(encode.screen(SCREEN_FPS));
         }
         break;
       case ExtTag.PREFS:
         if ("prefs" in m) this.prefs = m.prefs;
+        topic = "prefs";
         break;
       case ExtTag.NET:
         if ("net" in m) {
@@ -413,6 +414,7 @@ export class Device {
           const p = this.paired;
           if (p && m.net.host === p.host && m.net.ip && m.net.ip !== p.ip) savePairing((this.paired = { ...p, ip: m.net.ip }));
         }
+        topic = "net";
         break;
       case ExtTag.KEY:
         if ("key" in m && this.keyAsked) {
@@ -420,13 +422,12 @@ export class Device {
           const hex = Array.from(m.key, (x) => x.toString(16).padStart(2, "0")).join("");
           savePairing((this.paired = { host: this.net?.host ?? "", ip: this.net?.ip ?? "", port: m.port, key: hex }));
         }
+        topic = "net";
         break;
       case ExtTag.CLOCK:
         if ("clock" in m && m.clock.slot < CLOCK_SLOTS) this.clockSlots[m.clock.slot] = m.clock;
+        topic = "clock";
         break;
-      case ExtTag.SCREEN:
-        if ("screen" in m) this.onScreen(m.screen);
-        return; // changed() once a frame is whole
       case ExtTag.ACK:
         if ("status" in m) {
           const sent = this.lightsSent;
@@ -437,8 +438,8 @@ export class Device {
           }
           if (m.status !== ExtStatus.OK)
             this.error =
-              m.status === ExtStatus.STORAGE ? "THE KNOB COULDN'T STORE THAT"
-              : m.status === ExtStatus.USB_ONLY ? "ONLY OVER USB"
+              m.status === ExtStatus.STORAGE ? "The knob couldn't store that"
+              : m.status === ExtStatus.USB_ONLY ? "Only over USB"
               : `the knob refused 0x${m.cmd.toString(16)} (${m.status})`;
           else if (m.cmd === ExtCmd.TEXT) void this.send(encode.extPrefs());
         }
@@ -460,7 +461,7 @@ export class Device {
           if (m.cmd === Cmd.PROFILE_READ && this.download) {
             const d = this.download;
             this.download = null;
-            d.fail(new DeviceError("THE KNOB COULDN'T READ THAT PROFILE"));
+            d.fail(new DeviceError("The knob couldn't read that profile"));
             return;
           }
           this.error = `device refused command 0x${m.cmd.toString(16)} (${m.code})`;
@@ -469,79 +470,14 @@ export class Device {
       default:
         return;
     }
-    this.changed();
+    this.changed(topic);
   }
 
   private finishDownload() {
     const d = this.download!;
     this.download = null;
-    if (crc32(d.buf!) !== d.crc) d.fail(new DeviceError("PROFILE CORRUPTED ON THE WAY (CRC)"));
+    if (crc32(d.buf!) !== d.crc) d.fail(new DeviceError("The profile was damaged on the way (CRC)"));
     else d.done(new TextDecoder().decode(d.buf!));
-  }
-
-  // --- the live screen (screen_stream.h) ---
-
-  private onScreen(c: ScreenChunk) {
-    if (c.first) {
-      this.screenLen = 0;
-      this.screenSeq = c.seq;
-    } else if (this.screenLen < 0 || c.seq !== this.screenSeq) {
-      return this.screenLost();
-    }
-    if (this.screenLen + c.bytes.length > this.screenBuf.length) return this.screenLost();
-    this.screenBuf.set(c.bytes, this.screenLen);
-    this.screenLen += c.bytes.length;
-    if (!c.last) return;
-    const buf = this.screenBuf, n = this.screenLen, px = this.screen.data;
-    this.screenLen = -1;
-    // Check it all before drawing any: a damaged frame must not leave half a picture behind.
-    for (let i = 0; i < n; ) {
-      const len = buf[i + 2] | (buf[i + 3] << 8);
-      if (buf[i] >= 225 || buf[i + 1] > 1 || len > 512 || i + 4 + len > n) return this.screenLost();
-      i += 4 + len;
-    }
-    for (let i = 0; i < n; ) {
-      const t = buf[i], rle = buf[i + 1] === 1, len = buf[i + 2] | (buf[i + 3] << 8);
-      const x0 = (t % 15) * 16, y0 = Math.floor(t / 15) * 16;
-      let k = 0;
-      const put = (v: number) => {
-        const o = ((y0 + (k >> 4)) * SCREEN_SIZE + x0 + (k & 15)) * 4;
-        px[o] = ((v >> 11) << 3) | (v >> 13);
-        px[o + 1] = (((v >> 5) & 63) << 2) | ((v >> 9) & 3);
-        px[o + 2] = ((v & 31) << 3) | ((v >> 2) & 7);
-        px[o + 3] = 255;
-        k++;
-      };
-      for (let j = i + 4; j < i + 4 + len && k < 256; ) {
-        if (rle) {
-          const v = (buf[j + 1] << 8) | buf[j + 2];
-          for (let r = buf[j]; r > 0 && k < 256; r--) put(v);
-          j += 3;
-        } else {
-          put((buf[j] << 8) | buf[j + 1]);
-          j += 2;
-        }
-      }
-      i += 4 + len;
-    }
-    this.screenLive = true;
-    this.screenVersion++;
-    this.changed();
-  }
-
-  // A report went missing: what the knob thinks we have isn't what we have. Ask for it whole.
-  private screenLost() {
-    this.screenLen = -1;
-    void this.send(encode.screen(0)).then(() => this.send(encode.screen(SCREEN_FPS)));
-  }
-
-  // The keys held on the picture (F1 = 1 .. F4 = 8): the knob lets go 600ms after the last of these.
-  pressKeys(mask: number) {
-    return this.send(encode.inputKeys(mask));
-  }
-  // Detents, + = clockwise: as if the knob had turned.
-  turn(detents: number) {
-    return detents ? this.send(encode.inputTurn(detents)) : Promise.resolve();
   }
 
   // SYS arrives twice a second: HISTORY_SECONDS worth of samples.
@@ -569,7 +505,7 @@ export class Device {
     } else {
       this.nextProfile(p.index);
     }
-    this.changed();
+    this.changed("profiles");
   }
 
   private onIconChunk(index: number, offset: number, bytes: Uint8Array) {
@@ -584,7 +520,7 @@ export class Device {
     if (this.profiles[index]) this.profiles[index].icon = rgb565ToImage(buf, 48);
     this.iconBuf.delete(index);
     this.nextProfile(index);
-    this.changed();
+    this.changed("profiles");
   }
 
   private nextProfile(index: number) {

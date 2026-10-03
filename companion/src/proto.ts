@@ -29,7 +29,7 @@ export const Cmd = {
 export const UploadFlag = { SAVE: 0x01 } as const;
 export const Op = { SAVE: 1, REVERT: 2, REMOVE: 3 } as const;
 export const Res = { OK: 0, INVALID: 1, TRANSFER: 2, FULL: 3, STORAGE: 4, BAD_INDEX: 5, BUSY: 6 } as const;
-export const RES_TEXT = ["OK", "NOT A VALID PROFILE", "TRANSFER FAILED", "NO ROOM FOR MORE PROFILES", "STORAGE ERROR", "NO SUCH PROFILE", "BUSY"];
+export const RES_TEXT = ["OK", "Not a valid profile", "The transfer failed", "No room for more profiles", "Storage error", "No such profile", "The knob is busy"];
 
 // HOST_TAG_PROFILE [3]
 export const ProfileFlag = { ICON: 0x01, BUILTIN: 0x02, STORED: 0x04, LIVE: 0x08 } as const;

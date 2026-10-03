@@ -128,33 +128,33 @@ export function blankProfile(id: string, name: string): ProfileJson {
 
 // What's wrong with a profile before the device says so, or null.
 export function problem(p: ProfileJson): string | null {
-  if (!ID_RE.test(p.id)) return "ID: a-z, 0-9, _ and - (up to 11)";
-  if (!p.name || p.name.length > MAX.name) return `NAME: 1-${MAX.name} CHARACTERS`;
-  if (p.legend.some((l) => l.length > MAX.legend)) return `KEY LABELS: UP TO ${MAX.legend} CHARACTERS`;
+  if (!ID_RE.test(p.id)) return "The id: a-z, 0-9, _ and - (up to 11)";
+  if (!p.name || p.name.length > MAX.name) return `The name: 1 to ${MAX.name} characters`;
+  if (p.legend.some((l) => l.length > MAX.legend)) return `Key labels: up to ${MAX.legend} characters`;
   const wheel = Object.values(p.slots ?? {}).some((a) => a?.kind === "commands");
-  if (wheel && !(p.rings && p.rings.length)) return "A KEY OPENS THE COMMAND WHEEL, BUT IT HAS NO RINGS";
+  if (wheel && !(p.rings && p.rings.length)) return "An input opens the command wheel, but it has no rings";
   const names = new globalThis.Set<string>();
   for (const m of p.macros ?? []) {
-    if (!m.name) return "EVERY MACRO NEEDS A NAME";
-    if (names.has(m.name)) return `TWO MACROS CALLED ${m.name}`;
+    if (!m.name) return "Every macro needs a name";
+    if (names.has(m.name)) return `Two macros are called ${m.name}`;
     names.add(m.name);
-    if (m.steps.length > MAX.steps) return `${m.name}: UP TO ${MAX.steps} STEPS`;
+    if (m.steps.length > MAX.steps) return `${m.name}: up to ${MAX.steps} steps`;
     for (const st of m.steps) {
-      if ("text" in st && (!ASCII_RE.test(st.text) || st.text.length > MAX.text)) return `${m.name}: TEXT CAN ONLY USE PLAIN ASCII (NO ACCENTS OR EMOJI)`;
+      if ("text" in st && (!ASCII_RE.test(st.text) || st.text.length > MAX.text)) return `${m.name}: text can only use plain ASCII (no accents or emoji)`;
     }
   }
   const refOk = (n?: string) => !n || names.has(n);
   for (const a of Object.values(p.slots ?? {})) {
-    if (!refOk(a?.macro) || !refOk(a?.tap_macro)) return "A KEY USES A MACRO THAT'S GONE";
+    if (!refOk(a?.macro) || !refOk(a?.tap_macro)) return "An input uses a macro that's gone";
   }
   for (const r of p.rings ?? []) {
-    if (!r.name || !r.tab) return "EVERY RING NEEDS A NAME AND A TAB";
-    if (!r.cmds.length) return `RING ${r.name}: NO COMMANDS`;
+    if (!r.name || !r.tab) return "Every ring needs a name and a tab";
+    if (!r.cmds.length) return `Ring ${r.name}: no commands`;
     for (const c of r.cmds) {
-      if (!c.name) return `RING ${r.name}: A COMMAND WITHOUT A NAME`;
-      if (c.kind === "actions" && !c.phrase) return `${c.name}: SEARCH TEXT MISSING`;
-      if (c.kind === "actions" && !p.search?.open?.[1]) return `${c.name}: USES SEARCH, BUT NO SEARCH KEY IS SET`;
-      if (c.kind === "macro" && (!c.macro || !refOk(c.macro))) return `${c.name}: PICK A MACRO`;
+      if (!c.name) return `Ring ${r.name}: a command without a name`;
+      if (c.kind === "actions" && !c.phrase) return `${c.name}: the search text is missing`;
+      if (c.kind === "actions" && !p.search?.open?.[1]) return `${c.name}: uses search, but no search key is set`;
+      if (c.kind === "macro" && (!c.macro || !refOk(c.macro))) return `${c.name}: pick a macro`;
     }
   }
   return null;
@@ -258,7 +258,7 @@ export function bytesToB64(b: Uint8Array): string {
 }
 
 // RGB565 big-endian (what the firmware draws with swap565_t) -> ImageData. Black is
-// transparent on the device; it stays black here, on the black UI.
+// transparent on the device, and here too.
 export function rgb565ToImage(b: Uint8Array, size: number): ImageData {
   const img = new ImageData(size, size);
   for (let i = 0; i < size * size; i++) {
@@ -267,7 +267,7 @@ export function rgb565ToImage(b: Uint8Array, size: number): ImageData {
     img.data[i * 4] = (r << 3) | (r >> 2);
     img.data[i * 4 + 1] = (g << 2) | (g >> 4);
     img.data[i * 4 + 2] = (bl << 3) | (bl >> 2);
-    img.data[i * 4 + 3] = 255;
+    img.data[i * 4 + 3] = v ? 255 : 0;
   }
   return img;
 }

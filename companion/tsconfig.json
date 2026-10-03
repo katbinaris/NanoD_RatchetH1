@@ -15,7 +15,9 @@
     "types": [
       "vite/client",
       "w3c-web-hid"
-    ]
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
   "include": [
     "src"

@@ -1,8 +1,8 @@
 # Quadra pixel art: how it is made
 
 This document is the rulebook for everything Quadra draws: the device's screens, the
-companion app, and the screenshots in the docs. It is for contributors, and for Claude or any
-other assistant working on the repo. Read it before adding or changing a screen, a sprite, an
+companion app (which has its own style, section 10), and the screenshots in the docs. It is
+for contributors, and for Claude or any other assistant working on the repo. Read it before adding or changing a screen, a sprite, an
 icon, a command card or an animation, and follow it exactly. A change that breaks a rule here
 will be asked to change.
 
@@ -49,7 +49,7 @@ Paths below are relative to `NanoDepsidf/` unless they start with `companion/`.
 
 ## 2. Palette
 
-Defined in `src/ui_gfx.hpp` (firmware) and `companion/src/ui/kit.ts` (`C`).
+Defined in `src/ui_gfx.hpp` (firmware) and `companion/src/ui/draw.ts` (`C`, where the companion draws the knob's screen).
 
 | Name | RGB | Used for |
 |---|---|---|
@@ -161,7 +161,7 @@ screen). They are the only full-colour art.
 3. The 48×48 icon also sets the app's **accent colours** unless the profile names its own
    `plasma_heat`. Check the idle screen and the LEDs after changing an icon.
 
-Uploaded icons (the companion's IMPORT IMAGE, `tools/send_icon.py`) are the exception to
+Uploaded icons (the companion's Import image, `tools/send_icon.py`) are the exception to
 "hand-drawn": they are fitted from any picture. Built-in profiles always use drawn icons.
 
 ## 8. Command cards
@@ -204,21 +204,33 @@ draws it.
 
 ## 10. The companion app
 
-The companion (`companion/`) uses the same visual language on a desktop.
+The companion (`companion/`) is a desktop app with a lot of forms, so since October 2026 it
+has its own style (called B in the design work): a hardware-editor look, readable at desktop
+sizes. The pixel rules above apply only where it shows **the knob itself**.
 
-- **Colours:** `C` in `companion/src/ui/kit.ts`, the same palette.
-- **Type:** Silkscreen, at sizes on its 4px grid (16, 24, 32, 48 px), upper case.
-- **Pixel drawing:** small `<canvas>` elements drawn at 1× with `fillRect` only, then scaled
-  up by CSS with `image-rendering: pixelated`. Curves, dials and sparklines follow the
-  device's own drawing code (`waveY` mirrors `wave_y`).
-- **Cards and buttons:** 1px frames with the corner pixels cut (the `--cut` clip-path in
-  `style.css`), like `frame_box` on the device. Amber marks focus, the selected card and
-  unsaved values.
-- **The device view** (`companion/src/assets/device.png`) is a rendered photo of the
-  hardware and is the one non-pixel image. Its screen, LED glow and key states are drawn on
-  top of it.
-- When the device gets a new screen or setting, the companion shows it the same way: same
-  names, same order, same muted `--`.
+- **Colours:** tokens on `:root` in `companion/src/style.css`. Layered dark surfaces
+  (`--bg #0b0c0d`, `--s1`, `--s2`, `--s3`), lines `--line`, text `--text` / `--muted` /
+  `--faint`, and the device's **amber** `#FFC94D` for what is chosen, edited or not saved yet
+  (a selected card's frame, an amber dot for a live change). Green only for "connected" and
+  "in use", red only for destructive buttons.
+- **Type:** Geist (UI) and Geist Mono (numbers, ids), bundled in `companion/src/fonts/` (the
+  app's CSP blocks web fonts). Sentence case, as in this sentence; names the user sees on the
+  knob itself (a profile's name, key labels, the idle word) keep their capitals.
+- **Shapes:** rounded boxes (12 px), cards (10 px), buttons and fields (7 px), 1 px lines.
+  Sliders are a track with a thumb and a value box you can type in. Feels and steps are drawn as
+  smooth SVG (`Wave`, `Dial` in `companion/src/ui/controls.tsx`), from the device's own
+  `waveY`.
+- **Where it stays pixel art:** the knob's main screen drawn from data (`drawMainScreen` in
+  `companion/src/ui/draw.ts`: whole pixels, Silkscreen, the device palette; in the sidebar's
+  picture and a profile's preview), profile icons (48 × 48 shown at whole multiples with
+  `image-rendering: pixelated`; smaller only as a thumbnail, e.g. the sidebar's; black is
+  see-through, as on the device, so no black tile shows behind them), and the idle
+  word field (Silkscreen).
+- **The device picture** (`companion/src/assets/device.png`) is a rendered photo of the
+  hardware and the one non-pixel image; the sidebar shows it small, with the knob's screen
+  drawn on its glass. The app doesn't stream the knob's screen or LEDs.
+- When the device gets a new screen or setting, the companion shows it with the same name
+  (in sentence case) and the same order, and greys out what doesn't apply (`—`).
 
 ## 11. Screenshots for the docs
 
@@ -227,12 +239,14 @@ The companion (`companion/`) uses the same visual language on a desktop.
   screen into a contact sheet, printing the tile names in order. Each doc image is one tile:
   the 480×480 (2×) circle, with transparent corners, saved to `docs/images/`. To add one,
   add a `keep("name")` tile to `tools/ui_preview/preview.cpp`.
-- **Companion screenshots** come from demo mode in Chrome at 960×640 with a device scale of
-  2 (1920×1280 PNG): `pnpm dev`, then `http://localhost:1420/?demo&tab=HAPTICS` (or
-  `PROFILES`, `DEVICE`, `SYS_INFO`; `&edit=1` opens the editor). They live in
-  `companion/docs/`.
-- **Illustrations** in the docs (`companion/docs/fig-*.svg`) are hand-written SVG in the same
-  palette, on black, with a monospace font: the same look, for diagrams.
+- **Companion screenshots** come from demo mode, all in one go: with `pnpm dev` running in
+  `companion/`, `node scripts/screenshots.mjs` (Playwright: WebKit, the Mac app's engine, at
+  1280×800 and a device scale of 2; Chromium for the not-connected page). They live in
+  `companion/docs/`. Each page has an address for a single shot, e.g.
+  `http://localhost:1420/?demo#/profile/figma/keys/f1`.
+- **Illustrations** in the companion's docs (`companion/docs/fig-*.svg`) are hand-written SVG
+  in the companion's style: its colours on `#0b0c0d`, Geist (with system fallbacks), sentence
+  case.
 - After any UI change, re-render the screenshots it affects in the same change.
 
 ## 12. Checklist
@@ -240,7 +254,7 @@ The companion (`companion/`) uses the same visual language on a desktop.
 Before committing anything visual:
 
 - [ ] Only the five palette colours (plus an app's own icon and accents, and the fixed
-      exceptions in section 2, where they belong).
+      exceptions in section 2, where they belong). The companion's own UI follows section 10.
 - [ ] No anti-aliasing, blending, gradients, sub-pixel positions or smooth scaling.
 - [ ] Drawn from code or scene data; no new bitmaps except hand-drawn app icons.
 - [ ] Sprites and icons drawn at the size they are shown; 1.5× versions hand-drawn.
@@ -248,5 +262,6 @@ Before committing anything visual:
 - [ ] Animations are functions of `t_ms`, rounded to whole pixels.
 - [ ] Everything stays inside the round glass.
 - [ ] `tools/ui_preview/run.sh` builds and the new screen looks right in the contact sheet.
-- [ ] The companion shows the same thing the same way, if it shows it at all.
+- [ ] The companion shows the same thing by the same name, if it shows it at all; its
+      drawing of the knob's screen (`ui/draw.ts`) still matches the device.
 - [ ] Affected screenshots re-rendered.
