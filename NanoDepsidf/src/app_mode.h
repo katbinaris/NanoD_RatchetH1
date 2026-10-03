@@ -44,11 +44,9 @@ void app_mode_motion(float delta_rad, int64_t now_us);
 // Every detent crossing while APP mode is active, +1 / -1.
 void app_mode_detent(int8_t dir, int64_t now_us);
 
-// The live slot's feel: overrides *type / *detents (leaves them if the slot has no action).
-void app_mode_haptics(int *profile, uint32_t *detents_override);
-
-// True while the detents are parameter mode's fine free-mode clicks (a higher click sound).
-bool app_mode_fine_clicks(void);
+// The haptic profile (haptic_params.h) of what's live: parameter mode's step, or the live
+// input's. Leaves *profile alone if the input has no action or names none.
+void app_mode_haptics(int *profile);
 
 // True when a detent in `dir` would run off the end of a list (the command wheel): the
 // control loop turns that detent into a haptic wall instead of a step.

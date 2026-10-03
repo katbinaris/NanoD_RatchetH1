@@ -909,10 +909,9 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // read once for this tick.
                 bool app_on = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
                 int haptic_profile = menu_haptic_profile();
-                uint32_t detents_override = 0; // parameter mode's fine clicks: finer than any profile
-                if (app_on) app_mode_haptics(&haptic_profile, &detents_override);
+                if (app_on) app_mode_haptics(&haptic_profile);
                 menu_haptic_set_active(haptic_profile);
-                uint32_t num_detents = detents_override ? detents_override : menu_get_haptic_num_detents();
+                uint32_t num_detents = menu_get_haptic_num_detents();
                 float kp = menu_get_haptic_kp();
                 float kd = menu_get_haptic_kd();
                 float shape = menu_get_haptic_shape();
@@ -1007,7 +1006,22 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                     // energy on a fast flick -- see the switch below for why Viscose ignores it.
                     bool is_coasting = fabsf(s_haptic_filtered_velocity) > HAPTIC_COAST_VELOCITY_RAD_S;
                     float vq;
-                    if (at_wall) {
+                    // SINE into an end stop. Its force is a wave, not a spring: left alone it
+                    // falls to zero at the midpoint and pushes ON towards the next step, and
+                    // the wall's spring (below) then cut in at the switch point with a
+                    // different force -- felt as an extra click. So towards an end, the wave is
+                    // followed only up to its peak (a quarter step out); from there the push
+                    // back holds that peak and stiffens, with no jump anywhere.
+                    bool sine_wall = false;
+                    float sine_peak_at = detent_spacing * 0.25f;
+                    if (haptic_type == HAPTIC_TYPE_SINE && fabsf(error) > sine_peak_at) {
+                        int8_t push_dir = (error < 0.0f ? 1 : -1) * KNOB_DIRECTION; // away from the committed step
+                        sine_wall = at_wall || (menu_is_open() ? menu_at_end(push_dir) : (app_on && app_mode_at_end(push_dir)));
+                    }
+                    if (sine_wall) {
+                        float push = kp * (1.0f + HAPTIC_WALL_GAIN * (fabsf(error) - sine_peak_at));
+                        vq = (error >= 0.0f ? push : -push) - kd * s_haptic_filtered_velocity;
+                    } else if (at_wall) {
                         // The normal spring back to the end detent, plus extra stiffness that
                         // starts at the switch point -- whatever the feel type, and not
                         // coast-gated: a flick into the end should still stop there.
@@ -1129,7 +1143,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                             // safe from this real-time loop -- see audio_trigger.h. Fires
                             // unconditionally, menu open or not -- same physical click either
                             // way, only what the crossing *means* (below) changes.
-                            audio_trigger_click(app_on && app_mode_fine_clicks() ? AUDIO_CLICK_FINE : AUDIO_CLICK_NORMAL);
+                            audio_trigger_click(AUDIO_CLICK_NORMAL);
                             ui_state_note_click();
                         }
 

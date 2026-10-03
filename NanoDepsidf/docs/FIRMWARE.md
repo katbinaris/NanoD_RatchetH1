@@ -203,9 +203,23 @@ MEDIUM 24, FINE 36 and SMOOTH (VISCOSE only). Each has factory values and limits
 change into the profile's limits for that feel. Each tick the loop names the active profile
 (`menu_haptic_set_active`): the one the Haptics screen shows while the menu is open,
 otherwise the HID type's own; in APP mode the live input's (`app_mode_haptics`: VISCOSE maps
-to SMOOTH, a detent count to the nearest stepped profile). Parameter mode overrides only the
-detent count. Per-tick reads come from RAM; the table itself is in flash and is read only
+to SMOOTH, a detent count to the nearest stepped profile). Parameter mode picks a profile
+per step, finest first: free FINE, then MEDIUM, COARSE, WIDE (a number field: FINE, MEDIUM,
+COARSE). Per-tick reads come from RAM; the table itself is in flash and is read only
 when a setting changes.
+
+Factory values (tuned on hardware, 2026-10-02). The stepped profiles offer SAW and SINE;
+SMOOTH is VISCOSE only. A stepped profile's other feel starts from the same numbers. The
+limits are still the full ranges (SNAP 0-20, DAMP 0-0.15) and are to be narrowed per profile
+and feel.
+
+| Profile | Detents | Feel | SNAP | DAMP | SHAPE | AMP | PITCH |
+|---|---|---|---|---|---|---|---|
+| WIDE | 8 | SAW | 6.00 | 0.005 | 25% | 100% | 0.85x |
+| COARSE | 12 | SINE | 2.00 | 0.035 | – | 100% | 0.90x |
+| MEDIUM | 24 | SAW | 4.00 | 0.115 | 55% | 90% | 1.20x |
+| FINE | 36 | SAW | 1.50 | 0.150 | 80% | 70% | 1.95x |
+| SMOOTH | – (24 virtual) | VISCOSE | – | 0.150 | – | 15% | 1.85x |
 
 **A detent crossing** is the moment the committed detent index changes. It triggers:
 

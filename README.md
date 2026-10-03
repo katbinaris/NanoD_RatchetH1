@@ -187,7 +187,7 @@ opens the menu** instead.
 | Screen | Settings |
 |---|---|
 | **PROFILES** | APP, KEYBOARD, MOUSE or MIDI. With APP, F1 opens **PROFILE**, a carousel of the installed app profiles. With MIDI, F1 moves to the channel. |
-| **HAPTICS** | STEPS picks a haptic profile: WIDE, COARSE, MEDIUM or FINE (8, 12, 24 or 36 detents per turn) or SMOOTH (no steps). Each profile keeps its own FEEL (SAW / SINE / VISCOSE; SMOOTH is VISCOSE only), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises), AMP and PITCH, within safe limits for that profile and feel. An item that doesn't apply in the current feel shows `--`. Changes are live while you tune; F2 saves; holding F2 for 1.5 s puts the shown profile back to factory. |
+| **HAPTICS** | STEPS picks a haptic profile: WIDE, COARSE, MEDIUM or FINE (8, 12, 24 or 36 detents per turn) or SMOOTH (no steps). Each profile keeps its own FEEL (SAW or SINE; SMOOTH is always VISCOSE), SNAP (Kp), DAMP (Kd), SHAPE (how late and steep SAW's pull rises), AMP and PITCH, within safe limits for that profile and feel. An item that doesn't apply in the current feel shows `--`. Changes are live while you tune; F2 saves; holding F2 for 1.5 s puts the shown profile back to factory. |
 | **DISPLAY** | ROTATION: 0°, 90°, 180° or 270°. The screen turns live while you turn the knob. |
 | **BOOT MODE** | USB MODE: HID (the normal composite device) or SERIAL (for flashing). Applies after a restart. |
 | **DEVICE** | **SYS INFO**: live readings on five pages, turn to move between them, F1 resets the peaks and counters. POWER: estimated draw (motor, LEDs, board) against what the USB-C / PD chip negotiated at boot. HEAT: chip temperature, motor coil current and heat. CPU: load per core, control-loop rate, spikes per second, worst compute time, jitter, missed ticks. LOOP: where one control iteration's time goes (input, sensor, force, motor), plus sensor CRC errors. SYSTEM: free RAM, dropped HID reports, audio gaps, uptime. **BINDINGS**: MAC or PC. Profiles are written with Mac shortcuts; on PC every Cmd is sent as Ctrl (Option is Alt on both). Switches as you turn, F2 saves. **RECALIBRATE**: F1, then F1 again, restarts and recalibrates the motor (see [First calibration](#first-calibration)). |
@@ -342,8 +342,8 @@ wheel turns the screen into that command's value dial. The card follows the valu
 
 | Input | Does |
 |---|---|
-| Knob alone | **Free:** fine clicks (48 per turn, higher-pitched). Each click nudges the value and moves the pointer, so Plasticity's own handle follows. |
-| Hold F1 / F2 / F4 + turn | **Exact** steps of 0.05 / 0.10 / 1.00 (rotate: 1° / 5° / 15°), one click each. The value is typed in on confirm. |
+| Knob alone | **Free:** fine clicks, on the FINE haptic profile. Each click nudges the value and moves the pointer, so Plasticity's own handle follows. |
+| Hold F1 / F2 / F4 + turn | **Exact** steps of 0.05 / 0.10 / 1.00 (rotate: 1° / 5° / 15°), one click each, on the MEDIUM / COARSE / WIDE haptic profiles: the bigger the step, the wider the clicks. The value is typed in on confirm. |
 | Tap F1 / F2 / F4 | Constrain to **X / Y / Z** (move, rotate, scale). Tap the active one again for its plane (⇧X…), and for scale again for uniform (S). |
 | Tap F3 | Confirm |
 | Hold F3 (0.6 s) | Cancel (Esc); a bar fills while you hold |
@@ -369,9 +369,9 @@ field. That field steps 0.1 per scroll notch, 0.01 with Ctrl and 1.0 with Shift.
 
 | Input | Does |
 |---|---|
-| Knob alone | Steps of **0.1**, one click each |
-| Hold F1 + turn | Steps of **0.01**, as fine clicks (48 per turn, higher-pitched) |
-| Hold F4 + turn | Steps of **1.0** |
+| Knob alone | Steps of **0.1**, one click each (MEDIUM haptic profile) |
+| Hold F1 + turn | Steps of **0.01** (FINE haptic profile) |
+| Hold F4 + turn | Steps of **1.0** (COARSE haptic profile) |
 | Tap F2 | Switch between **A** and **B** (remembered) |
 | Tap F3 | Confirm (Enter) |
 | Hold F3 (0.6 s) | Cancel (Esc) |

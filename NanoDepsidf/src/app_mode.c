@@ -24,9 +24,6 @@
 #define APP_PARAM_CANCEL_US 600000   // parameter mode: F3 held this long = cancel, shorter = confirm
 #define APP_PARAM_AXIS_TAP_US 350000 // parameter mode: F1 / F2 / F4 let go within this = axis tap
 #define APP_PARAM_TAP_TRAVEL 0.05f   // ...unless the knob turned more than this (rad) meanwhile
-#define APP_PARAM_STEP_DETENTS 16    // haptic detents per turn while stepping
-#define APP_PARAM_FINE_DETENTS 48    // ...and in free mode: fine clicks. A continuous value
-                                     // jittered in its last digit with sensor noise (hardware)
 #define APP_PARAM_TYPE_PAUSE_US 350000 // number field, B (type): retype once the knob rests this long
 #define WANT_HOVER (1u << 17)        // s_want: pointer travel with no button held
 
@@ -281,10 +278,14 @@ static int CONTROL_HOT param_step(void) {
     return (h & UI_BTN_F4) ? 2 : (h & UI_BTN_F2) ? 1 : (h & UI_BTN_F1) ? 0 : -1;
 }
 
-// Fine clicks (48 per turn, a higher click): Plasticity's free mode, or the number field's
-// finest step (Onshape: F1 = 0.01).
-static bool CONTROL_HOT param_fine(void) {
-    return param_field() ? param_step() == 0 : param_step() < 0;
+// Parameter mode's haptic profile: the finer the step, the finer the profile, so each step
+// has its own feel and spacing (one click = one step, always). Free still clicks: a
+// continuous value jittered in its last digit with sensor noise (hardware).
+//   Plasticity: free FINE, F1 MEDIUM, F2 COARSE, F4 WIDE
+//   number field (Onshape): F1 FINE, alone MEDIUM, F4 COARSE
+static int CONTROL_HOT param_haptic(void) {
+    int rank = param_field() ? param_step() : param_step() + 1; // 0 = the finest step
+    return HAPTIC_PROFILE_FINE - rank; // FINE, MEDIUM, COARSE, WIDE are in id order, coarse first
 }
 
 static void CONTROL_HOT param_publish(void) {
@@ -712,12 +713,10 @@ bool CONTROL_HOT app_mode_at_end(int8_t dir) {
     return dir > 0 ? s_entry >= s_profile->rings[s_ring].count : s_entry == 0;
 }
 
-void CONTROL_HOT app_mode_haptics(int *profile, uint32_t *detents_override) {
+void CONTROL_HOT app_mode_haptics(int *profile) {
     if (s_profile == NULL) return;
-    if (s_param) { // one click per step; free (number field: the 0.01 step) = fine clicks
-        uint32_t n = param_fine() ? APP_PARAM_FINE_DETENTS : APP_PARAM_STEP_DETENTS;
-        *profile = n > 24 ? HAPTIC_PROFILE_FINE : HAPTIC_PROFILE_COARSE;
-        *detents_override = n;
+    if (s_param) {
+        *profile = param_haptic();
         return;
     }
     const app_action_t *a = action(s_slot >= 0 ? s_slot : APP_SLOT_KNOB);
@@ -767,10 +766,6 @@ uint32_t app_mode_last_run(int *ring, int *entry) {
     *ring = (r >> 8) & 0xFF;
     *entry = r & 0xFF;
     return r >> 16;
-}
-
-bool CONTROL_HOT app_mode_fine_clicks(void) {
-    return s_active && s_param && param_fine();
 }
 
 bool app_mode_hover(void) {

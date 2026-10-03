@@ -139,7 +139,7 @@ SCENE(SC_UNISOLATE,
 
 // Parameter mode (preview v3). In-command keys from the manual: fillet / extrude D = distance
 // (the pointer then drives it; fillet: positive = fillet, negative = chamfer). Knob alone =
-// fine clicks (`free_step` each, 48 per turn): smooth enough, and the number never jitters with
+// fine clicks (`free_step` each, on the FINE haptic profile): smooth enough, and the number never jitters with
 // sensor noise the way a continuous value did on hardware; move / rotate /
 // scale X / Y / Z = axis, Shift + X / Y / Z = plane, S = uniform. Exact values go in through
 // Tab (2026.1: "Commands that share the Gizmo can now use Tab to enter a precise distance
