@@ -13,6 +13,8 @@ import {
   iconImage,
   imageToIcon,
   MAX,
+  MEDIA_USAGES,
+  Mod,
   problem,
   SLOTS,
   type Action,
@@ -36,16 +38,17 @@ const SLOT_NOTE: Record<SlotName, string> = {
   f3: "HOLD F3 + TURN, OR TAP",
   f4: "HOLD F4 + TURN (HOLD STILL = MENU)",
 };
-const KIND_LABEL: Record<Kind, string> = { none: "OFF", wheel: "SCROLL", drag: "DRAG", keys: "KEYS", tap: "TAP", commands: "WHEEL MENU" };
+const KIND_LABEL: Record<Kind, string> = { none: "OFF", wheel: "SCROLL", drag: "DRAG", keys: "KEYS", tap: "TAP", commands: "WHEEL MENU", media: "MEDIA" };
 // What each input may do (app_profile.h): the knob only turns; F4 is also the menu key, so
-// it has no press actions.
+// it has no press actions. MEDIA on a key fires on press, like TAP.
 const KINDS_FOR: Record<SlotName, Kind[]> = {
-  knob: ["none", "wheel", "drag", "keys"],
-  f1: ["none", "wheel", "drag", "keys", "tap", "commands"],
-  f2: ["none", "wheel", "drag", "keys", "tap", "commands"],
-  f3: ["none", "wheel", "drag", "keys", "tap", "commands"],
+  knob: ["none", "wheel", "drag", "keys", "media"],
+  f1: ["none", "wheel", "drag", "keys", "tap", "commands", "media"],
+  f2: ["none", "wheel", "drag", "keys", "tap", "commands", "media"],
+  f3: ["none", "wheel", "drag", "keys", "tap", "commands", "media"],
   f4: ["none", "wheel", "drag", "keys"],
 };
+const FINE = Mod.SHIFT | Mod.ALT; // on a volume key: a quarter step on a Mac
 
 export function profileEditor(device: Device, startIndex: number, onClose: () => void) {
   const root = el("div", { class: "editor" });
@@ -388,13 +391,49 @@ export function profileEditor(device: Device, startIndex: number, onClose: () =>
         );
       if (kind === "tap") fields.append(...keyOrMacro("SENDS", x, "cw", "macro"));
       if (kind === "commands") fields.append(steps(), el("div", { class: "hint" }, "HOLD TO OPEN THE WHEEL, TURN TO PICK, LET GO TO RUN. RINGS BELOW."));
-      if (name !== "knob" && name !== "f4" && kind !== "tap") fields.append(...quickTap(x));
+      if (kind === "media") {
+        // A media key: the usage in the key's keycode; FINE puts SHIFT+OPT on both turns.
+        const usage = (field_: "cw" | "ccw") =>
+          seg(
+            MEDIA_USAGES.map((m) => ({ value: m.usage as number, label: m.label })),
+            x[field_]?.[1] ?? 0,
+            (v) => ((x[field_] = [x[field_]?.[0] ?? 0, v]), touch()),
+          );
+        if (name === "knob") {
+          const fine = !!((x.cw?.[0] ?? 0) & FINE);
+          fields.append(
+            field("TURN RIGHT", usage("cw")),
+            field("TURN LEFT", usage("ccw")),
+            field(
+              "VOLUME STEP",
+              seg(
+                [
+                  { value: true, label: "FINE" },
+                  { value: false, label: "NORMAL" },
+                ],
+                fine,
+                (v) => {
+                  for (const f of ["cw", "ccw"] as const) if (x[f]) x[f] = [v ? FINE : 0, x[f]![1]];
+                  touch();
+                },
+              ),
+              el("span", { class: "hint" }, "FINE: A QUARTER STEP ON A MAC (SHIFT+OPT)"),
+            ),
+            feel(),
+            steps(),
+          );
+        } else {
+          fields.append(field("SENDS", usage("cw")), el("div", { class: "hint" }, "ON PRESS. GOES TO WHATEVER IS PLAYING."));
+        }
+      }
+      if (name !== "knob" && name !== "f4" && kind !== "tap" && kind !== "media") fields.append(...quickTap(x));
     };
     const kindSeg = seg(
       KINDS_FOR[name].map((k) => ({ value: k, label: KIND_LABEL[k] })),
       p.slots![name]?.kind ?? "none",
       (k) => {
         const x = a();
+        const was = x.kind;
         x.kind = k;
         // Sensible starting values for what's new.
         if ((k === "wheel" || k === "drag") && !x.sign) x.sign = 1;
@@ -402,6 +441,16 @@ export function profileEditor(device: Device, startIndex: number, onClose: () =>
           x.buttons ||= 4;
           x.px_per_rad ||= 120;
           x.feel ??= "viscose";
+        }
+        if (k === "media" && was !== "media") {
+          // As the MUSIC profile has them: the knob is a fine volume dial, a key plays / pauses.
+          if (name === "knob") {
+            x.cw = [FINE, 0xe9];
+            x.ccw = [FINE, 0xea];
+          } else {
+            x.cw = [0, 0xcd];
+          }
+          x.tap = x.tap_macro = undefined;
         }
         if (k === "commands") {
           p.rings = p.rings?.length ? p.rings : [{ name: "COMMANDS", tab: "CMDS", slot: name, cmds: [{ name: "UNDO", key: [8, 29] }] }];

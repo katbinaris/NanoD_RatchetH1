@@ -16,3 +16,7 @@ dependencies:
     version: "^1.20.0"
   espressif/cjson:
     version: "^1.7.19"
+  # WiFi (net.c): the knob's name on the network, <host>.local. Its task is pinned to Core 1
+  # (sdkconfig.defaults).
+  espressif/mdns:
+    version: "^1.8.0"

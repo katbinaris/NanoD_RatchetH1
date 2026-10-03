@@ -35,6 +35,13 @@ typedef enum {
     // detent each, and letting go runs it. The first entry of every ring is "cancel". Other
     // F keys tapped while it's held jump to the ring bound to them. F1-F3 only.
     APP_ACT_COMMANDS,
+    // Media keys (HID Consumer page). Knob turn -> one consumer usage per detent: `cw.keycode`
+    // one way, `ccw.keycode` the other (volume up / down). Key press -> `cw.keycode`, like TAP
+    // (F1-F3 only). The common usages fit in 8 bits: volume 0xE9/0xEA, mute 0xE2, play/pause
+    // 0xCD, next/prev 0xB5/0xB6, stop 0xB7. The OS handles these itself (macOS shows its volume
+    // OSD), so no app focus is needed. `modifier` is held around the usage on a Mac
+    // (Shift+Option + volume = quarter steps); BINDINGS = PC drops it.
+    APP_ACT_MEDIA,
 } app_action_kind_t;
 
 // What the Main Screen's middle shows in APP mode: the live action as large text, or a 3D

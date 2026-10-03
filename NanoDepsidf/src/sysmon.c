@@ -1,3 +1,4 @@
+#include "net.h"
 #include "sysmon.h"
 #include "sdkconfig.h"
 #include "i2s_task.h"
@@ -144,7 +145,6 @@ static void sysmon_task_fn(void *arg) {
     }
 
     sysmon_info_t info = {0};
-    info.board_ma = (uint16_t)SYSMON_BOARD_MA;
     info.chip_peak_c = -100.0f;
     uint32_t hid_base = 0, gap_base = 0, crc_base = 0;
     uint32_t ticks_prev = atomic_load_explicit(&s_ticks_total, memory_order_relaxed);
@@ -228,6 +228,7 @@ static void sysmon_task_fn(void *arg) {
 
         // Power
         info.led_ma = (uint16_t)atomic_load_explicit(&s_led_ma, memory_order_relaxed);
+        info.board_ma = (uint16_t)(SYSMON_BOARD_MA + net_current_ma()); // + the WiFi radio, while it's on
         uint32_t total = (uint32_t)info.motor_ma + info.led_ma + info.board_ma;
         info.total_ma = total > 0xFFFF ? 0xFFFF : (uint16_t)total;
         if (info.total_ma > info.total_peak_ma) info.total_peak_ma = info.total_ma;

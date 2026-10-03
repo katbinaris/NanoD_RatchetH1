@@ -1,7 +1,7 @@
 // A pretend knob for working on the UI without hardware: open the page with ?demo. Answers
 // the protocol like host_link.c does and streams a slowly turning knob.
 
-import { Cmd, ICON_BYTES, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
+import { Cmd, ExtCmd, ExtTag, ICON_BYTES, LED_COUNT, Op, ProfileFlag, REPORT_SIZE, Res, Set, Tag, TEXT_CHUNK, crc32 } from "./proto";
 import { b64ToBytes, bytesToB64, blankProfile, ID_RE, type ProfileJson } from "./profile";
 import type { Transport } from "./transport";
 
@@ -64,8 +64,12 @@ export class MockTransport implements Transport {
     return { builtin: json, stored: null, live: null };
   });
   private upload: { buf: Uint8Array; crc: number; got: number; flags: number } | null = null;
-  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 0, rotation: 0, host: 0, shape: 0 };
+  private live = { detents: 12, kp: 6, kd: 0.01, feel: 0, amp: 100, pitch: 1, sound: 0, hidType: 3, midi: 1, profile: 0, boot: 1, rotation: 0, host: 0, shape: 0 };
   private saved = { ...this.live };
+  // ext_proto.h: LIGHTS (saved by SAVE like the rest) and the idle word (stored at once).
+  private lights = { src: 0, fx: 0, hue: 200, sat: 80, speed: 5, level: 100 };
+  private lightsSaved = { ...this.lights };
+  private idleText = "";
   // Haptic profiles, like menu.c: a feel per profile and one set of values per profile and
   // feel, with the firmware's placeholder factory values and limits.
   private hp = MockTransport.hpFactory();
@@ -148,12 +152,38 @@ export class MockTransport implements Transport {
       case Cmd.SAVE:
         this.saved = { ...this.live };
         this.hpSaved = structuredClone(this.hp);
+        this.lightsSaved = { ...this.lights };
         this.settings(out);
         return reply();
       case Cmd.REVERT:
         this.live = { ...this.saved };
         this.hp = { ...structuredClone(this.hpSaved), edit: this.hp.edit };
+        this.lights = { ...this.lightsSaved };
         this.settings(out);
+        return reply();
+      case ExtCmd.HELLO:
+        out[0] = ExtTag.HELLO;
+        out[1] = 3;
+        return reply();
+      case ExtCmd.LIGHTS: {
+        const l = this.lights;
+        if (r[2] !== 0xff) l.src = r[2];
+        if (r[3] !== 0xff) l.fx = r[3];
+        if (inV.getUint16(4, true) !== 0xffff) l.hue = inV.getUint16(4, true);
+        if (r[6] !== 0xff) l.sat = r[6];
+        if (r[7] !== 0xff) l.speed = r[7];
+        if (inV.getUint16(8, true) !== 0xffff) l.level = inV.getUint16(8, true);
+        if (r[1] & 1) this.lightsSaved = { ...l };
+        this.prefs(out);
+        return reply();
+      }
+      case ExtCmd.PREFS:
+        this.prefs(out);
+        return reply();
+      case ExtCmd.TEXT:
+        this.idleText = new TextDecoder().decode(r.subarray(2, 14)).replace(/\0.*$/s, "");
+        out[0] = ExtTag.ACK;
+        out[1] = ExtCmd.TEXT;
         return reply();
       case Cmd.GET_SETTINGS:
         this.settings(out);
@@ -264,6 +294,19 @@ export class MockTransport implements Transport {
         return this.result(Cmd.PROFILE_OP, Res.OK, r[1], removed);
       }
     }
+  }
+
+  private prefs(out: Uint8Array) {
+    const l = this.lights, v = new DataView(out.buffer);
+    out[0] = ExtTag.PREFS;
+    out[1] = l.src;
+    out[2] = l.fx;
+    v.setUint16(3, l.hue, true);
+    out[5] = l.sat;
+    out[6] = l.speed;
+    v.setUint16(7, l.level, true);
+    out[9] = JSON.stringify(l) !== JSON.stringify(this.lightsSaved) ? 1 : 0;
+    out.set(new TextEncoder().encode(this.idleText), 16);
   }
 
   private saveEntry(e: Entry) {

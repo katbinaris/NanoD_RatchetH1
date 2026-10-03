@@ -106,6 +106,26 @@ void disc(float cx, float cy, float r, uint32_t c) {
     }
 }
 
+void shade_disc(float cx, float cy, float r, float k) {
+    uint16_t *px = (uint16_t *)s_g->getBuffer(); // RGB565, byte-swapped
+    if (k <= 0 || px == nullptr) return;
+    const uint32_t m = (uint32_t)lroundf((1 - fminf(k, 1.0f)) * 256);
+    const int w = s_g->width(), h = s_g->height(), rows = (int)(2 * r);
+    for (int yy = 0; yy < rows; yy++) { // the same rows as disc()
+        int y = (int)lroundf(cy - r) + yy;
+        if (y < 0 || y >= h) continue;
+        float dy = yy - r + 0.5f;
+        float hw = sqrtf(fmaxf(0.0f, r * r - dy * dy));
+        int x0 = (int)lroundf(cx - hw), x1 = (int)lroundf(cx + hw);
+        for (int x = x0 < 0 ? 0 : x0; x < x1 && x < w; x++) {
+            uint16_t v = px[y * w + x];
+            v = (uint16_t)(v << 8 | v >> 8);
+            v = (uint16_t)((((v >> 11) & 31) * m >> 8) << 11 | (((v >> 5) & 63) * m >> 8) << 5 | ((v & 31) * m >> 8));
+            px[y * w + x] = (uint16_t)(v << 8 | v >> 8);
+        }
+    }
+}
+
 void sprite(const Sprite &s, float x, float y, uint32_t c, int scale) {
     int x0 = (int)lroundf(x), y0 = (int)lroundf(y);
     for (int j = 0; j < s.h; j++) {

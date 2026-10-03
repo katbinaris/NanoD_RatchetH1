@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-extern const app_profile_t app_profile_plasticity, app_profile_figma, app_profile_onshape, app_profile_blender,
+extern const app_profile_t app_profile_music, app_profile_agents, app_profile_clock, app_profile_plasticity, app_profile_figma, app_profile_onshape, app_profile_blender,
     app_profile_autocad;
 
 // Stubs for the store (the registry's boot load isn't under test here).
@@ -123,7 +123,7 @@ int main(int argc, char **argv) {
         for (int i = 2; i < argc; i++) rc |= parse_file(argv[i]);
         return rc;
     }
-    const app_profile_t *all[] = {&app_profile_plasticity, &app_profile_figma, &app_profile_onshape, &app_profile_blender,
+    const app_profile_t *all[] = {&app_profile_music, &app_profile_agents, &app_profile_clock, &app_profile_plasticity, &app_profile_figma, &app_profile_onshape, &app_profile_blender,
                                   &app_profile_autocad};
     const char *dump = argc > 1 ? argv[1] : NULL; // a folder: each built-in's JSON goes there
     for (size_t i = 0; i < sizeof(all) / sizeof(all[0]); i++) {

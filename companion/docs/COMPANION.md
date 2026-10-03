@@ -17,9 +17,10 @@ real device.
 5. [PROFILES](#5-profiles)
 6. [The profile editor](#6-the-profile-editor)
 7. [Macros](#7-macros)
-8. [DEVICE](#8-device)
-9. [SYS INFO](#9-sys-info)
-10. [When something doesn't work](#10-when-something-doesnt-work)
+8. [LOOK](#8-look)
+9. [DEVICE](#9-device)
+10. [SYS INFO](#10-sys-info)
+11. [When something doesn't work](#11-when-something-doesnt-work)
 
 ---
 
@@ -32,8 +33,14 @@ There are two ways to run the companion, with the same screens:
 | | Quadra app | Web page |
 |---|---|---|
 | Runs in | Its own window (macOS) | Chrome or Edge |
-| Connecting | Finds the knob itself, and again after a replug | Click **CONNECT** once and pick the knob; automatic after that |
+| Connecting | Finds the knob itself, and again after a replug; over WiFi once paired | Click **CONNECT** once and pick the knob; automatic after that |
 | Safari, Firefox | – | Not supported (no WebHID): the page says **NO USB ACCESS** |
+
+**Over WiFi (the app):** once the knob is on your network (DEVICE → WIFI), press **PAIR THIS
+APP** there while it's on USB. From then on, with no cable in, the app reaches it over WiFi
+(found by name, `quadra-xxxx.local`); plug a cable in and it moves back to USB within a few
+seconds. Pairing hands the app the knob's key: nothing else on the network can read, forge or
+replay what goes between them. The network, the password and the key itself change over USB only.
 
 Neither needs a driver, and macOS doesn't ask for Input Monitoring permission.
 
@@ -50,13 +57,17 @@ connected, the header shows **CONNECTED** and the firmware version.
 <img src="fig-window.svg" width="880" alt="Map of the window: connection status, SAVE and REVERT, the live device, the keys, the tabs and panel, amber for unsaved values">
 
 1. **Connection:** the status and the knob's firmware version.
-2. **SAVE / REVERT:** for the settings on the HAPTICS, PROFILES and DEVICE tabs. SAVE shows
+2. **SAVE / REVERT:** for the settings on the HAPTICS, PROFILES, LOOK and DEVICE tabs. SAVE shows
    how many settings differ from what's stored (`SAVE 2`), and reads **SAVED** when none do.
 3. **The device:** the knob as it is now. Its screen shows inside the knob, and the LED ring
-   glows in the colours the real LEDs show.
+   glows in the colours the real LEDs show. With firmware that has the extensions (v6) the
+   screen is the knob's own, live, and the picture is a remote: click a key (held as long as
+   the button is down), drag round the knob or scroll over it to turn it -- the knob reacts as
+   if you'd touched it (the volume follows in MUSIC, the zones step in CLOCK).
 4. **The keys:** F1–F4 light up and press down while you hold them. Hover over one to see
    what it does in the current profile.
-5. **Tabs and the panel:** HAPTICS, PROFILES, DEVICE and SYS INFO.
+5. **Tabs and the panel:** HAPTICS, PROFILES, LOOK, DEVICE and SYS INFO. LOOK only shows
+   with firmware that has the extensions (DEVICE → FIRMWARE → EXTENSIONS).
 6. **Amber:** a value that is live on the knob but not stored yet.
 
 Under the device, **DETENT** is the step the knob is on and **CLICKS** counts the steps it has
@@ -197,6 +208,7 @@ There are five inputs: the **KNOB** turned by itself, and the knob turned while 
 | **KEYS** | One key combo per step | One for turning right, one for turning left, feel, steps |
 | **TAP** | A key combo or a macro on a press (F1–F3) | The key, or the macro |
 | **WHEEL MENU** | Opens the command wheel (F1–F3) | Steps |
+| **MEDIA** | Media keys: play / pause, next, previous, volume, mute (knob, F1–F3) | The knob: one for each way and the volume step (FINE = a quarter step on a Mac); a key: the one it sends on press |
 
 - **NAME ON SCREEN** is what the knob's screen shows while that input is in use.
 - **FEEL** and **STEPS** together choose a haptic profile for that input: VISCOSE uses SMOOTH,
@@ -254,7 +266,25 @@ that use it; deleting it clears them.
 
 A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 keys a second.
 
-## 8. DEVICE
+## 8. LOOK
+
+| Section | What it sets |
+|---|---|
+| **IDLE WORD** | The word on the loading and idle screens, up to 12 characters (lowercase draws as small capitals). Empty = **QUADRA**. Stored on the knob as soon as you press **SET** |
+| **COLOR** | The ring and the keys: **APP** (the profile's colours, or the cover's while music plays) or **CUSTOM** with your own **HUE** and **SAT** |
+| **EFFECT** | At rest: GRADIENT, SOLID, BREATHE, SPIN, RAINBOW or OFF; **SPEED** for the moving ones; **LEVEL** is the brightness |
+
+LIGHTS are live on the knob while you change them and kept by **SAVE**, like the other settings
+(or F2 on the knob's own LIGHTS screen). Changes made on the knob show up here within a second.
+
+**CLOCK** (the CLOCK app): what it shows -- **24 HOUR**, **SECONDS**, **DATE**, and **LED
+SECONDS** (the ring sweeps the seconds) -- and up to four zones besides **LOCAL**, which is this
+Mac's (the Mac service sends the time and the zone; with WiFi on, the knob also sets its clock
+from the internet). Each zone follows its own daylight-saving rules. In the app, turning the
+knob steps through the zones; F1 switches 12 / 24 hours, F2 the seconds, F3 the date. Stored on
+the knob as you change them.
+
+## 9. DEVICE
 
 <img src="app-device.png" width="720" alt="DEVICE: BINDINGS, DISPLAY rotation, BOOT MODE and the FIRMWARE details">
 
@@ -263,12 +293,13 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 | **BINDINGS** | The computer on the other end. On **PC**, shortcuts written with Cmd are sent with Ctrl |
 | **DISPLAY** | Screen rotation: 0, 90, 180 or 270 degrees |
 | **BOOT MODE** | **HID** for normal use, **SERIAL** for flashing. Applies after a restart |
-| **FIRMWARE** | Version, build date, protocol version, number of profiles, and the link in use |
+| **WIFI** | The network the knob joins (over USB; the password stays on the knob), its address, and **THIS APP**: **PAIR THIS APP** (see [Connecting](#1-connecting)), **NEW KEY** (press twice: every other paired app has to pair again) and **FORGET** |
+| **FIRMWARE** | Version, build date, protocol version, number of profiles, and the link in use (**USB**, **WIFI** or **WEBHID**) |
 
 **Take care with BOOT MODE:** once the knob restarts in SERIAL mode, the companion can't
 reach it. Switch back in the knob's own menu: **BOOT MODE → USB MODE → HID**, then restart.
 
-## 9. SYS INFO
+## 10. SYS INFO
 
 <img src="app-sys-info.png" width="720" alt="SYS INFO: POWER, HEAT, CPU and SYSTEM tiles with gauges and history">
 
@@ -283,7 +314,7 @@ that should be zero and aren't.
 | **CPU** | Load on each core. Core 0 runs only the control loop: its rate, work time, jitter, spikes and missed ticks |
 | **SYSTEM** | Uptime, free memory, and counters for dropped HID reports, audio gaps and sensor errors |
 
-## 10. When something doesn't work
+## 11. When something doesn't work
 
 | What you see | What to do |
 |---|---|

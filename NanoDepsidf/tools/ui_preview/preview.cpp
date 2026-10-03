@@ -10,6 +10,7 @@
 #include "ui_gfx.hpp"
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
+#include "ui_extras.hpp"
 #include "icons/app_icons.h"
 extern "C" {
 #include "ui_state.h"
@@ -17,6 +18,7 @@ extern "C" {
 extern const app_profile_t app_profile_figma;
 extern const app_profile_t app_profile_plasticity;
 extern const app_profile_t app_profile_onshape;
+extern const app_profile_t app_profile_agents;
 }
 
 static LGFX_Sprite g;
@@ -427,6 +429,134 @@ int main() {
         for (uint32_t t = 0; t < ms; t += 33) ui::fx_attract(t, nullptr, nullptr, 2, r), g.clear();
         ui::fx_attract(ms, nullptr, nullptr, 2, r);
         keep("idle QUADRA");
+    }
+
+    // --- this fork: the user's idle word, LIGHTS, agent notifications, the AGENTS wheel ---
+    for (const char *word : {"HELLO", "MAKE IT NICE"}) {
+        ui::fx_set_word(word);
+        ui::fx_boot(2600);
+        keep(strdup(word));
+        for (uint32_t t = 0; t < 5950; t += 33) ui::fx_attract(t, nullptr, nullptr, 5, ui::ATTRACT_JUMP), g.clear();
+        ui::fx_attract(5950, nullptr, nullptr, 5, ui::ATTRACT_JUMP); // landing at +34 px, squashed: the widest reach
+        keep("idle word, side hop");
+    }
+    ui::fx_set_word(nullptr);
+    for (const uint8_t *ic : {app_icon_music_48, app_icon_agents_48}) {
+        for (uint32_t t = 0; t < 2720; t += 33) ui::fx_attract(t, ic, nullptr, 7, ui::ATTRACT_JUMP), g.clear();
+        ui::fx_attract(2720, ic, nullptr, 7, ui::ATTRACT_JUMP);
+        keep("idle: new icon, landing");
+    }
+    {
+        // A ring frame as led_task_snapshot() gives it: a blue comet (SPIN), or the app gradient.
+        static uint8_t comet[60][3], grad[60][3];
+        for (int i = 0; i < 60; i++) {
+            float d = fmodf(42 - i + 120, 60), k = d < 20 ? 1 - d / 20 : 0;
+            float lv = 0.06f + 0.94f * k * k;
+            comet[i][0] = (uint8_t)(10 * lv); comet[i][1] = (uint8_t)(34 * lv); comet[i][2] = (uint8_t)(51 * lv);
+            float u = i / 60.0f;
+            grad[i][0] = (uint8_t)(15 + 5 * u); grad[i][1] = (uint8_t)(9 + 4 * u); grad[i][2] = (uint8_t)(2);
+        }
+        const char *LV[MENU_LIGHTS_ROW_COUNT][2] = {{"COLOR", "CUSTOM"}, {"HUE", "200"}, {"SAT", "80%"},
+                                                    {"EFFECT", "SPIN"}, {"SPEED", "4"}, {"LEVEL", "100%"}};
+        for (int sel : {0, 3}) {
+            menu_render_snapshot_t s = {};
+            s.open = true;
+            s.screen = MENU_SCREEN_LIGHTS;
+            s.dirty = sel == 3;
+            s.selected = sel;
+            s.row_count = MENU_LIGHTS_ROW_COUNT;
+            for (int i = 0; i < MENU_LIGHTS_ROW_COUNT; i++) s.rows[i] = row(LV[i][0], "", LV[i][1], i == sel);
+            if (sel == 0) { // COLOR = APP: hue and sat are muted
+                snprintf(s.rows[0].value, sizeof(s.rows[0].value), "APP");
+                snprintf(s.rows[3].value, sizeof(s.rows[3].value), "GRADIENT");
+                for (int i : {1, 2, 4}) s.rows[i].muted = true, snprintf(s.rows[i].value, sizeof(s.rows[i].value), "--");
+            }
+            ui::draw_lights(s, {sel == 0 ? 0xFFB030u : 0x33AAFFu, sel == 0 ? grad : comet, true});
+            keep(sel == 0 ? "lights: APP colour" : "lights: editing EFFECT");
+        }
+    }
+    static const uint32_t one_claude[1] = {0xE8825F}, three[3] = {0xE8825F, 0x4F9DFF, 0xB98CFF};
+    ui::draw_notify({ui::AGENT_CLAUDE, "CLAUDE CODE", 0xE8825F, "RUN", "rm -rf node_modules && npm install --force", true,
+                     three, 3, 0, 0, 1200});
+    keep("notify: 3 agents waiting");
+    ui::draw_notify({ui::AGENT_CLAUDE, "CLAUDE CODE", 0xE8825F, "EDIT", "agents.c", true, one_claude, 1, 0.62f, UI_BTN_F1, 2400});
+    keep("notify: F1 held 62%");
+    static const uint32_t codex1[1] = {0x4F9DFF};
+    ui::draw_notify({ui::AGENT_CODEX, "CODEX", 0x4F9DFF, "PATCH", "ext_link.c, notify.c, menu.c", true, codex1, 1, 0, 0, 600});
+    keep("notify: Codex asks");
+    static const uint32_t cursor1[1] = {0xB98CFF};
+    ui::draw_notify({ui::AGENT_CURSOR, "CURSOR", 0xB98CFF, "YOUR TURN", "Cursor finished the refactor", false, cursor1, 1, 0, 0, 1800});
+    keep("notify: Cursor, info");
+    {
+        const app_profile_t &p = app_profile_agents;
+        static char key[12];
+        for (int ring = 0; ring < p.ring_count; ring++) {
+            for (int e : {1, 3, 10}) {
+                if (e > p.rings[ring].count) continue;
+                const app_cmd_t &c = p.rings[ring].cmds[e - 1];
+                ui::WheelView v = {};
+                v.ring_name = p.rings[ring].name;
+                v.ring_count = p.ring_count;
+                for (int i = 0; i < p.ring_count; i++) v.ring_tabs[i] = p.rings[i].tab;
+                v.ring = ring;
+                v.count = p.rings[ring].count + 1;
+                v.entry = e;
+                v.name = c.name;
+                v.scene = c.scene;
+                v.modifier = c.key.modifier;
+                uint8_t k = c.key.keycode;
+                if (k >= 0x04 && k <= 0x1D) snprintf(key, sizeof(key), "%c", 'A' + k - 4);
+                else snprintf(key, sizeof(key), "%s", k == 0x28 ? "ENTER" : k == 0x2A ? "BKSP" : k == 0x37 ? "." : "?");
+                v.key = key;
+                v.chord = c.kind == APP_CMD_KEYS && c.scene == nullptr;
+                if (c.kind == APP_CMD_MACRO) {
+                    const app_macro_t &m = p.macros[c.macro - 1];
+                    if (m.steps[0].kind == APP_MSTEP_TEXT) {
+                        v.typed = m.steps[0].text;
+                    } else {
+                        v.chord = true;
+                        v.modifier = m.steps[0].key.modifier;
+                        snprintf(key, sizeof(key), "ESC");
+                        v.chord_repeat = m.count;
+                    }
+                }
+                v.slide = 1;
+                v.slide_dir = 1;
+                v.t_ms = 2600;
+                ui::MainInputs in = {false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, UI_BTN_F1, nullptr, nullptr, &v};
+                ui::draw_main(in);
+                keep(c.name);
+            }
+        }
+    }
+
+    {
+        // MUSIC now playing: a synthetic cover (COVER_RAW, 240x240 RGB565 BE, band already darkened).
+        static uint8_t cover[240 * 240 * 2];
+        FILE *f = getenv("COVER_RAW") ? fopen(getenv("COVER_RAW"), "rb") : nullptr;
+        bool have = f && fread(cover, 1, sizeof(cover), f) == sizeof(cover);
+        if (f) fclose(f);
+        struct NP { const char *name; bool playing; int vol; float vk; int glyph; float gk; };
+        const NP nps[] = {{"np: playing", true, 42, 0, 0, 0}, {"np: volume ring", true, 42, 1, 0, 0},
+                          {"np: paused + glyph", false, 42, 0, ui::NP_GLYPH_PLAY, 1}};
+        for (const NP &n : nps) {
+            if (have) ui::image565(0, 0, 240, 240, cover);
+            ui::draw_now_playing({"MIDNIGHT CITY", "M83", have, app_icon_music_48, 0xFF8C3C, n.playing, n.vol, n.vk,
+                                  n.glyph, n.gk});
+            keep(n.name);
+        }
+        ui::draw_now_playing({"NO COVER YET", "ARTIST", false, app_icon_music_48, 0xFF8C3C, true, -1, 0, 0, 0});
+        keep("np: no cover");
+        // AGENTS dashboard over the APP main screen (middle cleared).
+        const app_profile_t &ap = app_profile_agents;
+        ui::AppView av = {ap.name, ap.icon24, {ap.legend[0], ap.legend[1], ap.legend[2], ap.legend[3]}, "", "", "KNOB"};
+        ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &av});
+        const ui::AgentRowView rows[] = {{0xE8825F, "binaris", 1}, {0x4F9DFF, "api-server", 2}, {0xB98CFF, "web", 3}};
+        ui::draw_agent_board(rows, 3, 900);
+        keep("agents: board");
+        ui::draw_main({false, AUDIO_TIMBRE_WOOD_TOCK, MENU_HID_APP, HAPTIC_TYPE_SAW, 0, nullptr, &av});
+        ui::draw_agent_board(rows, 0, 0);
+        keep("agents: none");
     }
 
     // Contact sheet: 4 per row, 2x, round mask, 8px gutters. Binary PPM on stdout; names on stderr.

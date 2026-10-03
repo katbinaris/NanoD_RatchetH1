@@ -38,6 +38,10 @@ void ui_state_set_knob_angle(int32_t angle_1e4_rad);
 void ui_state_note_click(void);
 void ui_state_note_wall(void);
 uint32_t ui_state_get_clicks(void);
+// Detents dispatched, signed (+ = clockwise as the user sees it): the knob's own and the
+// companion's (EXT_CMD_INPUT) alike -- for screens that step through things in order.
+void ui_state_note_turn(int8_t dir);
+int32_t ui_state_get_turns(void);
 uint32_t ui_state_get_walls(void);
 
 // Consumer side (Core 1)

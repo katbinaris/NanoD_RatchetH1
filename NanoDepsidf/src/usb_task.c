@@ -80,6 +80,7 @@ enum {
     REPORT_ID_KEYBOARD = 1,
     REPORT_ID_MOUSE = 2,
     REPORT_ID_GAMEPAD = 3,
+    REPORT_ID_CONSUMER = 4, // media keys (volume, play/pause) -- APP_ACT_MEDIA
 };
 
 #define EPNUM_CDC_NOTIF 0x81 // EP1 IN
@@ -95,6 +96,7 @@ static const uint8_t s_hid_report_descriptor[] = {
     TUD_HID_REPORT_DESC_KEYBOARD(HID_REPORT_ID(REPORT_ID_KEYBOARD)),
     TUD_HID_REPORT_DESC_MOUSE(HID_REPORT_ID(REPORT_ID_MOUSE)),
     TUD_HID_REPORT_DESC_GAMEPAD(HID_REPORT_ID(REPORT_ID_GAMEPAD)),
+    TUD_HID_REPORT_DESC_CONSUMER(HID_REPORT_ID(REPORT_ID_CONSUMER)),
 };
 
 // Usage page 0xFF00 / usage 0x01, one 64-byte input + one 64-byte output report, no report
@@ -222,25 +224,56 @@ static bool send_keys(uint8_t modifier, uint8_t keycode) {
     return false;
 }
 
+// Consumer page (media keys): the report is one 16-bit usage; 0 releases it.
+static bool send_consumer(uint16_t usage) {
+    for (int i = 0; i < HID_SEND_TRIES; i++) {
+        if (tud_hid_n_ready(HID_INSTANCE_INPUT)
+            && tud_hid_n_report(HID_INSTANCE_INPUT, REPORT_ID_CONSUMER, &usage, sizeof(usage))) {
+            return true;
+        }
+        vTaskDelay(1);
+    }
+    ESP_LOGW(TAG, "consumer report dropped (endpoint busy)");
+    sysmon_note_hid_drop();
+    return false;
+}
+
 // APP mode (app_mode.h): bring the host in line with the wanted state. What the host has is
 // tracked in *sent_buttons / *sent_modifier and only updated on a report that went out, so a
 // failed send is simply retried next pass. Order matters for chords (Ctrl + middle-drag,
 // Cmd + wheel): a modifier goes down before the button or wheel, and comes up after.
 static void app_sync(uint8_t *sent_buttons, uint8_t *sent_modifier) {
-    static bool keys_dirty = false; // a key tap's report may still be held on the host
+    static bool keys_dirty = false;  // a key tap's report may still be held on the host
+    static bool media_dirty = false; // a media key's release may not have reached the host
     // A tap's pause (a macro waiting on the host's UI) holds back the taps after it, not this
     // task: pointer, wheel and the companion link keep running meanwhile.
     static TickType_t taps_resume = 0;
+    // The modifier this pass's media taps hold. It stays down across back-to-back media taps (a
+    // fast volume turn) and comes up once the queue is empty: two reports per step, not four.
+    uint8_t media_mod = 0;
     app_tap_t tap;
     while ((int32_t)(xTaskGetTickCount() - taps_resume) >= 0 && app_mode_take_tap(&tap)) {
         // One tap = press with the tap's own modifier, then back to what a slot holds. An empty
         // tap (a macro's pause) only waits.
-        if (tap.keycode || tap.modifier) {
+        if (tap.consumer) {
+            // On a Mac, Shift+Option + volume moves in quarter steps. On a PC a modifier on a
+            // media key does nothing useful and can trip OS hotkeys (Alt+Shift switches layout).
+            uint8_t mod = menu_get_host() == MENU_HOST_PC ? 0 : tap.modifier;
+            if (mod != media_mod && send_keys(*sent_modifier | mod, 0)) {
+                media_mod = mod;
+                keys_dirty = true; // let go below, after the last media tap
+            }
+            if (send_consumer(tap.keycode)) media_dirty = true;
+            if (send_consumer(0)) media_dirty = false;
+        } else if (tap.keycode || tap.modifier) {
             if (send_keys(tap.modifier, tap.keycode)) keys_dirty = true;
             if (send_keys(*sent_modifier, 0)) keys_dirty = false;
+            media_mod = 0; // that release let go of a media modifier too
         }
         if (tap.wait_ticks) taps_resume = xTaskGetTickCount() + tap.wait_ticks;
     }
+    if (media_dirty && send_consumer(0)) media_dirty = false;
+    if (media_mod != 0 && send_keys(*sent_modifier, 0)) keys_dirty = false;
     uint8_t want_buttons, want_modifier;
     bool axis_y;
     app_mode_wanted(&want_buttons, &want_modifier, &axis_y);
@@ -335,7 +368,8 @@ static void usb_task_fn(void *arg) {
         if (!tud_mounted()) {
             sent_buttons = 0; // a fresh enumeration starts with nothing held
             sent_modifier = 0;
-            if (host_link_streaming()) host_link_stop();
+            host_link_stop(); // USB's share (cheap); the companion over WiFi carries on
+            host_link_poll();
             continue;
         }
         host_link_poll();

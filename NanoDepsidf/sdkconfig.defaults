@@ -97,3 +97,34 @@ CONFIG_FREERTOS_IN_IRAM=y
 CONFIG_SPI_MASTER_IN_IRAM=y
 CONFIG_MCPWM_CTRL_FUNC_IN_IRAM=y
 CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
+
+# WiFi (net.c) -- added by the fork; the rest of the network stack stays off Core 0, which is
+# the motor loop's: the radio's task and lwIP's on Core 1, mDNS's too (its own component). The
+# WiFi driver's code stays in flash (IRAM is internal RAM), its buffers may go to PSRAM, and
+# what this knob never does (be an access point, enterprise logins) isn't built in.
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU1=y
+CONFIG_MDNS_TASK_AFFINITY_CPU1=y
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_RX_IRAM_OPT is not set
+# CONFIG_ESP_WIFI_SOFTAP_SUPPORT is not set
+# CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT is not set
+# CONFIG_ESP_WIFI_NVS_ENABLED is not set
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# What WiFi turned out to cost, measured (SYS INFO, 20 s windows): 36 missed control ticks and
+# 174 us worst jitter with the radio on, 0 and 77 us off -- in modem sleep the WiFi driver wakes
+# the radio round every beacon with esp_timer callbacks, and esp_timer's task (priority 22) and
+# ISR sat on Core 0, above the control task. They run on Core 1 now (nothing of ours uses
+# esp_timer callbacks; esp_timer_get_time() is just a counter). And 110 KB of internal RAM:
+# fewer buffers, and no A-MPDU (a knob setting its clock needs no aggregation).
+# (ESP-IDF files the Core 1 placement under "experimental": checked on hardware -- WiFi, SNTP, USB,
+# display, LEDs -- with the control loop's stats.)
+CONFIG_ESP_TIMER_SHOW_EXPERIMENTAL=y
+CONFIG_ESP_TIMER_TASK_AFFINITY_CPU1=y
+CONFIG_ESP_TIMER_ISR_AFFINITY_CPU1=y
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+# TX buffers stay static (with SPIRAM_TRY_ALLOCATE_WIFI_LWIP ESP-IDF allows nothing else): 6, not 16.
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_MGMT_SBUF_NUM=16
+# CONFIG_ESP_WIFI_AMPDU_TX_ENABLED is not set
+# CONFIG_ESP_WIFI_AMPDU_RX_ENABLED is not set

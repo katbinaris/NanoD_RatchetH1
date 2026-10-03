@@ -106,12 +106,33 @@ static uint32_t CONTROL_HOT tap_room(void) {
 static void CONTROL_HOT push_tap_wait(app_key_t key, uint8_t wait_ticks) {
     uint32_t head = atomic_load(&s_tap_head);
     if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
-    s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, wait_ticks};
+    s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, wait_ticks, 0};
     atomic_store(&s_tap_head, head + 1);
 }
 
 static void CONTROL_HOT push_tap(app_key_t key) {
     push_tap_wait(key, 0);
+}
+
+// Volume keys sent, +1 per Volume Increment, -1 per Decrement: under Shift+Option (a quarter
+// step on a Mac) and plain (media.c runs the ring ahead of the host's report on these).
+#define VOLUME_FINE (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_LEFTALT)
+static _Atomic int32_t s_volume_fine = 0, s_volume_plain = 0;
+
+void app_mode_volume_steps(int32_t *fine, int32_t *plain) {
+    *fine = atomic_load(&s_volume_fine);
+    *plain = atomic_load(&s_volume_plain);
+}
+
+// APP_ACT_MEDIA: one Consumer-page usage, under the key's modifier (press + release sent by
+// the usb task).
+static void CONTROL_HOT push_media(app_key_t key) {
+    uint32_t head = atomic_load(&s_tap_head);
+    if (head - atomic_load(&s_tap_tail) >= APP_TAP_RING) return; // full: drop this tap
+    s_taps[head % APP_TAP_RING] = (app_tap_t){key.modifier, key.keycode, 0, 1};
+    atomic_store(&s_tap_head, head + 1);
+    int step = key.keycode == HID_USAGE_CONSUMER_VOLUME_INCREMENT ? 1 : key.keycode == HID_USAGE_CONSUMER_VOLUME_DECREMENT ? -1 : 0;
+    if (step) atomic_fetch_add((key.modifier & VOLUME_FINE) == VOLUME_FINE ? &s_volume_fine : &s_volume_plain, step);
 }
 
 // US key positions for printable ASCII (command-search phrases, typed values, macro text).
@@ -551,6 +572,8 @@ void CONTROL_HOT app_mode_update(bool active, int64_t now_us, uint8_t held, bool
         if (a->kind == APP_ACT_TAP && slot != APP_SLOT_F4) {
             if (a->macro) macro_start(a->macro);
             else push_tap(a->cw);
+        } else if (a->kind == APP_ACT_MEDIA && slot != APP_SLOT_F4) {
+            push_media(a->cw); // fires on press, like TAP
         } else if (s_slot < 0 || s_slot_key == 0) {
             // A key takes over from the knob-alone slot. F4 always starts a slot (even with
             // no action) so its long press can open the menu; so does a key with only a
@@ -692,6 +715,10 @@ void CONTROL_HOT app_mode_detent(int8_t dir, int64_t now_us) {
         case APP_ACT_KEYS:
             s_engaged = true;
             push_tap(dir > 0 ? a->cw : a->ccw);
+            break;
+        case APP_ACT_MEDIA:
+            s_engaged = true;
+            push_media(dir > 0 ? a->cw : a->ccw);
             break;
         default:
             break; // drags follow app_mode_motion(); taps fire on press

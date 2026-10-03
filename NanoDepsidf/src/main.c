@@ -15,6 +15,11 @@
 #include "led_task.h"
 #include "pd_status.h"
 #include "sysmon.h"
+#include "ext_link.h"
+#include "net.h"
+#include "net_link.h"
+#include "clock.h"
+#include "hal/usb_serial_jtag_ll.h"
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -99,6 +104,7 @@ void app_main(void) {
     ipc_init();
     audio_trigger_init();
     ui_state_init();
+    clock_init();
     app_profiles_init(); // stored profiles: before menu_init() looks up the saved one by id
     menu_init();
     icon_store_init(); // before usb_task (producer) and display_task (consumer) start
@@ -111,11 +117,25 @@ void app_main(void) {
     // physical BOOT-button reflash. menu_get_boot_mode() reads the value menu_init() already
     // restored from NVS above (defaults to HID, matching this board's prior unconditional
     // behavior, if nothing was ever saved).
-    bool serial_forced_by_buttons = usb_serial_mode_requested();
+    // A host-requested serial boot (ext_proto.h EXT_REBOOT_SERIAL, for flashing) skips the
+    // 2 s button poll -- nobody is holding anything.
+    bool serial_requested_by_host = ext_take_serial_boot();
+    bool serial_forced_by_buttons = !serial_requested_by_host && usb_serial_mode_requested();
     bool serial_requested_by_setting = (menu_get_boot_mode() == BOOT_USB_MODE_SERIAL);
-    bool usb_serial_mode = serial_forced_by_buttons || serial_requested_by_setting;
+    bool usb_serial_mode = serial_forced_by_buttons || serial_requested_by_setting || serial_requested_by_host;
     ui_state_set_usb_serial_active(usb_serial_mode); // what the UI shows as "IN USE"
-    if (serial_forced_by_buttons) {
+    if (usb_serial_mode) {
+        // The internal PHY's mux (USB-OTG vs USB-Serial-JTAG) is an RTC_CNTL register, so a
+        // soft restart out of HID mode can leave it on USB-OTG. Hand it to USB-Serial-JTAG
+        // explicitly or its port never enumerates. Same state as a power-on, so harmless then.
+        usb_serial_jtag_ll_phy_enable_external(false);
+        usb_serial_jtag_ll_phy_disable_pull_override();
+        usb_serial_jtag_ll_phy_enable_pad(true);
+    }
+    if (serial_requested_by_host) {
+        ESP_LOGW(TAG, "Serial boot requested by the host (EXT_REBOOT_SERIAL): TinyUSB (HID) "
+                       "will NOT be installed this boot -- flash now; the next reset boots normally.");
+    } else if (serial_forced_by_buttons) {
         ESP_LOGW(TAG, "BTN_C+BTN_D held at boot -- USB serial mode (failsafe, overrides the "
                        "saved Boot USB Mode setting): TinyUSB (HID) will NOT be installed "
                        "this boot. Native USB-Serial-JTAG console/flashing stays on its "
@@ -131,7 +151,9 @@ void app_main(void) {
 
     // Core 1: everything DMA-offloaded/tolerant
     if (!usb_serial_mode) {
+        net_start(); // before the usb task: a NET setup arriving over USB finds it running
         usb_task_start();
+        net_link_start(); // the companion over WiFi, through the usb task's host_link
     } else {
         ESP_LOGI(TAG, "usb task not started (USB serial mode active this boot)");
     }

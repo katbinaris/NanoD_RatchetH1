@@ -12,6 +12,12 @@
 extern "C" {
 #endif
 
+extern const uint8_t app_icon_music_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_music_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_agents_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_agents_48[APP_ICON_48_BYTES];
+extern const uint8_t app_icon_clock_24[APP_ICON_24_BYTES];
+extern const uint8_t app_icon_clock_48[APP_ICON_48_BYTES];
 extern const uint8_t app_icon_figma_24[APP_ICON_24_BYTES];
 extern const uint8_t app_icon_plasticity_24[APP_ICON_24_BYTES];
 extern const uint8_t app_icon_onshape_24[APP_ICON_24_BYTES];

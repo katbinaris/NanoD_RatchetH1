@@ -41,7 +41,19 @@ typedef enum {
     MENU_SCREEN_SYSINFO,     // live readings (sysmon.h), one page per row; F1 resets the peaks
     MENU_SCREEN_RECALIBRATE, // forget the motor calibration and restart
     MENU_SCREEN_BINDINGS,    // which computer: MAC or PC (Cmd <-> Ctrl)
+    MENU_SCREEN_LIGHTS,      // LED colour, effect, speed, level (user_prefs.h)
 } menu_screen_id_t;
+
+// Rows of the LIGHTS screen -- display_task.cpp draws each by index.
+enum {
+    MENU_LIGHTS_ROW_COLOR = 0,
+    MENU_LIGHTS_ROW_HUE,
+    MENU_LIGHTS_ROW_SAT,
+    MENU_LIGHTS_ROW_EFFECT,
+    MENU_LIGHTS_ROW_SPEED,
+    MENU_LIGHTS_ROW_LEVEL,
+    MENU_LIGHTS_ROW_COUNT,
+};
 
 // DEVICE -> BINDINGS: the computer on the other end. Profiles are written with macOS
 // shortcuts; on PC, usb_task.c sends Ctrl wherever a profile says Cmd. The values are what
@@ -227,3 +239,6 @@ bool menu_remote_set(int id, int32_t ival, float fval); // false: unknown id
 void menu_remote_save(void);   // NVS for every group that differs (a few ms of flash writes)
 void menu_remote_reset_haptic(void); // the shown haptic profile back to factory (live, unsaved)
 void menu_remote_revert(void); // every group back to what NVS holds
+// LIGHTS alone (ext_link.c): whether the live look differs from NVS, and saving just that.
+bool menu_lights_dirty(void);
+void menu_remote_save_lights(void);

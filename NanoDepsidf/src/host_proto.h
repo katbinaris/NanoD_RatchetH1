@@ -63,7 +63,7 @@ enum {
     HOST_SET_HID_TYPE = 7,  // i32 menu_hid_type_t
     HOST_SET_MIDI_CH = 8,   // i32 1..16
     HOST_SET_PROFILE = 9,   // i32 app profile index
-    HOST_SET_BOOT = 10,     // i32 boot_usb_mode_t (SERIAL: the next boot has no HID, no app)
+    HOST_SET_BOOT = 10,     // i32 boot_usb_mode_t (SERIAL: the next boot has no HID, no app). USB only
     HOST_SET_ROTATION = 11, // i32 quarter turns 0..3
     HOST_SET_HOST = 12,     // i32 menu_host_t
     HOST_SET_SHAPE = 13,    // i32 percent, HAPTIC_SHAPE_MIN..MAX

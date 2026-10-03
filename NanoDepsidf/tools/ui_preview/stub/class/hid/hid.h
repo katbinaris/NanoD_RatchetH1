@@ -50,3 +50,8 @@
 #define HID_KEY_KEYPAD_9 0x61
 #define HID_KEY_Y 0x1C
 #define HID_KEY_ESCAPE 0x29
+#define HID_KEY_I 0x0C
+#define HID_KEY_O 0x12
+#define HID_KEY_BACKSPACE 0x2A
+#define HID_KEY_ARROW_DOWN 0x51
+#define HID_KEY_ARROW_UP 0x52

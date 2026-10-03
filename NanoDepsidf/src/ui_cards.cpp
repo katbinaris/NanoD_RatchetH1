@@ -594,6 +594,72 @@ void draw_chord(uint8_t modifier, const char *key, float cx, int y, const char *
     if (tail) text(tail, x + 6, y + 3, GREY);
 }
 
+// A command that types text: a little terminal typing it, a character per 70 ms, the cursor
+// blinking once it's done. The Enter that sends it is F1's (the macros never press it).
+static void typed_card(const char *s, int x, int y, uint32_t t_ms) {
+    round_frame(x, y, CARD_W, CARD_H, DARK);
+    disc(x + 8, y + 7, 1.5f, 0xFF5F57);
+    disc(x + 14, y + 7, 1.5f, 0xFEBC2E);
+    disc(x + 20, y + 7, 1.5f, 0x28C840);
+    rect(x + 3, y + 13, CARD_W - 6, 1, DARK);
+    int len = (int)strlen(s);
+    uint32_t cycle = (uint32_t)len * 70 + 1800, m = t_ms % cycle;
+    int shown = (int)(m / 70) < len ? (int)(m / 70) : len;
+    char buf[48];
+    snprintf(buf, sizeof(buf), "%.*s", shown < 47 ? shown : 47, s);
+    text(">", x + 8, y + 24, AMBER);
+    clip(x + 3, y + 14, CARD_W - 6, CARD_H - 17);
+    int w = shown ? text(buf, x + 18, y + 24, WHITE) : 0;
+    if (shown < len || (m / 420) % 2 == 0) rect(x + 19 + w, y + 23, 4, 9, AMBER);
+    unclip();
+    if (shown == len) text("F1 SENDS", x + CARD_W - 8, y + 47, GREY, 1, RIGHT);
+}
+
+// A shortcut: the chord on big keycaps, pressed now and then -- the modifiers go down, the key
+// is struck (`repeat` times, one beat each, for a sequence like Esc Esc), everything comes up.
+// Mac order: Control, Option, Shift, Command, the key.
+static void chord_card(uint8_t modifier, const char *key, int repeat, int x, int y, uint32_t t_ms) {
+    round_frame(x, y, CARD_W, CARD_H, DARK);
+    const Sprite *mods[4];
+    int n = 0;
+    if (modifier & (0x01 | 0x10)) mods[n++] = &G_CTRL;
+    if (modifier & (0x04 | 0x40)) mods[n++] = &G_OPT;
+    if (modifier & (0x02 | 0x20)) mods[n++] = &G_SHIFT;
+    if (modifier & (0x08 | 0x80)) mods[n++] = &G_CMD;
+    const int cap = 24, gap = 5, side = 3;
+    const int keys = key ? (repeat < 1 ? 1 : repeat) : 0;
+    int ks = 2, kw = 0, total = 0;
+    for (; ks >= 1; ks--) { // the key's label at 2x if the whole chord still fits, else 1x
+        kw = key ? text_width(key, ks) + 14 : 0;
+        if (key && kw < cap) kw = cap;
+        total = n * (cap + gap) + keys * (kw + gap) - gap;
+        if (total <= CARD_W - 12) break;
+    }
+    if (ks < 1) ks = 1;
+    const uint32_t m = t_ms % 1600, start = 900, beat = 220;
+    const bool mods_down = m >= start && m < start + beat * keys + 60;
+    int kx = x + (CARD_W - total) / 2;
+    const int ky0 = y + (CARD_H - cap - side) / 2;
+    for (int i = 0; i < n + keys; i++) {
+        bool is_key = i >= n;
+        bool down = is_key ? (m >= start + beat * (uint32_t)(i - n) && m < start + beat * (uint32_t)(i - n) + 150) : mods_down;
+        int w = is_key ? kw : cap, ky = ky0 + (down ? side : 0);
+        if (!down) cut(kx, ky + side, w, cap, 0x1C1C1C); // the keycap's side
+        cut(kx, ky, w, cap, down ? AMBER : DARK);
+        uint32_t ink = down ? BLACK : WHITE;
+        if (is_key) text(key, kx + w / 2.0f, ky + (cap - cap_height(ks)) / 2, ink, ks, CENTER);
+        else sprite(*mods[i], kx + (cap - mods[i]->w * 2) / 2, ky + (cap - mods[i]->h * 2) / 2, ink, 2);
+        kx += w + gap;
+    }
+}
+
+static void entry_card(const app_scene_t *scene, const char *typed, bool chord, uint8_t mod, const char *key,
+                       int repeat, int x, int y, uint32_t t_ms) {
+    if (typed) typed_card(typed, x, y, t_ms);
+    else if (chord) chord_card(mod, key, repeat, x, y, t_ms);
+    else draw_card(scene, x, y, t_ms);
+}
+
 void draw_wheel(const WheelView &v) {
     text(v.ring_name, CX, 24, GREY, 1, CENTER);
     rect(60, 40, 120, 1, DARK);
@@ -601,13 +667,18 @@ void draw_wheel(const WheelView &v) {
     // The card slides like the PROFILE carousel: the old one leaves, the new one comes in.
     const int CARD_Y = 50, TRAVEL = 128;
     int off = (int)lroundf((1 - v.slide) * v.slide_dir * TRAVEL);
-    if (v.prev_valid && v.slide < 1) draw_card(v.prev, CX - CARD_W / 2 + off - v.slide_dir * TRAVEL, CARD_Y, 100000);
-    draw_card(v.scene, CX - CARD_W / 2 + off, CARD_Y, v.t_ms);
+    if (v.prev_valid && v.slide < 1)
+        entry_card(v.prev, v.prev_typed, v.prev_chord, v.prev_modifier, v.prev_key, v.prev_chord_repeat,
+                   CX - CARD_W / 2 + off - v.slide_dir * TRAVEL, CARD_Y, 100000);
+    entry_card(v.scene, v.typed, v.chord, v.modifier, v.key, v.chord_repeat, CX - CARD_W / 2 + off, CARD_Y, v.t_ms);
     if (v.entry > 0) sprite(SPR_TRI_L_M, 22, CARD_Y + 28, AMBER);
     if (v.entry < v.count - 1) sprite(SPR_TRI_R_M, 214, CARD_Y + 28, AMBER);
 
     text(v.name, CX, 122, WHITE, fit_scale(v.name, 170, 2), CENTER);
     if (v.entry == 0) text("RELEASE TO CLOSE", CX, 148, GREY, 1, CENTER);
+    else if (v.typed) text("RELEASE TO TYPE", CX, 148, GREY, 1, CENTER);
+    else if (v.chord) text("RELEASE TO PRESS", CX, 148, GREY, 1, CENTER);
+    else if (v.hint) text(v.hint, CX, 148, AMBER, 1, CENTER);
     else if (v.search) draw_chord(v.modifier, v.key, CX, 145, "SEARCH");
     else draw_chord(v.modifier, v.key, CX, 145, nullptr);
 

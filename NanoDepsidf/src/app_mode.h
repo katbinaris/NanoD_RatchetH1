@@ -27,8 +27,9 @@
 // waits for the search box to open and for results to appear.
 typedef struct {
     uint8_t modifier;
-    uint8_t keycode;
+    uint8_t keycode;  // HID_KEY_*, or a Consumer usage when `consumer` is set
     uint8_t wait_ticks;
+    uint8_t consumer; // 1 = keycode is an 8-bit HID Consumer usage (APP_ACT_MEDIA)
 } app_tap_t;
 
 // --- control task side (Core 0) ---
@@ -59,6 +60,10 @@ int app_mode_live_slot(void);
 // Command wheel: true while open; *ring = index into the profile's rings, *entry 0 = cancel,
 // n = the ring's command n-1.
 bool app_mode_wheel(int *ring, int *entry);
+
+// Volume keys sent so far, +1 per Volume Increment, -1 per Decrement (any core): those under
+// Shift+Option (`fine`) and the rest (`plain`).
+void app_mode_volume_steps(int32_t *fine, int32_t *plain);
 // Commands run so far (a counter that moves on every run) and which one ran last.
 uint32_t app_mode_last_run(int *ring, int *entry);
 // Slot taps fired so far (a counter) and which slot fired last -- a key's quick-press `tap`.

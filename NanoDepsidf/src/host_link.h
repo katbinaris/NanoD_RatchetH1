@@ -3,20 +3,37 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// The desktop app's link over the vendor HID interface (host_proto.h has the wire format;
-// the icon upload shares the interface, icon_store.h). usb_task.c drives it.
+// The desktop app's link (host_proto.h has the wire format; the icon upload shares it,
+// icon_store.h): over the vendor HID interface (usb_task.c) and, once paired, over WiFi
+// (net_link.c). Each command's reply goes back on the link it came on; the live stream and the
+// screen go to the link that last asked for them.
+
+typedef enum { HOST_LINK_USB = 0, HOST_LINK_NET = 1, HOST_LINK_COUNT } host_link_t;
 
 void host_link_init(uint8_t vendor_instance);
 
-// TinyUSB task: one OUT report from the host. Builds the reply (if any) and queues it.
-void host_link_handle_report(const uint8_t *report, uint16_t len);
+// One report from the host on `link` (TinyUSB task / net_link task). Builds the reply (if any)
+// and queues it for that link.
+void host_link_receive(host_link_t link, const uint8_t *report, uint16_t len);
+void host_link_handle_report(const uint8_t *report, uint16_t len); // USB's
 
-// usb task, every pass: profile work (JSON, files), queued replies, then a profile download
-// or the live stream while the app asks for it.
+// usb task, every pass: profile work (JSON, files), then each link's queued replies, a profile
+// download or the live stream.
 void host_link_poll(void);
 
-// TinyUSB task: a vendor IN report went out -- sends the next piece of a profile download.
+// A link's host, by generation (it moves on when that host goes away): a deferred reply carries
+// the one it's for, and host_link_queue_to drops it if that host is gone. host_link_queue: USB's
+// host now (events). In order with the link's replies. Core 1.
+uint32_t host_link_gen(host_link_t link);
+void host_link_queue_to(host_link_t link, uint32_t gen, const uint8_t *report);
+void host_link_queue(const uint8_t *report);
+
+// TinyUSB task: a vendor IN report went out -- sends USB's next one.
 void host_link_report_sent(void);
 
-bool host_link_streaming(void);
-void host_link_stop(void); // the host went away (unmounted): stop streaming, drop replies
+// EXT_CMD_SCREEN from `link`: fps 0 stops it (if that link has it).
+void host_link_screen(host_link_t link, uint8_t fps);
+
+// A link's host went away: its streams stop, its replies and a download for it are dropped.
+void host_link_stop_link(host_link_t link);
+void host_link_stop(void); // USB unmounted

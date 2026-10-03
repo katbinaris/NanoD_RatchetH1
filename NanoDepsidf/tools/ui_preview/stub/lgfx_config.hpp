@@ -18,6 +18,9 @@ public:
     void setClipRect(int32_t x, int32_t y, int32_t w, int32_t h) { cx = x; cy = y; cw = w; ch = h; }
     void clearClipRect() { cx = 0; cy = 0; cw = W; ch = H; }
     void clear() { for (auto &p : px) p = 0; }
+    void *getBuffer() { return nullptr; } // RGB888 here, not the device's RGB565: shade_disc() skips
+    int32_t width() const { return W; }
+    int32_t height() const { return H; }
 
 private:
     int cx = 0, cy = 0, cw = W, ch = H;

@@ -13,6 +13,8 @@
 #include "haptic_params.h"
 #include "app_mode.h"
 #include "sysmon.h"
+#include "notify.h"
+#include "ext_link.h"
 #include "esp_cpu.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -339,6 +341,9 @@ static float s_haptic_pulse_sign = 1.0f;
 // in Phase 8 and is Save since the Pixel UI (menu_input_save()). One shared cooldown (not
 // per-button) is enough now that each button fires a single, unambiguous action rather than
 // needing combo disambiguation like the retired scheme above did.
+static bool s_notice_shown = false; // an agent notification is up (notify.h), menu closed
+static uint8_t s_notice_keys = 0;    // keys pressed while one was up: hidden until released
+static uint8_t s_notice_raw_prev = 0;
 static bool s_menu_prev_btn_a_pressed = false;
 static bool s_menu_prev_btn_b_pressed = false;
 static bool s_menu_prev_btn_c_pressed = false;
@@ -376,6 +381,23 @@ static float CONTROL_HOT wrap_pi(float rad) {
 
 static float CONTROL_HOT raw_to_rad(int32_t raw) {
     return ((float)raw / 16384.0f) * 2.0f * (float)M_PI;
+}
+
+// One detent's worth of turning, wherever it goes: the menu (list navigation, or a value while
+// editing -- never a wheel event then), APP mode, or the mouse wheel. The knob's own crossings
+// and the companion's turns (EXT_CMD_INPUT) both come through here.
+static void CONTROL_HOT dispatch_turn(int8_t dir, bool app_on) {
+    ui_state_note_turn(dir);
+    if (menu_is_open()) {
+        menu_input_rotate(dir);
+    } else if (app_on) {
+        app_mode_detent(dir, esp_timer_get_time());
+    } else {
+        // Phase 3: knob -> mouse scroll wheel. Non-blocking -- a full queue just drops this
+        // event (counted for SYS INFO).
+        hid_report_msg_t hid_msg = {.type = HID_EVENT_MOUSE_WHEEL, .wheel_delta = (int8_t)(dir * HID_WHEEL_SIGN)};
+        if (xQueueSend(g_hid_report_queue, &hid_msg, 0) != pdTRUE) sysmon_note_hid_drop();
+    }
 }
 
 static void CONTROL_HOT control_task_fn(void *arg) {
@@ -816,10 +838,12 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // Phase 8: F1-F4 (BTN_A-BTN_D) drive the real config menu (`menu.c`) --
                 // fixed global roles, see DEVELOPMENT_PLAN.md Phase 8 and the Architecture
                 // decisions log. F2 (Save) joined with the Pixel UI.
-                bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0);
-                bool btn_b_pressed = (gpio_get_level(PIN_BTN_B) == 0);
-                bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0);
-                bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0);
+                // The companion's keys (EXT_CMD_INPUT) press the same as the real ones.
+                const uint8_t vkeys = ext_virtual_keys();
+                bool btn_a_pressed = (gpio_get_level(PIN_BTN_A) == 0) || (vkeys & UI_BTN_F1);
+                bool btn_b_pressed = (gpio_get_level(PIN_BTN_B) == 0) || (vkeys & UI_BTN_F2);
+                bool btn_c_pressed = (gpio_get_level(PIN_BTN_C) == 0) || (vkeys & UI_BTN_F3);
+                bool btn_d_pressed = (gpio_get_level(PIN_BTN_D) == 0) || (vkeys & UI_BTN_F4);
 
                 // Pixel UI: held state for the Main Screen keycaps (cheap atomic store, every
                 // tick, same convention as ui_state_set_detent() below).
@@ -829,15 +853,27 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                 // While the attract animation runs, a press only wakes the screen (the display
                 // sees the held mask above) -- it must not also open the menu.
                 bool swallow = ui_state_get_screensaver();
+                // An agent notification on screen (notify.h) answers to the keys while the menu
+                // is closed. A key that goes down meanwhile is hidden from APP mode and the menu
+                // until it's released, so the press that answers can't also play or skip a
+                // track, even if it's still held once the notification is gone. Keys already
+                // down when it appeared carry on, and the knob keeps its job throughout.
+                const uint8_t raw_keys = ui_state_get_buttons();
+                bool notice = notify_active() && !menu_is_open();
+                if (notice) notify_keys(raw_keys, esp_timer_get_time());
+                s_notice_shown = notice; // the FORCE section's nudge reads it
+                if (notice) s_notice_keys |= raw_keys & ~s_notice_raw_prev;
+                s_notice_keys &= raw_keys;
+                s_notice_raw_prev = raw_keys;
 
                 // APP mode with the menu closed: F1-F4 are app controls (app_mode.c), and
                 // long-press F4 is the way into the menu. Inside the menu they're menu keys
                 // again. Both sides keep tracking the buttons every tick, so the press that
                 // opens or closes the menu never also fires on the other side.
                 bool app_active = menu_get_hid_type() == MENU_HID_APP && !menu_is_open();
-                app_mode_update(app_active, esp_timer_get_time(), ui_state_get_buttons(), swallow);
+                app_mode_update(app_active, esp_timer_get_time(), raw_keys & ~s_notice_keys, swallow);
 
-                if (!app_active && !swallow && iterations >= s_menu_btn_cooldown_until_iter) {
+                if (!app_active && !swallow && !notice && iterations >= s_menu_btn_cooldown_until_iter) {
                     if (btn_d_pressed && !s_menu_prev_btn_d_pressed) {
                         menu_input_toggle_open(); // F4
                         s_menu_btn_cooldown_until_iter = iterations + MENU_BTN_COOLDOWN_ITERS;
@@ -876,6 +912,12 @@ static void CONTROL_HOT control_task_fn(void *arg) {
 
                 // DEVICE -> RECALIBRATE: the same path as a first boot -- with no stored
                 // calibration, the next boot aligns the motor again before haptics start.
+                if (ext_restart_due()) { // the host asked (ext_proto.h EXT_CMD_REBOOT), e.g. to flash
+                    ESP_LOGW(TAG, "restart requested by the host: motor off, restarting");
+                    motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f);
+                    motor_driver_enable(false);
+                    esp_restart();
+                }
                 if (menu_take_recalibrate_request()) {
                     ESP_LOGW(TAG, "RECALIBRATE from the menu: motor off, calibration forgotten, restarting");
                     motor_driver_set_phase_voltages(0.0f, 0.0f, 0.0f);
@@ -1153,28 +1195,7 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         // raw integer value jumps once per full revolution at the +-pi
                         // wrap boundary; velocity has no such discontinuity.
                         int8_t dir = (s_haptic_filtered_velocity >= 0.0f ? 1 : -1) * KNOB_DIRECTION;
-
-                        if (menu_is_open()) {
-                            // Phase 8: this crossing drives the real menu (list navigation,
-                            // or value adjustment while editing a field) instead of
-                            // scrolling -- deliberately does NOT enqueue a HID wheel event
-                            // while the menu is open (see DEVELOPMENT_PLAN.md Phase 8).
-                            menu_input_rotate(dir);
-                        } else if (app_on) {
-                            app_mode_detent(dir, esp_timer_get_time());
-                        } else {
-                            // Phase 3: knob -> mouse scroll wheel mapping.
-                            int8_t wheel_delta = (int8_t)(dir * HID_WHEEL_SIGN);
-                            hid_report_msg_t hid_msg = {
-                                .type = HID_EVENT_MOUSE_WHEEL,
-                                .wheel_delta = wheel_delta,
-                            };
-                            // Non-blocking -- a full queue just drops this tick's scroll
-                            // event (counted for SYS INFO).
-                            if (xQueueSend(g_hid_report_queue, &hid_msg, 0) != pdTRUE) {
-                                sysmon_note_hid_drop();
-                            }
-                        }
+                        dispatch_turn(dir, app_on);
                     }
                     s_haptic_prev_detent_index = detent_index;
                     s_haptic_prev_detent_index_valid = true;
@@ -1184,6 +1205,20 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                     // unbounded counter from wherever the device booted, not a meaningful
                     // position on its own. Updated every tick (cheap atomic store), not
                     // just on the edge above, so it's never stale.
+                    // The companion's turns (EXT_CMD_INPUT): a detent at a time at a hand's pace,
+                    // through the same door as the knob's own -- no click, the knob didn't move.
+                    static uint32_t s_vturn_wait = 0;
+                    if (s_vturn_wait) {
+                        s_vturn_wait--;
+                    } else {
+                        int8_t vdir = ext_take_virtual_turn();
+                        if (vdir) {
+                            s_vturn_wait = MS_TO_ITERS(15);
+                            if (menu_is_open() ? menu_at_end(vdir) : (app_on && app_mode_at_end(vdir))) ui_state_note_wall();
+                            else dispatch_turn(vdir, app_on);
+                        }
+                    }
+
                     int32_t wrapped_detent = ((detent_index % (int32_t)num_detents)
                                               + (int32_t)num_detents) % (int32_t)num_detents;
                     ui_state_set_detent(wrapped_detent);
@@ -1219,6 +1254,14 @@ static void CONTROL_HOT control_task_fn(void *arg) {
                         if (vq_out > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                         if (vq_out < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                         s_haptic_pulse_ticks_remaining--;
+                    }
+                    // An agent waiting for an answer (notify.h): a gentle double tap now and
+                    // then -- like the click, on top of the spring and not slew-limited.
+                    float nudge = notify_nudge_vq(esp_timer_get_time(), s_notice_shown);
+                    if (nudge != 0.0f) {
+                        vq_out += nudge;
+                        if (vq_out > MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
+                        if (vq_out < -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V) vq_out = -MOTOR_EFFECTIVE_STATIC_VOLTAGE_LIMIT_V;
                     }
 
                     SECTION_DONE(SYSMON_SEC_FORCE);

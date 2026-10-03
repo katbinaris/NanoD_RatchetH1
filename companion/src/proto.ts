@@ -50,6 +50,67 @@ export const Tag = {
   ICON_UPLOAD: 0xa0, // icon_store.h
 } as const;
 
+// Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
+// Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
+export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29, CLOCK: 0x2b, SCREEN: 0x2c, INPUT: 0x2d } as const;
+export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4, CLOCK: 0xc5, SCREEN: 0xc6, KEY: 0xc7 } as const;
+export const EXT_SCREEN_VERSION = 6; // the live screen (EXT_CMD_SCREEN) and the knob from here (EXT_CMD_INPUT)
+export const InputOp = { KEYS: 1, TURN: 2 } as const;
+export const SCREEN_SIZE = 240;
+export const EXT_CLOCK_VERSION = 5; // the CLOCK app (EXT_CMD_CLOCK) from this extensions version on
+export const ClockOp = { FORMAT: 1, ZONE: 2, GET: 3 } as const;
+export const ClockFlag = { H24: 0x01, SECONDS: 0x02, DATE: 0x04, LED: 0x08 } as const; // clock.h CLOCK_*
+export const CLOCK_SLOTS = 5; // 0 = LOCAL (the Mac service sends it), 1-4 the user's
+export const EXT_NET_VERSION = 4; // WiFi (EXT_CMD_NET) from this extensions version on
+export const NetOp = { SSID: 1, PASS_A: 2, PASS_B: 3, APPLY: 4, STATUS: 5, KEY: 6 } as const;
+// The companion over WiFi (net_link.h): paired over USB with the knob's key (NetOp.KEY).
+export const EXT_WIFI_LINK_VERSION = 7;
+export const NET_STATE = ["OFF", "CONNECTING", "CONNECTED", "NETWORK NOT FOUND", "WRONG PASSWORD"] as const; // net_state_t
+export const NetState = { OFF: 0, CONNECTING: 1, CONNECTED: 2 } as const;
+export const ExtStatus = { OK: 0, BAD_PARAM: 1, UNKNOWN: 2, STORAGE: 3, USB_ONLY: 4 } as const;
+export const EXT_LIGHTS_SAVE = 0x01;
+export const IDLE_TEXT_MAX = 12; // USER_TEXT_MAX: printable ASCII; "" = QUADRA
+export const LightSrc = { APP: 0, CUSTOM: 1 } as const;
+export const LIGHT_FX = ["GRADIENT", "SOLID", "BREATHE", "SPIN", "RAINBOW", "OFF"] as const; // LIGHT_FX_*, in order
+export const LIGHT_FX_MOVING = new globalThis.Set([2, 3, 4]); // the ones SPEED changes
+
+export interface Lights {
+  src: number;
+  fx: number;
+  hue: number; // 0..359
+  sat: number; // 0..100
+  speed: number; // 1..10
+  level: number; // % of the stock brightness, 10..200
+}
+export interface Prefs extends Lights {
+  lightsDirty: boolean; // differ from what's saved
+  idleText: string;
+}
+// One report of the screen stream (screen_stream.h): a slice of the frame numbered `seq`.
+export interface ScreenChunk {
+  seq: number;
+  first: boolean;
+  last: boolean;
+  bytes: Uint8Array;
+}
+export interface ClockSlot {
+  flags: number; // ClockFlag
+  valid: boolean; // the knob's clock is set
+  slot: number;
+  offsetMin: number; // the zone's UTC offset now
+  label: string; // "" = an empty slot
+  rule: string; // POSIX TZ
+}
+export interface Net {
+  state: number; // NetState / NET_STATE
+  on: boolean;
+  rssi: number; // dBm, while connected
+  ip: string; // "" = none
+  timeSet: boolean; // the knob's clock is set (SNTP)
+  ssid: string;
+  host: string; // <host>.local
+}
+
 // HOST_SET_* -- also the bit order of Settings.dirty.
 export const Set = {
   DETENTS: 0,
@@ -76,7 +137,7 @@ const FLOAT_SETTINGS: ReadonlySet<number> = new globalThis.Set([Set.KP, Set.KD, 
 export const Feel = { SAW: 0, SINE: 1, VISCOSE: 2 } as const;
 export const HidType = { KEYBOARD: 0, MOUSE: 1, MIDI: 2, APP: 3 } as const;
 export const Host = { MAC: 0, PC: 1 } as const;
-export const Boot = { HID: 0, SERIAL: 1 } as const;
+export const Boot = { SERIAL: 0, HID: 1 } as const; // boot_usb_mode_t
 
 // Limits, as the firmware clamps them (haptic_params.h, audio_trigger.h).
 // The haptic profiles (haptic_params.h HAPTIC_PROFILES), by id. KP, KD, SHAPE, FEEL, AMP and
@@ -219,6 +280,13 @@ export type Message =
   | { tag: typeof Tag.PROFILE_DATA; offset: number; bytes: Uint8Array }
   | { tag: typeof Tag.RESULT; result: Result }
   | { tag: typeof Tag.ERROR; cmd: number; code: number }
+  | { tag: typeof ExtTag.HELLO; ext: number }
+  | { tag: typeof ExtTag.ACK; cmd: number; status: number }
+  | { tag: typeof ExtTag.PREFS; prefs: Prefs }
+  | { tag: typeof ExtTag.NET; net: Net }
+  | { tag: typeof ExtTag.CLOCK; clock: ClockSlot }
+  | { tag: typeof ExtTag.SCREEN; screen: ScreenChunk }
+  | { tag: typeof ExtTag.KEY; key: Uint8Array; port: number }
   | { tag: number };
 
 // --- encoding ---
@@ -286,6 +354,77 @@ export const encode = {
     const r = report(Cmd.PROFILE_OP);
     r[1] = index;
     r[2] = op;
+    return r;
+  },
+  extHello: () => report(ExtCmd.HELLO),
+  screen: (fps: number) => {
+    const r = report(ExtCmd.SCREEN);
+    r[1] = fps;
+    return r;
+  },
+  inputKeys: (mask: number) => {
+    const r = report(ExtCmd.INPUT);
+    r[1] = InputOp.KEYS;
+    r[2] = mask & 0x0f;
+    return r;
+  },
+  inputTurn: (detents: number) => {
+    const r = report(ExtCmd.INPUT);
+    r[1] = InputOp.TURN;
+    r[2] = Math.max(-127, Math.min(127, detents)) & 0xff;
+    return r;
+  },
+  clockGet: (slot: number) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.GET;
+    r[2] = slot;
+    return r;
+  },
+  clockFormat: (flags: number) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.FORMAT;
+    r[2] = flags;
+    return r;
+  },
+  clockZone: (slot: number, label: string, rule: string) => {
+    const r = report(ExtCmd.CLOCK);
+    r[1] = ClockOp.ZONE;
+    r[2] = slot;
+    r.set(new TextEncoder().encode(label.slice(0, 12)), 3);
+    r.set(new TextEncoder().encode(rule.slice(0, 45)), 15);
+    return r;
+  },
+  net: (op: number, bytes?: Uint8Array) => {
+    const r = report(ExtCmd.NET);
+    r[1] = op;
+    if (bytes) r.set(bytes.subarray(0, 32), 2);
+    return r;
+  },
+  // The WiFi pairing key (USB only); `fresh`: a new one, which unpairs every other companion.
+  netKey: (fresh: boolean) => {
+    const r = report(ExtCmd.NET);
+    r[1] = NetOp.KEY;
+    r[2] = fresh ? 1 : 0;
+    return r;
+  },
+  extPrefs: () => report(ExtCmd.PREFS),
+  // The idle word: stored on the knob at once (no SAVE).
+  idleText: (text: string) => {
+    const r = report(ExtCmd.TEXT);
+    r.set(new TextEncoder().encode(text.replace(/[^\x20-\x7e]/g, " ").slice(0, IDLE_TEXT_MAX)), 2);
+    return r;
+  },
+  // Live at once; `save` also stores them (otherwise SAVE does, like the other settings).
+  lights: (l: Lights, save: boolean) => {
+    const r = report(ExtCmd.LIGHTS);
+    const v = new DataView(r.buffer);
+    r[1] = save ? EXT_LIGHTS_SAVE : 0;
+    r[2] = l.src;
+    r[3] = l.fx;
+    v.setUint16(4, l.hue, true);
+    r[6] = l.sat;
+    r[7] = l.speed;
+    v.setUint16(8, l.level, true);
     return r;
   },
 };
@@ -434,6 +573,26 @@ export function decode(b: Uint8Array): Message {
       };
     case Tag.ERROR:
       return { tag: Tag.ERROR, cmd: b[1], code: b[2] };
+    case ExtTag.HELLO:
+      return { tag: ExtTag.HELLO, ext: b[1] };
+    case ExtTag.ACK:
+      return { tag: ExtTag.ACK, cmd: b[1], status: b[2] };
+    case ExtTag.KEY:
+      return { tag: ExtTag.KEY, key: b.slice(1, 33), port: u16(33) };
+    case ExtTag.SCREEN:
+      return { tag: ExtTag.SCREEN, screen: { seq: b[1], first: (b[2] & 1) !== 0, last: (b[2] & 2) !== 0, bytes: b.slice(4, 4 + Math.min(60, b[3])) } };
+    case ExtTag.CLOCK:
+      return { tag: ExtTag.CLOCK, clock: { flags: b[1], valid: b[2] === 1, slot: b[3], offsetMin: (u16(4) << 16) >> 16, label: str(b, 6, 12), rule: str(b, 18, 46) } };
+    case ExtTag.NET:
+      return {
+        tag: ExtTag.NET,
+        net: { state: b[1], rssi: (b[2] << 24) >> 24, ip: b[3] | b[4] | b[5] | b[6] ? `${b[3]}.${b[4]}.${b[5]}.${b[6]}` : "", timeSet: b[7] === 1, on: b[8] === 1, ssid: str(b, 9, 32), host: str(b, 41, 23) },
+      };
+    case ExtTag.PREFS:
+      return {
+        tag: ExtTag.PREFS,
+        prefs: { src: b[1], fx: b[2], hue: u16(3), sat: b[5], speed: b[6], level: u16(7), lightsDirty: b[9] === 1, idleText: str(b, 16, 16) },
+      };
     default:
       return { tag: b[0] };
   }
