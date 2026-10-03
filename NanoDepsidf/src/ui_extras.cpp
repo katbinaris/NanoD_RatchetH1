@@ -259,22 +259,40 @@ static void glyph(int g, float cx, float cy, uint32_t c) {
     }
 }
 
+// Where each cover style (user_prefs.h cover_style_t) puts the title, the artist, and the middle
+// of the volume number / key glyph.
+struct NpLayout {
+    int title_y, artist_y, overlay_y;
+};
+static const NpLayout NP_LAYOUT[4] = {
+    {174, 194, CY}, // FLAT: on the cover's darkened lower part
+    {180, 199, CY - 4}, // RECORD: over the grooves, under the label; the number on the label, over the spindle
+    {162, 182, CY}, // SLIDE: under the sleeve
+    {188, 206, CY}, // BLEED: under the sleeve
+};
+
 void draw_now_playing(const NowPlayingInputs &in) {
     if (!in.has_cover && in.icon48) image565(CX - 48, 46, 48, 48, in.icon48, 1.0f, 2); // stands in for the cover
+    const NpLayout &lay = NP_LAYOUT[in.style >= 0 && in.style < 4 ? in.style : 0];
 
-    // Title and artist on the darkened lower part of the cover.
     const char *title = in.title && in.title[0] ? in.title : "NOW PLAYING";
-    text(title, CX, 174, WHITE, fit_scale(title, 172, 2), CENTER);
-    if (in.artist && in.artist[0]) text(in.artist, CX, 194, 0xBDBDBD, 1, CENTER);
+    text(title, CX, lay.title_y, WHITE, fit_scale(title, 172, 2), CENTER);
+    if (in.artist && in.artist[0]) text(in.artist, CX, lay.artist_y, 0xBDBDBD, 1, CENTER);
 
-    if (!in.playing) { // paused: a small badge at the top
-        int w = text_width("PAUSED") + 22;
+    if (in.badge || !in.playing) { // a small badge at the top: the style just picked, or paused
+        const char *word = in.badge ? in.badge : "PAUSED";
+        int w = text_width(word) + (in.badge ? 12 : 22);
         cut((int)(CX - w / 2.0f), 22, w, 15, 0x000000);
-        frame_box((int)(CX - w / 2.0f), 22, w, 15, DARK);
-        rect(CX - w / 2.0f + 6, 26, 2, 7, WHITE);
-        rect(CX - w / 2.0f + 10, 26, 2, 7, WHITE);
-        text("PAUSED", CX - w / 2.0f + 16, 26, WHITE);
+        frame_box((int)(CX - w / 2.0f), 22, w, 15, in.badge ? AMBER : DARK);
+        if (in.badge) {
+            text(word, CX, 26, AMBER, 1, CENTER);
+        } else {
+            rect(CX - w / 2.0f + 6, 26, 2, 7, WHITE);
+            rect(CX - w / 2.0f + 10, 26, 2, 7, WHITE);
+            text(word, CX - w / 2.0f + 16, 26, WHITE);
+        }
     }
+    const float oy = lay.overlay_y;
 
     // Volume: a ring round the glass and the number in the middle, while the knob turns.
     if (in.volume_k > 0 && in.volume >= 0) {
@@ -290,14 +308,14 @@ void draw_now_playing(const NowPlayingInputs &in) {
             rect(CX + cosf(a) * r - 2.5f, CY + sinf(a) * r - 2.5f, 5, 5, scale_rgb(in.accent, in.volume_k));
         }
         if (fill > 0) disc(CX + cosf(a) * r, CY + sinf(a) * r, 3.5f, scale_rgb(WHITE, in.volume_k));
-        shade_disc(CX, CY - 8, 30, 0.85f * in.volume_k); // fades with the ring: no dark spot left behind
+        shade_disc(CX, oy - 8, 30, 0.85f * in.volume_k); // fades with the ring: no dark spot left behind
         char v[8];
         snprintf(v, sizeof(v), "%d", in.volume);
-        text("VOL", CX, CY - 27, scale_rgb(GREY, in.volume_k), 1, CENTER);
-        text(v, CX, CY - 15, scale_rgb(WHITE, in.volume_k), 3, CENTER);
+        text("VOL", CX, oy - 27, scale_rgb(GREY, in.volume_k), 1, CENTER);
+        text(v, CX, oy - 15, scale_rgb(WHITE, in.volume_k), 3, CENTER);
     } else if (in.glyph != NP_GLYPH_NONE && in.glyph_k > 0) { // a media key, just pressed
-        shade_disc(CX, CY - 8, 30, 0.85f * in.glyph_k);
-        glyph(in.glyph, CX, CY - 8, scale_rgb(WHITE, in.glyph_k));
+        shade_disc(CX, oy - 8, 30, 0.85f * in.glyph_k);
+        glyph(in.glyph, CX, oy - 8, scale_rgb(WHITE, in.glyph_k));
     }
 }
 

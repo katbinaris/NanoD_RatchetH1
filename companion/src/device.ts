@@ -187,6 +187,9 @@ export class Device {
   setIdleText(text: string) {
     return this.send(encode.idleText(text));
   }
+  setCoverStyle(style: number) {
+    return this.send(encode.coverStyle(style));
+  }
   // WiFi: a new network (`ssid` + `password`, "" = open), or on / off with the stored one.
   async setWifi(on: boolean, ssid?: string, password?: string) {
     if (ssid !== undefined) {

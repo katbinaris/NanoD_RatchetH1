@@ -506,6 +506,7 @@ and the companion shows a feature only from the version that has it:
 | 5 | `TIME` (from the Mac service), `CLOCK` (format and zones) |
 | 6 | `SCREEN` (the live screen: changed 16×16 tiles, RLE when shorter) and `INPUT` (keys and turns from the companion) |
 | 7 | `NET KEY`: the WiFi pairing key |
+| 8 | `MUSIC`: the now-playing cover style (`PREFS` reports it, and how many styles there are) |
 
 Work that touches NVS or decodes images runs in the usb task (`ext_link_poll`), not in
 TinyUSB's callback. Keys from `INPUT` are OR-ed into the real ones in the control loop and let
@@ -559,7 +560,24 @@ LovyanGFX: about 1 ms to draw and 12 ms to push. Frames are produced only when n
 - at about 30 fps while something loops (the idle screen, the loading screen);
 - back to back during short transitions (the iris wipe between views, list scrolls).
 
-Otherwise the task polls every 30 ms. The idle screen starts after 5 seconds without input;
+Otherwise the task polls every 30 ms.
+
+**MUSIC's record** (`ui_vinyl.cpp`, the RECORD, SLIDE and BLEED cover styles in
+`user_prefs.h`) is the one screen drawn per pixel instead of from rectangles. Its buffers take
+about 130 KB of PSRAM the first time a record style is shown, and its per-pixel tables about
+6 KB of internal RAM. Each layout's grooves, lit by a fixed light, are drawn once into a cache
+at 4 bits a pixel (an index into the 10 greys), and the label and sleeve are averaged from the
+cover once per cover. A frame expands the cache, redraws only the pixels the light can reach
+(the groove grain turns through them), places about 80 dust specks, and rotates the label
+nearest neighbour by stepping through it in fixed point along each row. PSRAM is quad SPI with
+a 32 KB cache, so it is read only in order. While the record moves, it is drawn every third
+10 ms tick (about 33 fps; a pace between tick multiples would alternate 30 and 40 ms frames),
+the volume ring and key glyphs included, and the companion's live screen gets 5 of those
+frames a second. Once the record has stopped, the screen is drawn only on a change. The console
+shows the frame rate and the draw and push times every 2 s while it moves. The
+motion is a function of the time since the last play or pause, like every other animation. A
+tap of F4 on the now-playing screen (no turn, released within 0.6 s, before the menu's long
+press) picks the next style; the usb task stores it (`user_prefs_poll`). The idle screen starts after 5 seconds without input;
 the first key press only wakes the screen and is not passed on.
 
 The same UI code compiles on the host: `tools/ui_preview/run.sh` renders every screen to a PNG
@@ -618,7 +636,7 @@ did the same things.
 | `coredump` | 64 KB | Crash dumps |
 
 The firmware image is about 1.29 MB (76% of a slot), most of the growth being WiFi. NVS also
-holds the namespaces `user_prefs` (idle word, LIGHTS), `clock` and `net` (WiFi network,
+holds the namespaces `user_prefs` (idle word, LIGHTS, cover style), `clock` and `net` (WiFi network,
 password and pairing key, in plain text: flash encryption is off).
 
 The slots grew from 1.25 MB, and the profile store moved and shrank from 1.4 MB, when WiFi

@@ -70,6 +70,7 @@ export class MockTransport implements Transport {
   private lights = { src: 0, fx: 0, hue: 200, sat: 80, speed: 5, level: 100 };
   private lightsSaved = { ...this.lights };
   private idleText = "";
+  private coverStyle = 2; // SLIDE
   // ext_proto.h: WiFi (EXT_CMD_NET, v4) and the CLOCK app (EXT_CMD_CLOCK, v5). The demo knob is
   // on a network already; the screen stream (v6) and the WiFi link (v7) it doesn't speak.
   private net = { state: 2, rssi: -52, ip: [192, 168, 1, 42], on: 1, ssid: "STUDIO", host: "quadra-7142" };
@@ -215,6 +216,10 @@ export class MockTransport implements Transport {
       case ExtCmd.PREFS:
         this.prefs(out);
         return reply();
+      case ExtCmd.MUSIC:
+        if (r[1] !== 0xff && r[1] < 4) this.coverStyle = r[1];
+        this.prefs(out);
+        return reply();
       case ExtCmd.TEXT:
         this.idleText = new TextDecoder().decode(r.subarray(2, 14)).replace(/\0.*$/s, "");
         out[0] = ExtTag.ACK;
@@ -341,6 +346,8 @@ export class MockTransport implements Transport {
     out[6] = l.speed;
     v.setUint16(7, l.level, true);
     out[9] = JSON.stringify(l) !== JSON.stringify(this.lightsSaved) ? 1 : 0;
+    out[10] = this.coverStyle;
+    out[11] = 4; // cover styles: the demo knob has them
     out.set(new TextEncoder().encode(this.idleText), 16);
   }
 

@@ -52,6 +52,10 @@ void cut(int x, int y, int w, int h, uint32_t c);       // rect with the 4 corne
 void frame_box(int x, int y, int w, int h, uint32_t c); // 1px outline, corners cut
 void disc(float cx, float cy, float r, uint32_t c);
 void shade_disc(float cx, float cy, float r, float k); // darken what's under a disc by k (0..1)
+// Per-pixel art that can't be made of rectangles (MUSIC's record, ui_vinyl.cpp): the frame as
+// RGB565 big-endian, or nullptr on the host preview -- then put565() draws one pixel at a time.
+uint16_t *frame565();
+void put565(int x, int y, uint16_t be);
 void sprite(const Sprite &s, float x, float y, uint32_t c, int scale = 1);
 // Full-color w x h image, RGB565 big-endian (the HID icon upload format), drawn 1:1; black
 // pixels are left alone. `brightness` < 1 dims it (still pixel-exact): full-colour icons

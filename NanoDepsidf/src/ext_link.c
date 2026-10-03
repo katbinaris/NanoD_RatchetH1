@@ -105,6 +105,8 @@ static void build_prefs(uint8_t *r) {
     r[6] = (uint8_t)l.speed;
     put_u16(r + 7, (uint16_t)l.level);
     r[9] = menu_lights_dirty();
+    r[10] = (uint8_t)cover_style_get();
+    r[11] = COVER_STYLE_COUNT;
     user_text_get((char *)r + 16, USER_TEXT_MAX + 1);
 }
 
@@ -195,6 +197,16 @@ bool ext_link_handle(host_link_t link, const uint8_t *in, uint8_t *r) {
             return false;
         }
         case EXT_CMD_PREFS:
+            build_prefs(r);
+            return true;
+        case EXT_CMD_MUSIC:
+            if (in[1] != 0xFF) {
+                if (in[1] >= COVER_STYLE_COUNT) {
+                    ack(r, in[0], EXT_ST_BAD_PARAM);
+                    return true;
+                }
+                cover_style_set(in[1]); // stored from ext_link_poll
+            }
             build_prefs(r);
             return true;
         case EXT_CMD_COVER:
@@ -399,7 +411,8 @@ void ext_link_poll(void) {
         memset(r, 0, sizeof(r));
         atomic_store(&s_key_pending, false);
     }
-    clock_poll(); // stores a changed format / zone
+    clock_poll();      // stores a changed format / zone
+    user_prefs_poll(); // and MUSIC's cover style
     uint16_t id;
     uint8_t decision;
     while (notify_take_event(&id, &decision)) {

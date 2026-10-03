@@ -1,9 +1,10 @@
-// LOOK: the idle word and LIGHTS -- the fork's extensions (ext_proto.h). The word is stored on
-// the knob as soon as it's set; LIGHTS are live while you change them and kept by SAVE (or F2
-// on the knob's LIGHTS screen), like the other settings.
+// LOOK: the idle word, LIGHTS, MUSIC's cover and the CLOCK app -- the fork's extensions
+// (ext_proto.h). The word and the cover are stored on the knob as soon as they're set; LIGHTS
+// are live while you change them and kept by SAVE (or F2 on the knob's LIGHTS screen), like the
+// other settings.
 
 import type { Device } from "../device";
-import { CLOCK_SLOTS, ClockFlag, EXT_CLOCK_VERSION, IDLE_TEXT_MAX, LIGHT_FX, LIGHT_FX_MOVING, LightSrc, type Lights } from "../proto";
+import { CLOCK_SLOTS, COVER_STYLES, ClockFlag, EXT_CLOCK_VERSION, IDLE_TEXT_MAX, LIGHT_FX, LIGHT_FX_MOVING, LightSrc, type Lights } from "../proto";
 import { CITIES } from "../tzdata";
 import { bits, text } from "./fields";
 import { cards, el, section, slider } from "./kit";
@@ -80,6 +81,16 @@ export function lookView(device: Device) {
   const level = slider({ label: "LEVEL", caption: "BRIGHTNESS", min: 10, max: 200, step: 10, format: (v) => `${v}%`, onInput: (v) => change({ level: v }) });
   fxSec.body.append(fx.root, speed.root, level.root);
 
+  // --- MUSIC's cover (extensions v8): stored on the knob at once ---
+  const COVER_SUB = ["THE COVER, FULL SCREEN", "THE GLASS IS THE RECORD", "A SLEEVE, THE RECORD SLIDES OUT", "A BIG SLEEVE SLIDES AWAY"];
+  const coverSec = section("MUSIC", "THE COVER, NOW PLAYING");
+  const cover = cards<number>(
+    COVER_STYLES.map((name, i) => ({ value: i, body: () => [el("span", { class: "big" }, name), el("span", { class: "sub" }, COVER_SUB[i])] })),
+    (v) => void device.setCoverStyle(v),
+    120,
+  );
+  coverSec.body.append(cover.root, el("p", { class: "hint" }, "ON THE KNOB: TAP F4 WHILE MUSIC PLAYS TO STEP THROUGH THEM."));
+
   // --- the CLOCK app (extensions v5): stored on the knob as you change it ---
   const clockSec = section("CLOCK", "THE CLOCK APP");
   const fmtBox = el("span");
@@ -106,7 +117,7 @@ export function lookView(device: Device) {
     el("p", { class: "hint" }, "IN THE CLOCK APP: TURN THE KNOB TO STEP THROUGH THE ZONES. F1 12/24 HOURS, F2 SECONDS, F3 DATE."),
   );
 
-  root.append(wordSec.root, colorSec.root, fxSec.root, clockSec.root);
+  root.append(wordSec.root, colorSec.root, fxSec.root, coverSec.root, clockSec.root);
 
   function updateClock() {
     clockSec.root.style.display = (device.ext ?? 0) >= EXT_CLOCK_VERSION ? "" : "none";
@@ -147,6 +158,8 @@ export function lookView(device: Device) {
     const l = want ?? p;
     const dirty = p.lightsDirty || want !== null;
     if (typed === null && document.activeElement !== input) input.value = p.idleText;
+    coverSec.root.style.display = p.coverStyles > 0 ? "" : "none";
+    cover.update(p.coverStyle, false);
     src.update(l.src, dirty);
     const custom = l.src === LightSrc.CUSTOM;
     hue.update(l.hue, dirty);

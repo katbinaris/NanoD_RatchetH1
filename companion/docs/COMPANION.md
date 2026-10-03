@@ -276,11 +276,12 @@ A profile holds up to 16 macros of up to 64 steps each. The knob types about 50 
 | **IDLE WORD** | The word on the loading and idle screens, up to 12 characters (lowercase draws as small capitals). Empty = **QUADRA**. Stored on the knob as soon as you press **SET** |
 | **COLOR** | The ring and the keys: **APP** (the profile's colours, or the cover's while music plays) or **CUSTOM** with your own **HUE** and **SAT** |
 | **EFFECT** | At rest: GRADIENT, SOLID, BREATHE, SPIN, RAINBOW or OFF; **SPEED** for the moving ones; **LEVEL** is the brightness |
+| **MUSIC** | How the MUSIC app shows the cover while something plays: **FLAT** (full screen), **RECORD** (the glass is a spinning record, the cover its label), **SLIDE** (a sleeve the record slides out of) or **BLEED** (a big sleeve that slides off the glass). Stored on the knob at once. On the knob, a tap of F4 on the now-playing screen steps through them (firmware with extensions v8 or later) |
 
 LIGHTS are live on the knob while you change them and kept by **SAVE**, like the other settings
 (or F2 on the knob's own LIGHTS screen). Changes made on the knob show up here within a second.
 
-<img src="app-look-clock.png" width="720" alt="LOOK → CLOCK: 24 HOUR, SECONDS and DATE on; LOCAL plus TOKYO and NEW YORK">
+<img src="app-look-clock.png" width="720" alt="LOOK → MUSIC with SLIDE chosen, and CLOCK: 24 HOUR, SECONDS and DATE on; LOCAL plus TOKYO and NEW YORK">
 
 **CLOCK** (the CLOCK app, firmware with extensions v5 or later): what it shows -- **24 HOUR**, **SECONDS**, **DATE**, and **LED
 SECONDS** (the ring sweeps the seconds) -- and up to four zones besides **LOCAL**, which is this

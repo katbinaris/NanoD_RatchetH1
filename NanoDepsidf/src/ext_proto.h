@@ -5,8 +5,8 @@
 // range (0x20-0x2F, replies and events 0xC0-0xCF) so upstream can grow 0x10-0x1F freely.
 // Host side: tools/quadra.py, tools/agents/.
 
-#define EXT_PROTO_VERSION 7 // 4: EXT_CMD_NET; 5: EXT_CMD_TIME / _CLOCK; 6: _SCREEN / _INPUT;
-                            // 7: the companion over WiFi (net_link.h), EXT_NET_KEY
+#define EXT_PROTO_VERSION 8 // 4: EXT_CMD_NET; 5: EXT_CMD_TIME / _CLOCK; 6: _SCREEN / _INPUT;
+                            // 7: the companion over WiFi (net_link.h), EXT_NET_KEY; 8: EXT_CMD_MUSIC
 
 // --- Host -> device ---
 enum {
@@ -53,6 +53,8 @@ enum {
                            //   KEYS: [2]=keys held (UI_BTN_*, F1 = 0x01 .. F4 = 0x08), for 600 ms
                            //     unless sent again (the companion repeats it while a key is down)
                            //   TURN: [2]=detents (int8, + = clockwise), as if the knob had turned
+    EXT_CMD_MUSIC = 0x2E,  // [1]=the cover style (user_prefs.h cover_style_t), 0xFF = keep. Stored.
+                           //   -> EXT_TAG_PREFS
 };
 enum { EXT_INPUT_KEYS = 1, EXT_INPUT_TURN = 2 };
 enum { EXT_CLOCK_FORMAT = 1, EXT_CLOCK_ZONE = 2, EXT_CLOCK_GET = 3 };
@@ -80,7 +82,8 @@ enum {
     EXT_TAG_HELLO = 0xC0,  // [1]=EXT_PROTO_VERSION
     EXT_TAG_ACK = 0xC1,    // [1]=command [2]=EXT_ST_*
     EXT_TAG_PREFS = 0xC2,  // [1]=src [2]=fx [3..4]=hue [5]=sat [6]=speed [7..8]=level
-                           // [9]=1: the lights differ from what's saved [16..31]=idle text
+                           // [9]=1: the lights differ from what's saved [10]=MUSIC's cover style
+                           // [11]=how many cover styles there are (v8; 0 before) [16..31]=idle text
     EXT_TAG_NOTIFY = 0xC3, // unsolicited: [1]=notify_decision_t [2..3]=id
     EXT_TAG_NET = 0xC4,    // [1]=net_state_t [2]=RSSI dBm (int8) [3..6]=IPv4 [7]=1: the clock is set
                            // (SNTP) [8]=1: on [9..40]=SSID [41..63]=host name (<host>.local)

@@ -19,6 +19,15 @@ uint32_t user_text_version(void);        // bumps on every change; any core
 void user_text_get(char *out, size_t n); // "" = the stock wordmark
 bool user_text_set(const char *s);       // live + NVS (a flash write: Core 1 only)
 
+// --- MUSIC's cover: how the now-playing screen shows it (ui_vinyl.hpp) ---
+// Cycled by a tap of F4 on the now-playing screen, or set from the host (EXT_CMD_MUSIC). The
+// display task changes it; the usb task stores it a moment later (user_prefs_poll).
+typedef enum { COVER_FLAT = 0, COVER_RECORD, COVER_SLIDE, COVER_BLEED, COVER_STYLE_COUNT } cover_style_t;
+int cover_style_get(void);       // any core
+void cover_style_set(int style); // clamped; any core
+const char *cover_style_name(int style);
+void user_prefs_poll(void); // Core 1 (usb task): stores a changed cover style
+
 // --- LIGHTS: the LED ring and key LEDs ---
 typedef enum { LIGHT_SRC_APP = 0, LIGHT_SRC_CUSTOM, LIGHT_SRC_COUNT } light_src_t;
 typedef enum {

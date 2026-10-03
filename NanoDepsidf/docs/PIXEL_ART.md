@@ -71,9 +71,13 @@ each is limited to its own screen:
 - **Agent requests:** the agent's colour (badge, rim, ring arcs); `ALLOW_GREEN` for the F1
   hold arc and the ALLOW label; `DENY_RED` for the DENY label; a near-black `PANEL` behind the
   command.
-- **MUSIC now playing:** the album cover, a 240×240 picture decoded on the device. It is drawn
-  full screen and darkened under the title, which is the only place the screen shows
-  something that isn't drawn from shapes. The volume ring takes the cover's colours.
+- **MUSIC now playing:** the album cover, a 240×240 picture decoded on the device. FLAT
+  draws it full screen and darkened under the title. The record styles (`src/ui_vinyl.cpp`)
+  average it down to a label and a sleeve, and draw the record per pixel in a **10-step grey
+  ramp** (`#000000` to `#FFFFFF`) with 4×4 ordered dither between steps. These are the only
+  places the screen shows something that isn't drawn from shapes, and the ramp is used
+  nowhere else. The label turns nearest neighbour, in whole pixels. The volume ring takes the
+  cover's colours.
 - **LIGHTS:** the colour swatch, and the rim that mirrors the LED ring, in the LEDs' own
   colours.
 

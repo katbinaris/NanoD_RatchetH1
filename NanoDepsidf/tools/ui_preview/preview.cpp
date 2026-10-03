@@ -11,6 +11,10 @@
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
 #include "ui_extras.hpp"
+#include "ui_vinyl.hpp"
+extern "C" {
+#include "user_prefs.h"
+}
 #include "icons/app_icons.h"
 extern "C" {
 #include "ui_state.h"
@@ -556,6 +560,33 @@ int main() {
         }
         ui::draw_now_playing({"NO COVER YET", "ARTIST", false, app_icon_music_48, 0xFF8C3C, true, -1, 0, 0, 0});
         keep("np: no cover");
+        // The cover on a record (ui_vinyl.hpp): each style playing, BLEED at rest, RECORD with the
+        // volume ring, and SLIDE just after F4 picked it.
+        static uint16_t plain[240 * 240], polar[ui::VINYL_POLAR_PX], label[ui::VINYL_LABEL_PX],
+            sleeve[ui::VINYL_SLEEVE_PX];
+        static uint8_t base[ui::VINYL_BASE_BYTES], tables[ui::VINYL_TABLES_BYTES];
+        FILE *fp = getenv("COVER_PLAIN_RAW") ? fopen(getenv("COVER_PLAIN_RAW"), "rb") : nullptr;
+        bool have_plain = fp && fread(plain, 1, sizeof(plain), fp) == sizeof(plain);
+        if (fp) fclose(fp);
+        if (have_plain) {
+            ui::vinyl_bind({polar, base, label, sleeve, tables});
+            struct VT { const char *name; int style; float theta, out; bool playing; int vol; float vk; const char *badge; };
+            const VT vts[] = {{"np: record", COVER_RECORD, 0.6f, 1, true, 42, 0, nullptr},
+                              {"np: record, volume", COVER_RECORD, 0.6f, 1, true, 42, 1, nullptr},
+                              {"np: slide", COVER_SLIDE, 0.6f, 1, true, 42, 0, nullptr},
+                              {"np: slide, picked", COVER_SLIDE, 0.6f, 1, true, 42, 0, "SLIDE"},
+                              {"np: bleed", COVER_BLEED, 0.6f, 1, true, 42, 0, nullptr},
+                              {"np: bleed, paused", COVER_BLEED, 0.6f, 0, false, 42, 0, nullptr}};
+            for (const VT &v : vts) {
+                ui::vinyl_prepare(v.style, plain);
+                ui::vinyl_draw(v.style, v.theta, v.out);
+                ui::NowPlayingInputs np = {"MIDNIGHT CITY", "M83", true, app_icon_music_48, 0xFF8C3C, v.playing, v.vol, v.vk, 0, 0};
+                np.style = v.style;
+                np.badge = v.badge;
+                ui::draw_now_playing(np);
+                keep(v.name);
+            }
+        }
         // CLOCK: a zone besides LOCAL, 24 h with seconds and the date; then LOCAL, 12 h, plain.
         ui::draw_clock({true, 14, 7, 42, 6, 3, 9, true, true, true, "TOKYO", 9 * 60, 2, 4, 0xFFB030});
         keep("clock: zone, 24h");

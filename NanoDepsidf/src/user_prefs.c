@@ -12,6 +12,7 @@ static const char *TAG = "user_prefs";
 #define NS "user_prefs"
 #define KEY_TEXT "idle_text"
 #define KEY_LIGHTS "lights"
+#define KEY_COVER "cover"
 #define LIGHTS_VERSION 1
 
 // --- idle text ---
@@ -27,6 +28,10 @@ typedef struct {
     uint32_t version;
     lights_t l;
 } lights_blob_t;
+
+// --- MUSIC's cover style ---
+static _Atomic int s_cover = COVER_FLAT;
+static _Atomic bool s_cover_dirty = false;
 
 static int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int32_t CONTROL_HOT wrapi(int32_t v, int32_t n) { v %= n; return v < 0 ? v + n : v; }
@@ -49,6 +54,8 @@ void user_prefs_init(void) {
     if (nvs_get_blob(h, KEY_LIGHTS, &b, &len) == ESP_OK && len == sizeof(b) && b.version == LIGHTS_VERSION) {
         lights_set(&b.l);
     }
+    uint8_t cover;
+    if (nvs_get_u8(h, KEY_COVER, &cover) == ESP_OK) atomic_store(&s_cover, clampi(cover, 0, COVER_STYLE_COUNT - 1));
     nvs_close(h);
 }
 
@@ -82,6 +89,31 @@ bool user_text_set(const char *s) {
     portEXIT_CRITICAL(&s_text_mux);
     atomic_fetch_add(&s_text_version, 1);
     return nvs_write(KEY_TEXT, clean, 0, true);
+}
+
+int cover_style_get(void) { return atomic_load(&s_cover); }
+
+void cover_style_set(int style) {
+    int v = clampi(style, 0, COVER_STYLE_COUNT - 1);
+    if (atomic_exchange(&s_cover, v) != v) atomic_store(&s_cover_dirty, true);
+}
+
+const char *cover_style_name(int style) {
+    static const char *const NAMES[COVER_STYLE_COUNT] = {"FLAT", "RECORD", "SLIDE", "BLEED"};
+    return style >= 0 && style < COVER_STYLE_COUNT ? NAMES[style] : "?";
+}
+
+void user_prefs_poll(void) {
+    if (!atomic_exchange(&s_cover_dirty, false)) return;
+    uint8_t v = (uint8_t)atomic_load(&s_cover);
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = nvs_set_u8(h, KEY_COVER, v);
+        if (err == ESP_OK) err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK) ESP_LOGE(TAG, "saving the cover style failed: %s", esp_err_to_name(err));
 }
 
 void lights_get(lights_t *out) {

@@ -36,9 +36,9 @@ struct NotifyInputs {
 };
 void draw_notify(const NotifyInputs &in);
 
-// MUSIC, something playing: drawn over the cover (already in the frame, its lower part
-// darkened for the text) -- title and artist, a volume ring while the knob turns, and a big
-// glyph for a moment after a media key.
+// MUSIC, something playing: drawn over the cover (already in the frame: flat with its lower
+// part darkened for the text, or on a record, ui_vinyl.hpp) -- title and artist, a volume ring
+// while the knob turns, and a big glyph for a moment after a media key.
 enum { NP_GLYPH_NONE = 0, NP_GLYPH_PLAY, NP_GLYPH_PAUSE, NP_GLYPH_PREV, NP_GLYPH_NEXT };
 struct NowPlayingInputs {
     const char *title;
@@ -51,6 +51,8 @@ struct NowPlayingInputs {
     float volume_k;     // 0..1: how visible the volume ring is (fades out after turning)
     int glyph;          // NP_GLYPH_*
     float glyph_k;      // 0..1, fading
+    int style = 0;               // cover_style_t: where the title and the overlays go
+    const char *badge = nullptr; // a word at the top for a moment (the style F4 just picked)
 };
 void draw_now_playing(const NowPlayingInputs &in);
 

@@ -52,7 +52,7 @@ export const Tag = {
 
 // Extensions -- a mirror of NanoDepsidf/src/ext_proto.h (commands 0x20-0x2F, tags 0xC0-0xCF).
 // Firmware without them answers Tag.ERROR, and the app leaves out what needs them.
-export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29, CLOCK: 0x2b, SCREEN: 0x2c, INPUT: 0x2d } as const;
+export const ExtCmd = { HELLO: 0x20, TEXT: 0x22, LIGHTS: 0x23, PREFS: 0x24, NET: 0x29, CLOCK: 0x2b, SCREEN: 0x2c, INPUT: 0x2d, MUSIC: 0x2e } as const;
 export const ExtTag = { HELLO: 0xc0, ACK: 0xc1, PREFS: 0xc2, NET: 0xc4, CLOCK: 0xc5, SCREEN: 0xc6, KEY: 0xc7 } as const;
 export const EXT_SCREEN_VERSION = 6; // the live screen (EXT_CMD_SCREEN) and the knob from here (EXT_CMD_INPUT)
 export const InputOp = { KEYS: 1, TURN: 2 } as const;
@@ -73,6 +73,8 @@ export const IDLE_TEXT_MAX = 12; // USER_TEXT_MAX: printable ASCII; "" = QUADRA
 export const LightSrc = { APP: 0, CUSTOM: 1 } as const;
 export const LIGHT_FX = ["GRADIENT", "SOLID", "BREATHE", "SPIN", "RAINBOW", "OFF"] as const; // LIGHT_FX_*, in order
 export const LIGHT_FX_MOVING = new globalThis.Set([2, 3, 4]); // the ones SPEED changes
+// MUSIC's cover on the now-playing screen (user_prefs.h cover_style_t, EXT_CMD_MUSIC, v8), in order.
+export const COVER_STYLES = ["FLAT", "RECORD", "SLIDE", "BLEED"] as const;
 
 export interface Lights {
   src: number;
@@ -85,6 +87,8 @@ export interface Lights {
 export interface Prefs extends Lights {
   lightsDirty: boolean; // differ from what's saved
   idleText: string;
+  coverStyle: number; // COVER_STYLES
+  coverStyles: number; // how many the knob has (0: firmware before extensions v8)
 }
 // One report of the screen stream (screen_stream.h): a slice of the frame numbered `seq`.
 export interface ScreenChunk {
@@ -408,6 +412,12 @@ export const encode = {
     return r;
   },
   extPrefs: () => report(ExtCmd.PREFS),
+  // MUSIC's cover style (COVER_STYLES index): stored on the knob at once.
+  coverStyle: (style: number) => {
+    const r = report(ExtCmd.MUSIC);
+    r[1] = style;
+    return r;
+  },
   // The idle word: stored on the knob at once (no SAVE).
   idleText: (text: string) => {
     const r = report(ExtCmd.TEXT);
@@ -591,7 +601,7 @@ export function decode(b: Uint8Array): Message {
     case ExtTag.PREFS:
       return {
         tag: ExtTag.PREFS,
-        prefs: { src: b[1], fx: b[2], hue: u16(3), sat: b[5], speed: b[6], level: u16(7), lightsDirty: b[9] === 1, idleText: str(b, 16, 16) },
+        prefs: { src: b[1], fx: b[2], hue: u16(3), sat: b[5], speed: b[6], level: u16(7), lightsDirty: b[9] === 1, coverStyle: b[10], coverStyles: b[11], idleText: str(b, 16, 16) },
       };
     default:
       return { tag: b[0] };

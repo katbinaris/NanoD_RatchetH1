@@ -6,6 +6,7 @@
 #include "ui_fx.hpp"
 #include "ui_screens.hpp"
 #include "ui_extras.hpp"
+#include "ui_vinyl.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -161,8 +162,9 @@ static inline bool is_settings_view(View v) {
 }
 
 // --- MUSIC: the now-playing cover (media.h) ---
-// Decoded once per cover into a PSRAM sprite, its lower part darkened under the title, then
-// copied into the frame each time the screen is drawn.
+// Decoded once per cover into a PSRAM sprite. FLAT copies it into the frame and darkens its
+// lower part under the title; the record layouts (ui_vinyl.hpp, user_prefs.h cover_style_t)
+// make their label and sleeve from it.
 static LGFX_Sprite s_cover;
 static uint8_t *s_jpeg = nullptr;
 static uint32_t s_cover_seen = 0;
@@ -185,13 +187,14 @@ static void cover_tick(void) {
         return;
     }
     s_cover.fillScreen(TFT_BLACK);
+    int64_t t0 = esp_timer_get_time();
     s_cover_ok = s_cover.drawJpg(s_jpeg, n, 0, 0);
-    if (!s_cover_ok) {
-        ESP_LOGW(TAG, "cover: JPEG decode failed (%u bytes)", (unsigned)n);
-        return;
-    }
-    // Darken the lower part for the title: a smooth ramp from y 148 to 188, then 24%.
-    uint16_t *px = (uint16_t *)s_cover.getBuffer(); // RGB565, byte-swapped (big-endian)
+    if (!s_cover_ok) ESP_LOGW(TAG, "cover: JPEG decode failed (%u bytes)", (unsigned)n);
+    else ESP_LOGI(TAG, "cover: decoded in %d ms", (int)((esp_timer_get_time() - t0) / 1000));
+}
+
+// FLAT: the frame's lower part darkened for the title -- a smooth ramp from y 148 to 188, then 24%.
+static void darken_band(uint16_t *px) {
     for (int y = 148; y < LCD_HEIGHT; y++) {
         float t = y >= 188 ? 1.0f : (y - 148) / 40.0f;
         float k = 1.0f - 0.76f * t * t * (3 - 2 * t);
@@ -205,6 +208,141 @@ static void cover_tick(void) {
     }
 }
 
+// The record layouts' buffers (~130KB of PSRAM), taken the first time one is shown.
+static bool s_vinyl_mem = false;
+static int s_vinyl_style = -1;    // what the record was last made for: the style ...
+static uint32_t s_vinyl_cover = 0; // ... and the cover
+
+static bool vinyl_alloc(void) {
+    if (s_vinyl_mem) return true;
+    ui::VinylMem m;
+    m.polar = (uint16_t *)heap_caps_malloc(ui::VINYL_POLAR_PX * 2, MALLOC_CAP_SPIRAM);
+    m.base = (uint8_t *)heap_caps_malloc(ui::VINYL_BASE_BYTES, MALLOC_CAP_SPIRAM);
+    m.label = (uint16_t *)heap_caps_malloc(ui::VINYL_LABEL_PX * 2, MALLOC_CAP_SPIRAM);
+    m.sleeve = (uint16_t *)heap_caps_malloc(ui::VINYL_SLEEVE_PX * 2, MALLOC_CAP_SPIRAM);
+    m.tables = heap_caps_malloc(ui::VINYL_TABLES_BYTES, MALLOC_CAP_SPIRAM);
+    if (!m.polar || !m.base || !m.label || !m.sleeve || !m.tables) {
+        ESP_LOGW(TAG, "cover: no PSRAM for the record, staying flat");
+        heap_caps_free(m.polar);
+        heap_caps_free(m.base);
+        heap_caps_free(m.label);
+        heap_caps_free(m.sleeve);
+        heap_caps_free(m.tables);
+        return false;
+    }
+    ui::vinyl_bind(m);
+    s_vinyl_mem = true;
+    return true;
+}
+
+// True when the cover can be shown in `style` as a record (made from the current cover now if
+// either changed); false: show it flat.
+static bool vinyl_ready(int style) {
+    if (style == COVER_FLAT || !s_cover_ok || !vinyl_alloc()) return false;
+    if (style != s_vinyl_style || s_cover_seen != s_vinyl_cover) {
+        int64_t t0 = esp_timer_get_time();
+        ui::vinyl_prepare(style, (const uint16_t *)s_cover.getBuffer());
+        ESP_LOGI(TAG, "cover: %s made in %d ms", cover_style_name(style), (int)((esp_timer_get_time() - t0) / 1000));
+        s_vinyl_style = style;
+        s_vinyl_cover = s_cover_seen;
+    }
+    return true;
+}
+
+// The record's motion, a function of the time since the last play / pause (or style change)
+// so it looks the same at any frame rate. RECORD spins up and coasts down; SLIDE and BLEED
+// slide the record out (a little overshoot), then spin; on pause they stop, then slide it back.
+#define SPIN_PERIOD_US 1800000 // 33 1/3 rpm
+#define SPIN_SETTLE_US 1100000 // every transition is over by then
+// While the record moves, every 3rd tick (~33fps): the task wakes on the 10ms tick, so a target
+// between tick multiples would alternate 30 and 40ms frames -- visible judder. The overlays on
+// top (volume ring, key glyph, badge) keep the same pace.
+#define VINYL_FRAME_US 25000
+#define VINYL_STREAM_US 200000 // the companion's live screen meanwhile: 5fps is plenty, and each
+                               // streamed frame costs the display task a pass over PSRAM
+enum SpinMode { SPIN_STEADY, SPIN_UP, SPIN_DOWN };
+static struct {
+    int64_t t0_us;
+    float a0, out0;
+    bool playing;
+    SpinMode mode;
+} s_spin = {0, 0, 0, false, SPIN_STEADY};
+
+static float ease_in_out3(float k) {
+    k = k < 0 ? 0 : k > 1 ? 1 : k;
+    return k < 0.5f ? 4 * k * k * k : 1 - (-2 * k + 2) * (-2 * k + 2) * (-2 * k + 2) / 2;
+}
+
+static float ease_out_back(float k) {
+    k = k < 0 ? 0 : k > 1 ? 1 : k;
+    const float c1 = 1.4f, c3 = c1 + 1;
+    return 1 + c3 * (k - 1) * (k - 1) * (k - 1) + c1 * (k - 1) * (k - 1);
+}
+
+static float spin_angle(int style, int64_t now) {
+    const float w = 2 * (float)M_PI / (SPIN_PERIOD_US / 1e6f), tau = (now - s_spin.t0_us) / 1e6f;
+    const float up = style == COVER_RECORD ? 0.7f : 0.6f, delay = style == COVER_RECORD ? 0.0f : 0.3f,
+                down = style == COVER_RECORD ? 1.0f : 0.6f;
+    switch (s_spin.mode) {
+        case SPIN_UP: {
+            float u = tau - delay;
+            return s_spin.a0 + (u <= 0 ? 0 : u < up ? w * u * u / (2 * up) : w * (up / 2 + (u - up)));
+        }
+        case SPIN_DOWN: {
+            float u = tau < down ? tau : down;
+            return s_spin.a0 + w * (u - u * u / (2 * down));
+        }
+        default: // whole turns dropped in integers, so hours of play keep their precision
+            if (!s_spin.playing) return s_spin.a0;
+            return s_spin.a0 + 2 * (float)M_PI * ((now - s_spin.t0_us) % SPIN_PERIOD_US) / SPIN_PERIOD_US;
+    }
+}
+
+static float spin_out(int64_t now) {
+    float tau = (now - s_spin.t0_us) / 1e6f;
+    switch (s_spin.mode) {
+        case SPIN_UP: return s_spin.out0 + (1 - s_spin.out0) * ease_out_back(tau / 0.55f);
+        case SPIN_DOWN: return s_spin.out0 * (1 - ease_in_out3((tau - 0.5f) / 0.5f));
+        default: return s_spin.playing ? 1.0f : 0.0f;
+    }
+}
+
+static bool spin_moving(int64_t now) {
+    return s_spin.playing || (s_spin.mode != SPIN_STEADY && now - s_spin.t0_us < SPIN_SETTLE_US);
+}
+
+// From here on: playing or not, animated (play / pause) or straight there (a new style, MUSIC
+// coming up).
+// The record's frame times, on the console every 2 s while it moves: frames a second, and the
+// average / longest draw, push and whole tick (the tick includes the screen stream's copy).
+static void vinyl_stats(int64_t now, int draw_us, int push_us, int tick_us) {
+    static int64_t s_start = 0;
+    static int n = 0, draw_sum = 0, draw_max = 0, push_sum = 0, push_max = 0, tick_max = 0;
+    if (now - s_start > 3000000) { // a new run
+        s_start = now;
+        n = draw_sum = draw_max = push_sum = push_max = tick_max = 0;
+    }
+    n++;
+    draw_sum += draw_us;
+    push_sum += push_us;
+    draw_max = draw_us > draw_max ? draw_us : draw_max;
+    push_max = push_us > push_max ? push_us : push_max;
+    tick_max = tick_us > tick_max ? tick_us : tick_max;
+    if (now - s_start >= 2000000) {
+        float secs = (now - s_start) / 1e6f;
+        ESP_LOGI(TAG, "record: %.1f fps, draw %.1f / %.1f ms, push %.1f / %.1f ms, tick max %.1f ms", n / secs,
+                 draw_sum / 1000.0f / n, draw_max / 1000.0f, push_sum / 1000.0f / n, push_max / 1000.0f, tick_max / 1000.0f);
+        s_start = now;
+        n = draw_sum = draw_max = push_sum = push_max = tick_max = 0;
+    }
+}
+
+static void spin_set(int style, int64_t now, bool playing, bool animate) {
+    float a = fmodf(spin_angle(style, now), 2 * (float)M_PI), o = spin_out(now);
+    s_spin = {now, a, animate ? o : (playing ? 1.0f : 0.0f), playing,
+              animate ? (playing ? SPIN_UP : SPIN_DOWN) : SPIN_STEADY};
+}
+
 static bool profile_is(const char *id) {
     return menu_get_hid_type() == MENU_HID_APP && strcmp(app_profiles_get(menu_get_app_profile())->id, id) == 0;
 }
@@ -212,6 +350,11 @@ static bool profile_is(const char *id) {
 // Overlays on the now-playing screen: the volume ring while the knob turns it (media_volume(),
 // shared with the LEDs), a glyph after a key.
 #define NP_GLYPH_MS 700
+#define NP_BADGE_MS 1200 // the style's name after a tap of F4
+#define F4_TAP_US 600000 // shorter than the menu's long press (app_mode.c)
+static int64_t s_np_badge_us = -(1LL << 40);
+static int64_t s_f4_down_us = -1;
+static int32_t s_f4_turns = 0;
 static int64_t s_np_key_us = -(1LL << 40);
 static int s_np_glyph = ui::NP_GLYPH_NONE;
 static int s_np_volume = -1;
@@ -708,11 +851,21 @@ static void draw_view(View v, const menu_render_snapshot_t &snap, int64_t now) {
             // MUSIC with something playing: the cover takes the whole screen.
             media_track_t trk;
             if (profile_is("music") && media_get_track(&trk)) {
-                if (s_cover_ok) s_cover.pushSprite(&s_frame, 0, 0);
+                int style = cover_style_get();
+                bool vinyl = vinyl_ready(style);
+                if (vinyl) {
+                    ui::vinyl_draw(style, spin_angle(style, now), spin_out(now));
+                } else if (s_cover_ok) {
+                    s_cover.pushSprite(&s_frame, 0, 0);
+                    darken_band((uint16_t *)s_frame.getBuffer());
+                }
                 float gk = 1.0f - (now - s_np_key_us) / (NP_GLYPH_MS * 1000.0f);
-                ui::draw_now_playing({trk.title, trk.artist, s_cover_ok, app_profiles_get(menu_get_app_profile())->icon48,
-                                      trk.palette[0] ? trk.palette[0] : ui::AMBER, trk.playing, s_np_volume,
-                                      s_np_volume_k, s_np_glyph, gk > 0 ? gk : 0.0f});
+                ui::NowPlayingInputs np = {trk.title, trk.artist, s_cover_ok, app_profiles_get(menu_get_app_profile())->icon48,
+                                           trk.palette[0] ? trk.palette[0] : ui::AMBER, trk.playing, s_np_volume,
+                                           s_np_volume_k, s_np_glyph, gk > 0 ? gk : 0.0f};
+                np.style = vinyl ? style : COVER_FLAT;
+                if (now - s_np_badge_us < NP_BADGE_MS * 1000LL) np.badge = cover_style_name(style);
+                ui::draw_now_playing(np);
                 break;
             }
             ui::AppView av = app ? app_view(app_mode_live_slot(), now) : ui::AppView{};
@@ -923,13 +1076,36 @@ static Pace update_ui(void) {
     bool music_playing = music_on && trk.playing;
     s_np_volume = media_volume(now, &s_np_volume_k);
     if (music_on && !snap.open) {
-        uint8_t pressed = buttons & ~s_last_buttons;
+        uint8_t pressed = buttons & ~s_last_buttons, released = s_last_buttons & ~buttons;
         if (pressed & (UI_BTN_F1 | UI_BTN_F2 | UI_BTN_F3)) {
             s_np_key_us = now;
             s_np_glyph = (pressed & UI_BTN_F1) ? (trk.playing ? ui::NP_GLYPH_PAUSE : ui::NP_GLYPH_PLAY)
                        : (pressed & UI_BTN_F2) ? ui::NP_GLYPH_PREV : ui::NP_GLYPH_NEXT;
         }
+        // A tap of F4 (no turn, let go before the menu's long press): the next cover style.
+        if (pressed & UI_BTN_F4) {
+            s_f4_down_us = now;
+            s_f4_turns = ui_state_get_turns();
+        }
+        if ((released & UI_BTN_F4) && s_f4_down_us >= 0 && now - s_f4_down_us < F4_TAP_US
+            && ui_state_get_turns() == s_f4_turns) {
+            cover_style_set((cover_style_get() + 1) % COVER_STYLE_COUNT); // stored by the usb task
+            s_np_badge_us = now;
+        }
+        if (released & UI_BTN_F4) s_f4_down_us = -1;
+    } else {
+        s_f4_down_us = -1;
     }
+    // The record: spinning up on play, down on pause; straight to rest on a new style.
+    static bool s_np_was_on = false;
+    static int s_style_seen = -1;
+    const int cover_style = cover_style_get();
+    bool style_changed = cover_style != s_style_seen;
+    s_style_seen = cover_style;
+    if (music_on && (!s_np_was_on || style_changed)) spin_set(cover_style, now, trk.playing, false);
+    else if (music_on && trk.playing != s_spin.playing) spin_set(cover_style, now, trk.playing, true);
+    s_np_was_on = music_on;
+    bool vinyl_live = music_on && cover_style != COVER_FLAT && s_cover_ok && spin_moving(now);
     // CLOCK: the knob steps through the zones, F1-F3 switch the format; a frame each second.
     bool clock_on = profile_is("clock");
     bool clock_changed = false;
@@ -960,7 +1136,8 @@ static Pace update_ui(void) {
         }
     }
     bool np_ring = music_on && s_np_volume_k > 0;
-    bool np_overlay = np_ring || (music_on && now - s_np_key_us < NP_GLYPH_MS * 1000LL);
+    bool np_overlay = np_ring || (music_on && now - s_np_key_us < NP_GLYPH_MS * 1000LL)
+                   || (music_on && now - s_np_badge_us < NP_BADGE_MS * 1000LL);
     static bool s_np_overlay_was = false;
     bool np_overlay_ended = s_np_overlay_was && !np_overlay; // one more frame, or its last faint one stays up
     s_np_overlay_was = np_overlay;
@@ -1062,7 +1239,15 @@ static Pace update_ui(void) {
     s_last_sysmon = sys.version;
     bool redraw = first || snapshot_changed || buttons_changed || icon_changed || app_slot_changed || wheel_changed
                || rotation_changed || (sys_changed && s_view == V_SYSINFO) || text_changed || notice_changed
-               || media_changed || board_changed || np_overlay_ended || clock_changed;
+               || media_changed || board_changed || np_overlay_ended || clock_changed || (music_on && style_changed);
+    // The spinning record: on its own pace, not every tick (now playing polls every tick, PACE_TICK).
+    static int64_t s_vinyl_frame_us = 0;
+    static bool s_vinyl_was_live = false;
+    bool vinyl_paced = s_view == V_MAIN && (vinyl_live || s_vinyl_was_live);
+    if (vinyl_paced && now - s_vinyl_frame_us >= VINYL_FRAME_US) {
+        s_vinyl_was_live = vinyl_live; // one more frame once it stops, at rest
+        redraw = true;
+    }
     if (target != s_view) {
         s_iris_from = s_view;
         s_iris_from_snap = s_last_snap;
@@ -1088,7 +1273,7 @@ static Pace update_ui(void) {
              || (s_view == V_MAIN && now - s_wheel_slide_us < WHEEL_SLIDE_MS * 1000LL);
     bool looping = s_booting || s_view == V_ATTRACT || s_view == V_NOTIFY // the notification breathes
                 || s_view == V_LIGHTS // the rim mirrors the animated LED ring
-                || (s_view == V_MAIN && (np_overlay || board_live)) // volume ring / key glyph, board dots
+                || (s_view == V_MAIN && ((np_overlay && !vinyl_paced) || board_live)) // volume ring / key glyph, board dots
                 || (s_view == V_MAIN && (wheel_live || param_live)) // card animations, value dial
                 || (s_view == V_HAPTIC
                     && (snap.selected == MENU_HAPTIC_ROW_FEEL || snap.selected == MENU_HAPTIC_ROW_SHAPE
@@ -1099,6 +1284,7 @@ static Pace update_ui(void) {
     redraw = redraw || fast || looping || blink_edge || toast_on != s_drawn_toast;
 
     if (redraw) {
+        int64_t t_draw = esp_timer_get_time();
         s_frame.fillScreen(ui::BLACK);
         if (s_iris_active) {
             bool closing = iris_p < 0.5f;
@@ -1107,10 +1293,20 @@ static Pace update_ui(void) {
         } else {
             draw_view(s_view, snap, now);
         }
+        int64_t t_push = esp_timer_get_time();
         s_frame.pushSprite(0, 0);
-        screen_stream_frame((const uint16_t *)s_frame.getBuffer(), true); // the companion's copy
+        int64_t t_done = esp_timer_get_time();
+        static int64_t s_stream_us = 0;
+        if (!vinyl_paced || now - s_stream_us >= VINYL_STREAM_US) {
+            screen_stream_frame((const uint16_t *)s_frame.getBuffer(), true); // the companion's copy
+            s_stream_us = now;
+        }
         s_drawn_blink = blink_on;
         s_drawn_toast = toast_on;
+        if (vinyl_paced) {
+            s_vinyl_frame_us = now; // any frame restarts the pace: no two close together
+            vinyl_stats(now, (int)(t_push - t_draw), (int)(t_done - t_push), (int)(t_done - now));
+        }
     }
 
     screen_stream_frame((const uint16_t *)s_frame.getBuffer(), false); // one that couldn't go yet

@@ -365,6 +365,11 @@ the Plasticity / Onshape pair.
   <img src="NanoDepsidf/docs/images/music-playing.png" width="200" alt="MUSIC now playing: the album cover full screen, title and artist">
   <img src="NanoDepsidf/docs/images/music-volume.png" width="200" alt="MUSIC: turning the knob, a volume ring and the number 42 over the cover">
 </p>
+<p>
+  <img src="NanoDepsidf/docs/images/music-record.png" width="200" alt="MUSIC, RECORD: the glass is a spinning record, the cover its label, light on the grooves">
+  <img src="NanoDepsidf/docs/images/music-slide.png" width="200" alt="MUSIC, SLIDE: the cover as a sleeve, a record sliding out of its side">
+  <img src="NanoDepsidf/docs/images/music-bleed.png" width="200" alt="MUSIC, BLEED: a big sleeve slid half off the glass, a large record beside it">
+</p>
 
 The knob is the computer's volume, and the keys are the player's. Everything is sent as media
 keys, which the system handles itself: no app needs focus, and nothing has to be installed.
@@ -375,16 +380,25 @@ keys, which the system handles itself: no app needs focus, and nothing has to be
 | F1 | Play / pause |
 | F2 | Previous track |
 | F3 | Next track |
-| F4 | Long press: menu |
+| F4 | Tap: the next cover style (while something plays). Long press: menu |
 
 With **BINDINGS** on PC the knob sends plain volume keys.
 
 **Now playing** needs the optional [Mac service](#the-mac-service). It reads what the Mac is
 playing (any player that shows in Control Center: Music, Spotify, a browser tab, Kaset) and
 sends it to the knob:
-- **Cover:** shown full screen, darkened under the title and artist. A track with no
-  artwork gets the iTunes Store's cover if the title and artist match, otherwise a generated
-  placeholder.
+- **Cover:** shown in one of four styles. A tap of F4 steps through them, and the LOOK tab
+  in the companion sets them too; the choice is kept.
+  - **FLAT:** full screen, darkened under the title and artist.
+  - **RECORD:** the glass is the record and the cover is its label.
+  - **SLIDE:** the cover is a sleeve, and on play the record slides out of its side.
+  - **BLEED:** paused, the cover is big and centred; on play it slides off the glass and a
+    large record comes out.
+
+  On the three record styles the record spins up on play and coasts to a stop on pause. Its
+  grooves catch a light that stays put, and the grain and dust that turn through it make
+  the spin visible. A track with no artwork gets the iTunes Store's cover if the title and
+  artist match, otherwise a generated placeholder.
 - **Volume ring:** while you turn, a ring and the number show the volume, on the screen and on
   the LED ring at once. The ring moves on the click, before the Mac answers.
 - **Player glyph and colours:** a key press shows a play, pause or skip glyph, and **PAUSED**
@@ -944,7 +958,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── media.c                MUSIC's now playing: cover, track, volume
 │   ├── clock.c, tzrule.c      CLOCK: zones and their daylight-saving rules
 │   ├── screen_stream.c        the live screen for the companion (changed tiles only)
-│   ├── user_prefs.c           the idle word and LIGHTS
+│   ├── user_prefs.c           the idle word, LIGHTS and MUSIC's cover style
 │   ├── sysmon.c               SYS INFO: load, loop timing, heat, estimated power
 │   ├── i2s_task.c, audio_trigger.c          click synthesis
 │   ├── menu.c, config_store.c               settings menu + NVS persistence
@@ -954,6 +968,7 @@ NanoDepsidf/                   the firmware (PlatformIO project)
 │   ├── ui_gfx.cpp             pixel primitives, font, sprites
 │   ├── ui_screens.cpp         every screen's layout
 │   ├── ui_extras.cpp          LIGHTS, agent requests, now playing, CLOCK, the dashboard
+│   ├── ui_vinyl.cpp           MUSIC's cover on a spinning record
 │   ├── ui_cards.cpp           command cards, wheel, parameter dials (scene renderer)
 │   ├── ui_shape.cpp           the CAD profiles' isometric micro-interaction
 │   └── ui_fx.cpp              boot animation, idle screen (arcade attract mode)

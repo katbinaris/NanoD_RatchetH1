@@ -106,6 +106,16 @@ void disc(float cx, float cy, float r, uint32_t c) {
     }
 }
 
+uint16_t *frame565() {
+    return (uint16_t *)s_g->getBuffer();
+}
+
+void put565(int x, int y, uint16_t be) {
+    uint16_t v = (uint16_t)(be << 8 | be >> 8);
+    uint32_t r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+    s_g->fillRect(x, y, 1, 1, (r * 255 / 31) << 16 | (g * 255 / 63) << 8 | (b * 255 / 31));
+}
+
 void shade_disc(float cx, float cy, float r, float k) {
     uint16_t *px = (uint16_t *)s_g->getBuffer(); // RGB565, byte-swapped
     if (k <= 0 || px == nullptr) return;

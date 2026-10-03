@@ -12,7 +12,7 @@ mkdir -p "$BUILD/fonts" "$(dirname "$OUT")"
 # Copy (not include-path) the sources: a quoted #include resolves next to the including file
 # first, which would pick up the real lgfx_config.hpp from src/ instead of the stub.
 cp "$SRC"/ui_gfx.cpp "$SRC"/ui_gfx.hpp "$SRC"/ui_screens.cpp "$SRC"/ui_screens.hpp "$SRC"/ui_extras.cpp "$SRC"/ui_extras.hpp \
-   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/ui_shape.cpp "$SRC"/ui_shape.hpp "$SRC"/menu.h "$SRC"/pd_status.h "$SRC"/sysmon.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
+   "$SRC"/ui_fx.cpp "$SRC"/ui_fx.hpp "$SRC"/ui_vinyl.cpp "$SRC"/ui_vinyl.hpp "$SRC"/user_prefs.h "$SRC"/ui_shape.cpp "$SRC"/ui_shape.hpp "$SRC"/menu.h "$SRC"/pd_status.h "$SRC"/sysmon.h "$SRC"/ui_state.h "$SRC"/haptic_params.h \
    "$SRC"/audio_trigger.h "$SRC"/boot_mode.h "$BUILD/"
 cp "$SRC"/fonts/*.cpp "$SRC"/fonts/*.h "$BUILD/fonts/"
 mkdir -p "$BUILD/icons"
@@ -52,6 +52,13 @@ d.ellipse((60, 50, 180, 170), fill=(255, 190, 70))
 for i, y in enumerate(range(118, 170, 9)):
     d.rectangle((0, y, 239, y + 2 + i), fill=(int(40 + 200 * y / 239), int(20 + 70 * y / 239), int(90 - 40 * y / 239)))
 d.polygon([(0, 240), (0, 160), (70, 128), (140, 168), (200, 140), (240, 158), (240, 240)], fill=(30, 16, 50))
+plain = bytearray()
+for y in range(240):
+    for x in range(240):
+        r, g, b = im.getpixel((x, y))
+        v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
+        plain += bytes((v >> 8, v & 255))
+open(sys.argv[2], 'wb').write(plain) # as decoded, for the record layouts
 out = bytearray()
 for y in range(240):
     t = 0 if y < 148 else 1 if y >= 188 else (y - 148) / 40
@@ -60,12 +67,12 @@ for y in range(240):
         r, g, b = im.getpixel((x, y))
         v = (int((r >> 3) * k) << 11) | (int((g >> 2) * k) << 5) | int((b >> 3) * k)
         out += bytes((v >> 8, v & 255))
-open(sys.argv[1], 'wb').write(out)" "$BUILD/cover.raw"
+open(sys.argv[1], 'wb').write(out)" "$BUILD/cover.raw" "$BUILD/cover_plain.raw"
 
 c++ -std=c++17 -O2 -I"$BUILD" -o "$BUILD/preview" "$HERE/preview.cpp" \
-    "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_extras.cpp "$BUILD"/ui_fx.cpp "$BUILD"/ui_shape.cpp "$BUILD"/ui_cards.cpp "$BUILD"/fonts/*.cpp "$BUILD/figma.o" "$BUILD/plasticity.o" "$BUILD/onshape.o" "$BUILD/agents.o" "$BUILD/app_colors.o" \
+    "$BUILD"/ui_gfx.cpp "$BUILD"/ui_screens.cpp "$BUILD"/ui_extras.cpp "$BUILD"/ui_fx.cpp "$BUILD"/ui_vinyl.cpp "$BUILD"/ui_shape.cpp "$BUILD"/ui_cards.cpp "$BUILD"/fonts/*.cpp "$BUILD/figma.o" "$BUILD/plasticity.o" "$BUILD/onshape.o" "$BUILD/agents.o" "$BUILD/app_colors.o" \
     -x c++ "$BUILD"/icons/*.c
-ICON_RAW="$BUILD/icon.raw" COVER_RAW="$BUILD/cover.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
+ICON_RAW="$BUILD/icon.raw" COVER_RAW="$BUILD/cover.raw" COVER_PLAIN_RAW="$BUILD/cover_plain.raw" "$BUILD/preview" > "$BUILD/preview.ppm"
 "$HERE/../.venv/bin/python" -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" \
     "$BUILD/preview.ppm" "$OUT"
 echo "wrote $OUT"
