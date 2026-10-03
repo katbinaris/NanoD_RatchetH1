@@ -149,6 +149,9 @@ void app_main(void) {
     // Core 0: control loop, kept exclusive per DEVELOPMENT_PLAN.md
     control_task_start();
 
+    // Before USB and WiFi take their share of internal RAM: a PSRAM frame halves the frame rate.
+    display_frame_reserve();
+
     // Core 1: everything DMA-offloaded/tolerant
     if (!usb_serial_mode) {
         net_start(); // before the usb task: a NET setup arriving over USB finds it running

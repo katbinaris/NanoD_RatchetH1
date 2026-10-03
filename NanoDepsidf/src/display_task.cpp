@@ -108,17 +108,27 @@ static void backlight_set_percent(uint32_t percent) {
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LCD_LEDC_CHANNEL);
 }
 
-// Internal DMA-capable RAM first (fastest push path); PSRAM only as a fallback.
+// Internal DMA-capable RAM first (fastest push path); PSRAM only as a fallback. A PSRAM frame
+// draws and pushes far slower (every animation runs at roughly half speed), so
+// display_frame_reserve() claims it from app_main before USB and WiFi start: it needs one
+// contiguous 115 KB block, and WiFi's libraries alone left ~50 KB less internal heap.
 static bool frame_init(void) {
+    if (s_frame.getBuffer() != nullptr) return true;
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     s_frame.setColorDepth(16);
     s_frame.setPsram(false);
     if (s_frame.createSprite(LCD_WIDTH, LCD_HEIGHT) != nullptr) {
-        ESP_LOGI(TAG, "frame sprite in internal RAM");
+        ESP_LOGI(TAG, "frame sprite in internal RAM (largest free block was %u)", (unsigned)largest);
         return true;
     }
-    ESP_LOGW(TAG, "frame sprite: internal RAM allocation failed, trying PSRAM");
+    ESP_LOGW(TAG, "frame sprite: internal RAM allocation failed (largest free block %u), trying PSRAM -- "
+                  "animations will be slow", (unsigned)largest);
     s_frame.setPsram(true);
     return s_frame.createSprite(LCD_WIDTH, LCD_HEIGHT) != nullptr;
+}
+
+void display_frame_reserve(void) {
+    frame_init(); // a failure is reported again (and handled) by display_task_fn
 }
 
 // --- view state ---
