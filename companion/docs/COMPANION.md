@@ -94,13 +94,14 @@ change here applies everywhere that profile is used.
 | **SMOOTH** | None: a smooth drag |
 
 **FEEL** is how a step pushes back in the chosen profile. Each feel keeps its own tuning, so
-switching feel shows that feel's values. SMOOTH offers VISCOSE only.
+switching feel shows that feel's values. WIDE, COARSE, MEDIUM and FINE offer SAW and SINE;
+SMOOTH is always VISCOSE.
 
 | Feel | What it's like |
 |---|---|
 | **SAW** | A crisp snap into each step |
 | **SINE** | A round bump |
-| **VISCOSE** | A smooth drag, with no steps |
+| **VISCOSE** | A smooth drag, with no steps (SMOOTH only) |
 
 **TUNE** has five sliders for the chosen profile and feel. Drag one, scroll over it, or use
 the arrow keys. The knob only accepts values inside a safe range for that profile and feel,

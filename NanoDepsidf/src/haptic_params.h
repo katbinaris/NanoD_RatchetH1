@@ -62,8 +62,10 @@ typedef enum {
 // instability; values are kept per feel, so switching FEEL shows that feel's own (saved or
 // factory) values. menu.c holds the live copies and NVS the saved ones.
 //
-// The factory values and limits below are PLACEHOLDERS (the old global defaults and ranges)
-// until they are tuned on hardware.
+// Factory values: the user's, tuned on hardware (2026-10-02), for each profile's factory
+// feel. A stepped profile's other feel starts from the same numbers until it is tuned too.
+// The LIMITS are still the old global ranges (HAPTIC_LIM_TODO) -- to be narrowed per profile
+// and feel.
 typedef enum {
     HAPTIC_PROFILE_WIDE = 0,
     HAPTIC_PROFILE_COARSE,
@@ -98,30 +100,34 @@ typedef struct {
     haptic_limits_t lim[HAPTIC_TYPE_COUNT]; // safe range, per feel
 } haptic_profile_t;
 
-#define HAPTIC_FEELS_ALL ((1u << HAPTIC_TYPE_SAW) | (1u << HAPTIC_TYPE_SINE) | (1u << HAPTIC_TYPE_VISCOSE))
-// VISCOSE everywhere: no SNAP, clicks off by default and never louder than 20%, pitch 1-2x.
-#define HAPTIC_TUNE_VISCOSE {0.0f, 0.05f, 0, 0, 1.0f}
+// WIDE..FINE offer SAW and SINE; VISCOSE belongs to SMOOTH alone.
+#define HAPTIC_FEELS_STEPPED ((1u << HAPTIC_TYPE_SAW) | (1u << HAPTIC_TYPE_SINE))
+#define HAPTIC_FEELS_SMOOTH (1u << HAPTIC_TYPE_VISCOSE)
+// VISCOSE: no SNAP, clicks never louder than 20%, pitch 1-2x.
 #define HAPTIC_LIM_VISCOSE {0.0f, 0.0f, HAPTIC_KD_MIN, HAPTIC_KD_MAX, 20, 1.0f, 2.0f}
-// Placeholders for the stepped feels.
-#define HAPTIC_TUNE_TODO {HAPTIC_KP_DEFAULT, HAPTIC_KD_DEFAULT, HAPTIC_SHAPE_DEFAULT, 100, 1.0f}
+// Placeholder limits for the stepped feels.
 #define HAPTIC_LIM_TODO {HAPTIC_KP_MIN, HAPTIC_KP_MAX, HAPTIC_KD_MIN, HAPTIC_KD_MAX, 100, 0.5f, 2.0f}
+// A feel a profile doesn't offer: never used, present so the tables stay indexed by feel.
+#define HAPTIC_TUNE_NONE {0.0f, 0.0f, 0, 0, 1.0f}
 
 __attribute__((unused)) static const haptic_profile_t HAPTIC_PROFILES[HAPTIC_PROFILE_COUNT] = {
-    //            detents  feels             factory feel       tune: SAW, SINE, VISCOSE
-    {"WIDE", 8, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
-     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+    // name, detents, feels, factory feel,
+    //   tune {SNAP, DAMP, SHAPE %, AMP %, PITCH}: SAW, SINE, VISCOSE
+    //   limits: SAW, SINE, VISCOSE
+    {"WIDE", 8, HAPTIC_FEELS_STEPPED, HAPTIC_TYPE_SAW,
+     {{6.00f, 0.005f, 25, 100, 0.85f}, {6.00f, 0.005f, 0, 100, 0.85f}, HAPTIC_TUNE_NONE},
      {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
-    {"COARSE", 12, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
-     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+    {"COARSE", 12, HAPTIC_FEELS_STEPPED, HAPTIC_TYPE_SINE,
+     {{2.00f, 0.035f, 0, 100, 0.90f}, {2.00f, 0.035f, 0, 100, 0.90f}, HAPTIC_TUNE_NONE},
      {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
-    {"MEDIUM", 24, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
-     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+    {"MEDIUM", 24, HAPTIC_FEELS_STEPPED, HAPTIC_TYPE_SAW,
+     {{4.00f, 0.115f, 55, 90, 1.20f}, {4.00f, 0.115f, 0, 90, 1.20f}, HAPTIC_TUNE_NONE},
      {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
-    {"FINE", 36, HAPTIC_FEELS_ALL, HAPTIC_TYPE_SAW,
-     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+    {"FINE", 36, HAPTIC_FEELS_STEPPED, HAPTIC_TYPE_SAW,
+     {{1.50f, 0.150f, 80, 70, 1.95f}, {1.50f, 0.150f, 0, 70, 1.95f}, HAPTIC_TUNE_NONE},
      {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
-    {"SMOOTH", 24, 1u << HAPTIC_TYPE_VISCOSE, HAPTIC_TYPE_VISCOSE,
-     {HAPTIC_TUNE_TODO, HAPTIC_TUNE_TODO, HAPTIC_TUNE_VISCOSE},
+    {"SMOOTH", 24, HAPTIC_FEELS_SMOOTH, HAPTIC_TYPE_VISCOSE,
+     {HAPTIC_TUNE_NONE, HAPTIC_TUNE_NONE, {0.0f, 0.150f, 0, 15, 1.85f}},
      {HAPTIC_LIM_TODO, HAPTIC_LIM_TODO, HAPTIC_LIM_VISCOSE}},
 };
 

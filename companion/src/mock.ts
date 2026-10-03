@@ -70,11 +70,18 @@ export class MockTransport implements Transport {
   // feel, with the firmware's placeholder factory values and limits.
   private hp = MockTransport.hpFactory();
   private hpSaved = structuredClone(this.hp);
-  private static hpTune(feel: number) {
-    return feel === 2 ? { kp: 0, kd: 0.05, shape: 0, amp: 0, pitch: 1 } : { kp: 6, kd: 0.01, shape: 0, amp: 100, pitch: 1 };
-  }
+  // haptic_params.h HAPTIC_PROFILES: factory feel and {kp, kd, shape, amp, pitch} in it.
+  private static readonly HP_FACTORY = [
+    { feel: 0, t: [6, 0.005, 25, 100, 0.85] },
+    { feel: 1, t: [2, 0.035, 0, 100, 0.9] },
+    { feel: 0, t: [4, 0.115, 55, 90, 1.2] },
+    { feel: 0, t: [1.5, 0.15, 80, 70, 1.95] },
+    { feel: 2, t: [0, 0.15, 0, 15, 1.85] },
+  ];
   private static hpProfile(p: number) {
-    return { feel: p === 4 ? 2 : 0, tune: [0, 1, 2].map((f) => MockTransport.hpTune(f)) };
+    const { feel, t } = MockTransport.HP_FACTORY[p];
+    // The other feel of a stepped profile starts from the same numbers (SHAPE is SAW's).
+    return { feel, tune: [0, 1, 2].map((f) => ({ kp: t[0], kd: t[1], shape: f === 0 ? t[2] : 0, amp: t[3], pitch: t[4] })) };
   }
   private static hpFactory() {
     return { edit: 1, mode: [1, 1, 1, 1], profiles: [0, 1, 2, 3, 4].map((p) => MockTransport.hpProfile(p)) };
@@ -83,7 +90,7 @@ export class MockTransport implements Transport {
     return feel === 2 ? { kpMin: 0, kpMax: 0, kdMin: 0, kdMax: 0.15, ampMax: 20, pitchMin: 1, pitchMax: 2 } : { kpMin: 0, kpMax: 20, kdMin: 0, kdMax: 0.15, ampMax: 100, pitchMin: 0.5, pitchMax: 2 };
   }
   private static hpFeels(p: number) {
-    return p === 4 ? 0b100 : 0b111;
+    return p === 4 ? 0b100 : 0b011;
   }
   private timer = 0;
   private t0 = performance.now();
