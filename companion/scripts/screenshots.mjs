@@ -7,6 +7,7 @@
 
 import { chromium, webkit } from "playwright";
 import { fileURLToPath } from "node:url";
+import { writeFileSync } from "node:fs";
 
 const BASE = process.argv[2] ?? "http://localhost:1420";
 const OUT = fileURLToPath(new URL("../docs/", import.meta.url));
@@ -34,6 +35,7 @@ await pg.waitForTimeout(6000); // every profile and its icon
 await document_fonts();
 
 await shot("app-mode");
+await windowMap();
 await click(".card", "Mouse");
 await pg.waitForTimeout(600);
 await shot("app-mode-mouse");
@@ -114,6 +116,46 @@ await cr.close();
 if (errors.length) {
   console.error("Page errors:\n" + errors.join("\n"));
   process.exit(1);
+}
+
+// docs/fig-window.svg: the Mode page at 1x with numbered callouts and a legend, so the map is
+// always the real window.
+async function windowMap() {
+  const png = (await pg.screenshot({ scale: "css" })).toString("base64");
+  const dot = (n, x, y) =>
+    `<circle cx="${x}" cy="${y}" r="15" fill="#ffc94d" stroke="#0b0c0d" stroke-width="3"/><text x="${x}" y="${y + 6}" fill="#15120a" text-anchor="middle" font-size="17" font-weight="700">${n}</text>`;
+  const legend = [
+    ["1  Your knob", "What its screen shows now,", "and how it's connected"],
+    ["2  Pages", "Knob, app profiles, setup.", "Green ring: the profile in use"],
+    ["3  Where you are"],
+    ["4  One save", "Settings, lights and profiles.", "An amber label lists what", "isn't saved yet"],
+    ["5  The page", "Some have tabs. Amber marks", "the choice; an amber dot, a", "change not saved yet"],
+  ];
+  let y = 70;
+  const text = legend
+    .map(([head, ...rest]) => {
+      let s = `<text x="1330" y="${y}" fill="#ececec" font-size="20" font-weight="600">${head}</text>`;
+      for (const line of rest) s += `<text x="1330" y="${(y += 26)}" fill="#9a9ca3" font-size="17">${line}</text>`;
+      y += 58;
+      return s;
+    })
+    .join("\n  ");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1640" height="840" viewBox="0 0 1640 840" font-family="Geist, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>Map of the companion window</title>
+  <desc>The Mode page with five callouts: the knob, the pages, where you are, one save, and the page.</desc>
+  <rect width="1640" height="840" rx="16" fill="#0b0c0d"/>
+  <image x="20" y="20" width="1280" height="800" href="data:image/png;base64,${png}"/>
+  <rect x="20.5" y="20.5" width="1279" height="799" rx="8" fill="none" stroke="#2a2c30"/>
+  ${dot(1, 205, 45)}
+  ${dot(2, 120, 310)}
+  ${dot(3, 425, 45)}
+  ${dot(4, 1228, 84)}
+  ${dot(5, 1265, 260)}
+  ${text}
+</svg>
+`;
+  writeFileSync(`${OUT}fig-window.svg`, svg);
+  console.log("docs/fig-window.svg");
 }
 
 async function document_fonts() {

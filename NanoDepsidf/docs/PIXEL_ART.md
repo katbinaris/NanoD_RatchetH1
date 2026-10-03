@@ -249,7 +249,8 @@ sizes. The pixel rules above apply only where it shows **the knob itself**.
   changes.
 - **Illustrations** in the companion's docs (`companion/docs/fig-*.svg`) are hand-written SVG
   in the companion's style: its colours on `#0b0c0d`, Geist (with system fallbacks), sentence
-  case.
+  case. The window map (`fig-window.svg`) is the exception: `screenshots.mjs` makes it from the
+  Mode page with numbered callouts, so it is always the real window.
 - After any UI change, re-render the screenshots it affects in the same change.
 
 ## 12. Checklist
