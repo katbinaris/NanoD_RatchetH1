@@ -203,9 +203,6 @@ To build it yourself, see [companion/README.md](companion/README.md).
 
 ## Known limitations
 
-- **Contributed features not yet confirmed on our own hardware:** MUSIC's now playing,
-  AGENTS, CLOCK, WiFi and the companion over WiFi, LIGHTS and the idle word, the Mac service,
-  and `quadra.py flash`. They were tested on the contributor's knob.
 - **macOS first.** Shortcuts are written for macOS; on Windows set DEVICE → BINDINGS to PC.
   They assume a US keyboard layout. The companion app and the Mac service are macOS only; on
   Windows, use the companion in Chrome or Edge.

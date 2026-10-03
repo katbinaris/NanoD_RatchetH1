@@ -1000,9 +1000,8 @@ companion/                     the desktop app (Tauri + TypeScript; see companio
   worst of a 100 µs budget, 5 µs of jitter, no missed ticks and no spikes.
 - The desktop companion for macOS: the live device view, settings, haptic profiles, SYS
   INFO, profile editing and upload, and macros stored on the device.
-
-**Contributed and tested on the contributor's hardware, not yet confirmed on ours:**
-- MUSIC with now playing, AGENTS with requests and the dashboard, CLOCK.
+- MUSIC with now playing and its cover styles (FLAT, RECORD, SLIDE, BLEED), AGENTS with
+  requests and the dashboard, CLOCK.
 - WiFi and the companion over WiFi.
 - LIGHTS, the idle word, and the companion's LOOK tab and remote.
 - The Mac service, and flashing with `quadra.py flash`.
