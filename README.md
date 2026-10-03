@@ -1,5 +1,23 @@
 # Quadra
 
+[![Firmware 2.0.0](https://img.shields.io/badge/firmware-2.0.0-f5a623)](RELEASE_NOTES.md#firmware-200)
+[![Companion 0.1.0](https://img.shields.io/badge/companion-0.1.0-f5a623)](RELEASE_NOTES.md#companion-010)
+[![Release notes](https://img.shields.io/badge/release%20notes-2.0.0-555555)](RELEASE_NOTES.md)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
+<br>
+[![C](https://img.shields.io/badge/C-A8B9CC?logo=c&logoColor=white)](NanoDepsidf/src)
+[![C++](https://img.shields.io/badge/C%2B%2B-00599C?logo=cplusplus&logoColor=white)](NanoDepsidf/src)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](companion/src)
+[![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)](companion/src-tauri)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](NanoDepsidf/tools)
+<br>
+[![ESP32-S3](https://img.shields.io/badge/ESP32--S3-E7352C?logo=espressif&logoColor=white)](#hardware)
+[![ESP-IDF 6.1](https://img.shields.io/badge/ESP--IDF-6.1-E7352C?logo=espressif&logoColor=white)](#building-and-flashing)
+[![PlatformIO](https://img.shields.io/badge/PlatformIO-espressif32%207.1.3-F6822B?logo=platformio&logoColor=white)](#building-and-flashing)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](#desktop-companion)
+[![macOS](https://img.shields.io/badge/companion-macOS-000000?logo=apple&logoColor=white)](#desktop-companion)
+[![WebHID](https://img.shields.io/badge/web-Chrome%20%7C%20Edge%20(WebHID)-4285F4?logo=googlechrome&logoColor=white)](#desktop-companion)
+
 **A haptic knob for creative software, by Kafi Devices.**
 
 Quadra is a desktop controller built around one motorised knob, four keys and a round
@@ -53,6 +71,7 @@ shows, at 2× scale.
 - [Repository layout](#repository-layout)
 - [Status and roadmap](#status-and-roadmap)
 - [Credits](#credits)
+- [License](#license)
 
 ---
 
@@ -1013,3 +1032,21 @@ Quadra's firmware and companion are by Kafi Devices.
 - **The companion:** the LOOK tab, WiFi, the MEDIA input, and the live screen as a remote.
 - **Tools and fixes:** `quadra.py`, buttonless flashing, moving the timer work off Core 0 so
   WiFi costs the control loop no ticks, and the LED ring's rotation fix.
+
+---
+
+## License
+
+Quadra's firmware, companion and tools are licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md).
+
+- **Allowed:** personal use, study, research, hobby projects, and use by charities, schools,
+  public research and government bodies. You can change the code and share it, as long as
+  the license and its `Required Notice` line go with it.
+- **Not allowed without permission:** any commercial use, such as selling the firmware,
+  devices or software built from it, or using it in a product or paid service. For a
+  commercial license, contact Kafi Devices.
+
+The pixel fonts in `NanoDepsidf/src/fonts/` are generated from Silkscreen and keep its own
+license, the SIL Open Font License. Libraries downloaded at build time (ESP-IDF, TinyUSB,
+LovyanGFX, Tauri and others) keep their own licenses.
